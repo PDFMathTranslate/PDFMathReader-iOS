@@ -89,6 +89,11 @@ struct SettingsView: View {
           }
           Toggle("Show translations", isOn: $draft.showTranslations)
           Toggle("Translate the full document", isOn: $draft.translateFullDocument)
+          NavigationLink {
+            GlossaryEditorView(libraries: $draft.glossaries)
+          } label: {
+            Label("Terminology glossary", systemImage: "text.book.closed")
+          }
 
           if draft.translationService == .openAICompatible {
             Section {
@@ -141,6 +146,8 @@ struct SettingsView: View {
             Text("Fast and Precise use the remote kernel for visible pages and fall back to Ultra fast when it is unavailable.")
           }
         }
+
+        ReadingAidsSettingsSection(preferences: $draft)
       }
       .navigationTitle("Settings")
       .navigationBarTitleDisplayMode(.inline)

@@ -1,5 +1,6 @@
 import Foundation
 import PDFKit
+import Compression
 
 #if os(iOS)
 import UIKit
@@ -16,6 +17,11 @@ public enum ReaderAnnotationPDF {
   /// coordinates used by the shared annotation JSON model.
   public static func viewportRect(for pdfRect: CGRect, on page: PDFPage) -> ReaderAnnotationRect {
     viewportRect(pdfRect, geometry: PageGeometry(page: page))
+  }
+
+  /// Converts a quick-link box's top-left page coordinates into PDF page space.
+  public static func pdfPoint(for box: ReaderQuickLinkBox, on page: PDFPage) -> CGPoint {
+    pdfPoint(CGPoint(x: CGFloat(box.x), y: CGFloat(box.y)), geometry: PageGeometry(page: page))
   }
 
   public static func viewportRects(
@@ -520,7 +526,101 @@ public enum ReaderAnnotationPDF {
       result[PDFObjectReference(object: object, generation: generation)] = Array(bytes[bodyStart..<bodyEnd])
       index = min(bytes.count, bodyEnd + 6)
     }
+    let objectStreams = result.values.compactMap { objectStreamObjects(in: $0) }
+    for stream in objectStreams {
+      for (reference, body) in stream {
+        result[reference] = body
+      }
+    }
     return result
+  }
+
+  private static func objectStreamObjects(in body: [UInt8]) -> [(PDFObjectReference, [UInt8])] {
+    guard let streamMarker = body.firstRange(of: Array("stream".utf8), startingAt: 0) else {
+      return []
+    }
+    let dictionary = Array(body[..<streamMarker])
+    guard name(after: "/Type", in: dictionary) == "/ObjStm",
+      let count = integer(after: "/N", in: dictionary),
+      let first = integer(after: "/First", in: dictionary),
+      count >= 0,
+      first >= 0
+    else { return [] }
+
+    var streamStart = streamMarker + 6
+    if body[safe: streamStart] == 13 {
+      streamStart += 1
+      if body[safe: streamStart] == 10 { streamStart += 1 }
+    } else if body[safe: streamStart] == 10 {
+      streamStart += 1
+    }
+    let streamEnd = integer(after: "/Length", in: dictionary).map {
+      min(body.count, streamStart + $0)
+    } ?? body.firstRange(of: Array("endstream".utf8), startingAt: streamStart) ?? body.count
+    guard streamStart <= streamEnd else { return [] }
+    let encoded = Array(body[streamStart..<streamEnd])
+    let decoded: [UInt8]
+    if dictionary.firstRange(of: Array("/FlateDecode".utf8), startingAt: 0) != nil {
+      guard let inflated = flateDecode(encoded) else { return [] }
+      decoded = inflated
+    } else {
+      decoded = encoded
+    }
+    guard first <= decoded.count else { return [] }
+
+    var headers: [(PDFObjectReference, Int)] = []
+    var cursor = 0
+    for _ in 0..<count {
+      skipWhitespace(decoded, index: &cursor)
+      guard let object = parseInteger(decoded, from: &cursor) else { return [] }
+      skipWhitespace(decoded, index: &cursor)
+      guard let offset = parseInteger(decoded, from: &cursor), offset >= 0 else { return [] }
+      headers.append((PDFObjectReference(object: object, generation: 0), offset))
+    }
+
+    return headers.enumerated().compactMap { index, entry in
+      let start = first + entry.1
+      let end = first + (index + 1 < headers.count ? headers[index + 1].1 : decoded.count - first)
+      guard start >= first, start <= end, end <= decoded.count else { return nil }
+      return (entry.0, Array(decoded[start..<end]))
+    }
+  }
+
+  private static func flateDecode(_ bytes: [UInt8]) -> [UInt8]? {
+    guard !bytes.isEmpty else { return [] }
+    // Compression's zlib decoder expects raw DEFLATE, while PDF FlateDecode
+    // streams commonly include the two-byte zlib header and Adler-32 trailer.
+    let isZlibWrapped = bytes.count >= 6 &&
+      ((Int(bytes[0]) << 8 | Int(bytes[1])) % 31 == 0) &&
+      (bytes[0] & 0x0f) == 8
+    let candidates: [[UInt8]] = isZlibWrapped
+      ? [Array(bytes.dropFirst(2).dropLast(4)), bytes]
+      : [bytes]
+    var capacity = max(bytes.count * 4, 1_024)
+    for candidate in candidates {
+      for _ in 0..<8 {
+        var output = [UInt8](repeating: 0, count: capacity)
+        let outputCapacity = capacity
+        let count = output.withUnsafeMutableBytes { destination in
+          candidate.withUnsafeBytes { source in
+            guard let destinationBase = destination.bindMemory(to: UInt8.self).baseAddress,
+              let sourceBase = source.bindMemory(to: UInt8.self).baseAddress
+            else { return 0 }
+            return compression_decode_buffer(
+              destinationBase,
+              outputCapacity,
+              sourceBase,
+              candidate.count,
+              nil,
+              COMPRESSION_ZLIB
+            )
+          }
+        }
+        if count > 0 && count < capacity { return Array(output.prefix(count)) }
+        capacity *= 4
+      }
+    }
+    return nil
   }
 
   private static func collectPageReferences(
@@ -646,6 +746,13 @@ public enum ReaderAnnotationPDF {
       index += 1
     }
     return value
+  }
+
+  private static func integer(after key: String, in body: [UInt8]) -> Int? {
+    guard let location = body.firstRange(of: Array(key.utf8), startingAt: 0) else { return nil }
+    var index = location + key.utf8.count
+    skipWhitespace(body, index: &index)
+    return parseInteger(body, from: &index)
   }
 
   private static func skipWhitespace(_ bytes: [UInt8], index: inout Int) {

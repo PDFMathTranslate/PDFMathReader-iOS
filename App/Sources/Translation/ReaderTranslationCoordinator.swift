@@ -4,6 +4,22 @@ import PDFKit
 import ReaderCore
 import UIKit
 
+struct ReaderTranslationExportSnapshot: Sendable {
+  let pageCount: Int
+  let paragraphsByPage: [[ExportParagraphBlock]]
+  let replacementPDFDataByPage: [Data?]
+  let statesByPage: [PageTranslationState?]
+
+  var translatedPageCount: Int {
+    paragraphsByPage.enumerated().reduce(into: 0) { count, value in
+      let (index, blocks) = value
+      if !blocks.isEmpty || replacementPDFDataByPage[index] != nil {
+        count += 1
+      }
+    }
+  }
+}
+
 @MainActor
 final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayProviding {
   private let document: PDFDocument
@@ -20,9 +36,11 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   private var remoteTasks: [Int: Task<Void, Never>] = [:]
   private var overlays: [Int: ReaderTranslationPageOverlay] = [:]
   private var latestStates: [Int: PageTranslationState] = [:]
+  private var remotePageDataByPage: [Int: Data] = [:]
 
   @Published private(set) var showTranslations: Bool
   @Published private(set) var configurationMessage: String?
+  @Published private(set) var translationRevision = 0
 
   init(document: PDFDocument, documentID: String, preferences: ReaderPreferences) {
     self.document = document
@@ -63,6 +81,117 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     }
   }
 
+  var translationDocumentID: String { documentID }
+
+  var translationPageCount: Int { document.pageCount }
+
+  /// Identifies the settings that affect a document-wide translation cache.
+  /// Credentials and UI-only preferences are deliberately excluded.
+  var translationConfigurationID: String {
+    let values = [
+      preferences.engine.rawValue,
+      preferences.translationService.rawValue,
+      preferences.sourceLanguage,
+      preferences.targetLanguage,
+      preferences.openAIBaseURL,
+      preferences.openAIModel,
+      preferences.remoteKernelURL,
+      (try? JSONEncoder().encode(preferences.glossaries).base64EncodedString()) ?? ""
+    ]
+    return sha256Hex(Data(values.joined(separator: "\n").utf8))
+  }
+
+  var readyTranslationPageIndices: Set<Int> {
+    let ready = latestStates.compactMap { pageIndex, state in
+      state.status == .ready ? pageIndex : nil
+    }
+    return Set(ready)
+  }
+
+  /// Schedules the remaining pages in full-document mode once the pipeline is ready.
+  func scheduleFullDocumentTranslation(excluding pageIndices: Set<Int>) async -> Set<Int>? {
+    guard !documentData.isEmpty, document.pageCount > 0 else { return nil }
+    let validExcluded = Set(pageIndices.filter { (0..<document.pageCount).contains($0) })
+    for _ in 0..<300 {
+      guard !Task.isCancelled else { return nil }
+      if let pipeline {
+        var settings = makePipelineSettings()
+        settings.translationMode = .full
+        if !showTranslations {
+          showTranslations = true
+          overlays.values.forEach { overlay in
+            if let state = currentState(for: overlay.pageIndex) {
+              overlay.update(state: state, showTranslations: true)
+            }
+          }
+        }
+        await pipeline.schedule(
+          settings: settings,
+          excludedPageIndices: validExcluded
+        )
+        return Set((0..<document.pageCount).filter { !validExcluded.contains($0) })
+      }
+      try? await Task.sleep(nanoseconds: 100_000_000)
+    }
+    return nil
+  }
+
+  func translationStream(for pageIndex: Int) async -> AsyncStream<PageTranslationState>? {
+    guard (0..<document.pageCount).contains(pageIndex), let pipeline else { return nil }
+    var settings = makePipelineSettings()
+    settings.translationMode = .full
+    return await pipeline.stream(
+      pageIndex: pageIndex,
+      settings: settings,
+      automaticallySchedule: false
+    )
+  }
+
+  func cancelAllTranslations() async {
+    pageTasks.values.forEach { $0.cancel() }
+    remoteTasks.values.forEach { $0.cancel() }
+    pageTasks.removeAll()
+    remoteTasks.removeAll()
+    await pipeline?.cancel()
+  }
+
+  func exportSnapshot() -> ReaderTranslationExportSnapshot {
+    var paragraphsByPage = [[ExportParagraphBlock]](repeating: [], count: document.pageCount)
+    var statesByPage = [PageTranslationState?](repeating: nil, count: document.pageCount)
+    for (pageIndex, state) in latestStates {
+      guard pageIndex >= 0, pageIndex < document.pageCount else { continue }
+      statesByPage[pageIndex] = state
+      paragraphsByPage[pageIndex] = state.paragraphs.compactMap { value in
+        guard let translation = value.translation?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !translation.isEmpty
+        else { return nil }
+        return ExportParagraphBlock(
+          x: value.paragraph.x,
+          y: value.paragraph.y,
+          width: value.paragraph.width,
+          height: value.paragraph.height,
+          translation: translation,
+          fontSize: value.paragraph.fontSize,
+          bold: value.paragraph.bold,
+          textAlign: value.paragraph.textAlign
+        )
+      }
+    }
+
+    var replacements = [Data?](repeating: nil, count: document.pageCount)
+    for (pageIndex, data) in remotePageDataByPage
+      where pageIndex >= 0 && pageIndex < document.pageCount
+    {
+      replacements[pageIndex] = data
+    }
+    return ReaderTranslationExportSnapshot(
+      pageCount: document.pageCount,
+      paragraphsByPage: paragraphsByPage,
+      replacementPDFDataByPage: replacements,
+      statesByPage: statesByPage
+    )
+  }
+
   func overlayView(for page: PDFPage, in pdfView: PDFView) -> UIView? {
     let index = document.index(for: page)
     guard index != NSNotFound else { return nil }
@@ -90,6 +219,8 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     let oldPipeline = pipeline
     pipeline = nil
     latestStates.removeAll()
+    remotePageDataByPage.removeAll()
+    translationRevision &+= 1
     Task { await oldPipeline?.close() }
 
     guard !documentData.isEmpty else {
@@ -185,6 +316,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       for await state in stream {
         guard !Task.isCancelled, currentGeneration == generation else { break }
         latestStates[pageIndex] = state
+        translationRevision &+= 1
         overlay?.update(state: state, showTranslations: showTranslations)
         if state.status == .ready || state.status == .error || state.status == .cancelled {
           break
@@ -198,6 +330,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
 
   private func startRemoteTranslation(for pageIndex: Int, overlay: ReaderTranslationPageOverlay) {
     guard remoteTasks[pageIndex] == nil else { return }
+    remotePageDataByPage[pageIndex] = nil
     overlay.beginRemoteTranslation()
     let currentGeneration = generation
     let value = preferences
@@ -228,6 +361,8 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
           }
         )
         guard !Task.isCancelled, currentGeneration == generation else { return }
+        remotePageDataByPage[pageIndex] = data
+        translationRevision &+= 1
         overlay.setRemotePageData(data)
       } catch {
         await remoteClient.markUnhealthy(value.remoteKernelURL, reason: error.localizedDescription)
@@ -246,6 +381,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       sourceLanguage: source.isEmpty ? nil : source,
       targetLanguage: preferences.targetLanguage,
       engine: .ultraFast,
+      glossary: glossaryEntries(preferences.glossaries),
       paragraphConcurrency: 2,
       translationMode: preferences.translateFullDocument ? .full : .readingAhead,
       cacheScope: cacheScope

@@ -8,8 +8,10 @@ import UIKit
 final class ReaderAnnotationViewModel: ObservableObject {
   let session: DocumentSession
   let store: ReaderAnnotationStore
+  let quickLinkStore: ReaderQuickLinkStore
 
   @Published private(set) var annotations: [ReaderAnnotation] = []
+  @Published private(set) var quickLinks: [ReaderQuickLink] = []
   @Published var lastError: String?
 
   private var nativeRefs: [String] = []
@@ -17,10 +19,12 @@ final class ReaderAnnotationViewModel: ObservableObject {
 
   init(
     session: DocumentSession,
-    store: ReaderAnnotationStore = ReaderAnnotationStore()
+    store: ReaderAnnotationStore = ReaderAnnotationStore(),
+    quickLinkStore: ReaderQuickLinkStore = ReaderQuickLinkStore()
   ) {
     self.session = session
     self.store = store
+    self.quickLinkStore = quickLinkStore
     sourceData = try? Data(contentsOf: session.url, options: [.mappedIfSafe])
     if let sourceData,
       let state = try? store.loadOrImport(session.id, sourceData: sourceData)
@@ -31,6 +35,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
       annotations = state.annotations
       nativeRefs = state.nativeRefs
     }
+    quickLinks = (try? quickLinkStore.load(session.id)) ?? []
   }
 
   func loadIfNeeded(from pdfView: PDFView) {
@@ -91,6 +96,84 @@ final class ReaderAnnotationViewModel: ObservableObject {
     commit(to: pdfView)
   }
 
+  func quickLinkOrigin(
+    from selection: PDFSelection,
+    in pdfView: PDFView
+  ) -> ReaderQuickLinkEndpoint? {
+    guard let document = pdfView.document, let page = selection.pages.first else { return nil }
+    let pageIndex = document.index(for: page)
+    guard pageIndex != NSNotFound else { return nil }
+    let rects = ReaderAnnotationPDF.viewportRects(for: selection, on: page)
+    guard let first = rects.first else { return nil }
+    let bounds = rects.dropFirst().reduce(
+      CGRect(x: CGFloat(first.x), y: CGFloat(first.y), width: CGFloat(first.width), height: CGFloat(first.height))
+    ) { result, rect in
+      result.union(
+        CGRect(
+          x: CGFloat(rect.x),
+          y: CGFloat(rect.y),
+          width: CGFloat(rect.width),
+          height: CGFloat(rect.height)
+        )
+      )
+    }
+    return ReaderQuickLinkEndpoint(
+      page: pageIndex + 1,
+      box: ReaderQuickLinkBox(
+        x: Double(bounds.minX),
+        y: Double(bounds.minY),
+        width: Double(bounds.width),
+        height: Double(bounds.height)
+      )
+    )
+  }
+
+  @discardableResult
+  func createQuickLink(
+    origin: ReaderQuickLinkEndpoint,
+    result: ReaderQuickLinkEndpoint
+  ) -> Bool {
+    let link = ReaderQuickLink(id: UUID().uuidString, origin: origin, result: result)
+    guard !quickLinks.contains(where: { $0.origin == origin && $0.result == result }) else {
+      lastError = "This quick link already exists."
+      return false
+    }
+    let updated = quickLinks + [link]
+    do {
+      try quickLinkStore.save(updated, for: session.id)
+      quickLinks = updated
+      lastError = nil
+      return true
+    } catch {
+      lastError = "The quick link could not be saved."
+      return false
+    }
+  }
+
+  func deleteQuickLink(_ link: ReaderQuickLink) {
+    let updated = quickLinks.filter { $0.id != link.id }
+    do {
+      try quickLinkStore.save(updated, for: session.id)
+      quickLinks = updated
+      lastError = nil
+    } catch {
+      lastError = "The quick link could not be deleted."
+    }
+  }
+
+  func followQuickLink(
+    _ link: ReaderQuickLink,
+    side: ReaderQuickLinkSide,
+    in pdfView: PDFView?
+  ) {
+    let destination = side.destination(in: link)
+    guard let document = pdfView?.document,
+      let page = document.page(at: max(0, destination.page - 1))
+    else { return }
+    let point = ReaderAnnotationPDF.pdfPoint(for: destination.box, on: page)
+    pdfView?.go(to: PDFDestination(page: page, at: point))
+  }
+
   private func commit(to pdfView: PDFView?) {
     do {
       let input = pdfView?.document?.dataRepresentation() ?? sourceData
@@ -115,6 +198,85 @@ final class ReaderAnnotationViewModel: ObservableObject {
   }
 }
 
+enum ReaderQuickLinkSide {
+  case origin
+  case result
+
+  func destination(in link: ReaderQuickLink) -> ReaderQuickLinkEndpoint {
+    switch self {
+    case .origin: link.result
+    case .result: link.origin
+    }
+  }
+}
+
+@MainActor
+func presentReaderQuickLinkTargetPrompt(
+  model: ReaderAnnotationViewModel,
+  pdfView: PDFView,
+  origin: ReaderQuickLinkEndpoint
+) {
+  let document = pdfView.document
+  let currentPage = pdfView.currentPage.flatMap { page in
+    guard let document else { return nil }
+    let index = document.index(for: page)
+    return index == NSNotFound ? nil : index + 1
+  } ?? origin.page
+  let alert = UIAlertController(
+    title: "Create Quick Link",
+    message: "Choose the destination page and its top-left page location.",
+    preferredStyle: .alert
+  )
+  alert.addTextField { field in
+    field.placeholder = "Page"
+    field.text = "\(currentPage)"
+    field.keyboardType = .numberPad
+  }
+  alert.addTextField { field in
+    field.placeholder = "X"
+    field.text = "0"
+    field.keyboardType = .decimalPad
+  }
+  alert.addTextField { field in
+    field.placeholder = "Y"
+    field.text = "0"
+    field.keyboardType = .decimalPad
+  }
+  alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+  alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak model, weak pdfView, weak alert] _ in
+    guard let model, let pdfView, let fields = alert?.textFields,
+      let page = Int(fields[0].text ?? ""),
+      let x = Double(fields[1].text ?? ""),
+      let y = Double(fields[2].text ?? ""),
+      let pageCount = pdfView.document?.pageCount,
+      page >= 1,
+      page <= pageCount,
+      x.isFinite, y.isFinite, x >= 0, y >= 0
+    else {
+      model?.lastError = "Enter a valid destination page and location."
+      return
+    }
+    let result = ReaderQuickLinkEndpoint(
+      page: page,
+      box: ReaderQuickLinkBox(x: x, y: y, width: 1, height: 1)
+    )
+    if model.createQuickLink(origin: origin, result: result) {
+      pdfView.clearSelection()
+    }
+  })
+  readerTopViewController(for: pdfView)?.present(alert, animated: true)
+}
+
+@MainActor
+private func readerTopViewController(for view: UIView) -> UIViewController? {
+  var responder: UIResponder? = view
+  while let current = responder {
+    if let controller = current as? UIViewController { return controller }
+    responder = current.next
+  }
+  return view.window?.rootViewController
+}
+
 @MainActor
 final class ReaderAnnotationInteractionController: NSObject {
   weak var pdfView: PDFView?
@@ -131,7 +293,7 @@ final class ReaderAnnotationInteractionController: NSObject {
       name: Notification.Name.PDFViewSelectionChanged,
       object: pdfView
     )
-    updateMenu()
+    UIMenuSystem.main.setNeedsRebuild()
   }
 
   deinit {
@@ -146,7 +308,8 @@ final class ReaderAnnotationInteractionController: NSObject {
       action == #selector(highlightPink(_:)) ||
       action == #selector(highlightBlue(_:)) ||
       action == #selector(highlightGreen(_:)) ||
-      action == #selector(addComment(_:))
+      action == #selector(addComment(_:)) ||
+      action == #selector(createQuickLink(_:))
     { return true }
     if action == #selector(copyEmail(_:)) {
       return email(in: selection.string ?? "") != nil
@@ -158,6 +321,14 @@ final class ReaderAnnotationInteractionController: NSObject {
   @objc func highlightPink(_ sender: Any?) { highlight(color: "#ffb6c1") }
   @objc func highlightBlue(_ sender: Any?) { highlight(color: "#9bd7ff") }
   @objc func highlightGreen(_ sender: Any?) { highlight(color: "#b8e986") }
+
+  @objc func createQuickLink(_ sender: Any?) {
+    guard let view = pdfView,
+      let selection = view.currentSelection,
+      let origin = model.quickLinkOrigin(from: selection, in: view)
+    else { return }
+    presentReaderQuickLinkTargetPrompt(model: model, pdfView: view, origin: origin)
+  }
 
   @objc func addComment(_ sender: Any?) {
     guard let view = pdfView, let selection = view.currentSelection else { return }
@@ -174,7 +345,7 @@ final class ReaderAnnotationInteractionController: NSObject {
       self.model.addSelection(selection, in: view, color: "#ffb347", comment: comment)
       view.clearSelection()
     })
-    topViewController(for: view)?.present(alert, animated: true)
+    readerTopViewController(for: view)?.present(alert, animated: true)
   }
 
   @objc func copyEmail(_ sender: Any?) {
@@ -191,23 +362,25 @@ final class ReaderAnnotationInteractionController: NSObject {
   }
 
   @objc private func selectionChanged(_ notification: Notification) {
-    updateMenu()
+    UIMenuSystem.main.setNeedsRebuild()
   }
 
-  private func updateMenu() {
-    guard let view = pdfView else { return }
-    var items = [
-      UIMenuItem(title: "Highlight Yellow", action: #selector(highlightYellow(_:))),
-      UIMenuItem(title: "Highlight Pink", action: #selector(highlightPink(_:))),
-      UIMenuItem(title: "Highlight Blue", action: #selector(highlightBlue(_:))),
-      UIMenuItem(title: "Highlight Green", action: #selector(highlightGreen(_:))),
-      UIMenuItem(title: "Add Comment", action: #selector(addComment(_:))),
+  func menuCommands() -> [UIMenuElement] {
+    let actions: [(String, Selector)] = [
+      ("Highlight Yellow", #selector(highlightYellow(_:))),
+      ("Highlight Pink", #selector(highlightPink(_:))),
+      ("Highlight Blue", #selector(highlightBlue(_:))),
+      ("Highlight Green", #selector(highlightGreen(_:))),
+      ("Add Comment", #selector(addComment(_:))),
+      ("Create Quick Link", #selector(createQuickLink(_:))),
     ]
-    if canPerform(#selector(copyEmail(_:))) {
-      items.append(UIMenuItem(title: "Copy Email", action: #selector(copyEmail(_:))))
+    var commands = actions.compactMap { title, action -> UIMenuElement? in
+      canPerform(action) ? UICommand(title: title, action: action) : nil
     }
-    UIMenuController.shared.menuItems = items
-    if view.isFirstResponder { UIMenuController.shared.update() }
+    if canPerform(#selector(copyEmail(_:))) {
+      commands.append(UICommand(title: "Copy Email", action: #selector(copyEmail(_:))))
+    }
+    return commands
   }
 
   private func email(in text: String) -> String? {
@@ -217,19 +390,23 @@ final class ReaderAnnotationInteractionController: NSObject {
     }
   }
 
-  private func topViewController(for view: UIView) -> UIViewController? {
-    var responder: UIResponder? = view
-    while let current = responder {
-      if let controller = current as? UIViewController { return controller }
-      responder = current.next
-    }
-    return view.window?.rootViewController
-  }
 }
 
 @MainActor
 final class ReaderAnnotationPDFView: PDFView {
   weak var annotationController: ReaderAnnotationInteractionController?
+
+  override func buildMenu(with builder: UIMenuBuilder) {
+    super.buildMenu(with: builder)
+    guard let commands = annotationController?.menuCommands(), !commands.isEmpty else { return }
+    let menu = UIMenu(
+      title: "Annotate",
+      identifier: UIMenu.Identifier("com.pdfmathreader.annotate"),
+      options: .displayInline,
+      children: commands
+    )
+    builder.insertChild(menu, atStartOfMenu: .text)
+  }
 
   override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
     if annotationController?.canPerform(action) == true { return true }

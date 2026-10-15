@@ -247,10 +247,12 @@ public actor PageTranslationPipeline {
     visiblePageIndices: [Int] = [],
     aheadPageIndices: [Int] = [],
     direction: Int = 1,
-    moving: Bool = false
+    moving: Bool = false,
+    excludedPageIndices: Set<Int> = []
   ) async {
     guard !isClosed else { return }
     activeSettings = settings
+    let excluded = Set(excludedPageIndices.filter { (0..<pageCount).contains($0) })
     let context = settings.queueContext
     let current = currentPageIndex.map { $0 + 1 }
     let visible = visiblePageIndices.map { $0 + 1 }
@@ -264,6 +266,7 @@ public actor PageTranslationPipeline {
       aheadPages: ahead,
       direction: direction,
       moving: moving,
+      excludedPages: Set(excluded.map { $0 + 1 }),
       context: context
     )
     let pages = prioritizedTranslationPages(
@@ -275,9 +278,11 @@ public actor PageTranslationPipeline {
       direction: direction,
       moving: moving
     )
-    for page in pages where page > 0 {
+    for page in pages where page > 0 && !excluded.contains(page - 1) {
       var value = state(for: page - 1)
-      if value.status == .idle { value.status = .queued }
+      if [.idle, .error, .cancelled].contains(value.status) {
+        value.status = .queued
+      }
       states[page - 1] = value
       publish(value)
     }

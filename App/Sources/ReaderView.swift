@@ -25,6 +25,7 @@ struct ReaderView: View {
   @State private var isCompactSidebarPresented = false
   @State private var isSearchPresented = false
   @State private var isGoToPagePresented = false
+  @State private var isComparePresented = false
   @State private var isAccessingResource = false
 
   init(session: DocumentSession, library: LibraryModel) {
@@ -142,8 +143,40 @@ struct ReaderView: View {
       regular: regular,
       onToggleSidebar: toggleSidebar,
       onSearch: { isSearchPresented = true },
-      onGoToPage: { isGoToPagePresented = true }
+      onGoToPage: { isGoToPagePresented = true },
+      onCompare: { isComparePresented = true }
     )
+    .readerReadingAids(
+      document: document,
+      preferences: model.library.preferences,
+      documentID: model.session.id
+    )
+    .readerExport(
+      document: document,
+      originalName: model.session.title,
+      annotations: annotationModel.annotations,
+      coordinator: model.translationCoordinator
+    )
+    .sheet(isPresented: $isComparePresented) {
+      if let coordinator = model.translationCoordinator {
+        NavigationStack {
+          ReaderCompareView(
+            document: document,
+            coordinator: coordinator,
+            currentPage: Binding(
+              get: { model.readingState.page },
+              set: { model.goToPage($0) }
+            ),
+            onShowOverlay: model.toggleTranslations
+          )
+          .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+              Button("Done") { isComparePresented = false }
+            }
+          }
+        }
+      }
+    }
   }
 
   private func toggleSidebar() {
@@ -168,13 +201,19 @@ private struct ReaderDetail: View {
   let onToggleSidebar: () -> Void
   let onSearch: () -> Void
   let onGoToPage: () -> Void
+  let onCompare: () -> Void
 
   var body: some View {
+    // Reading aids come first so translation labels draw above glyph overlays.
+    let overlayProviders: [any ReaderPageOverlayProviding] = [
+      environmentOverlayProvider,
+      model.translationCoordinator as (any ReaderPageOverlayProviding)?
+    ].compactMap { $0 }
     PDFKitView(
       document: model.document!,
       readingState: $model.readingState,
       reference: model.pdfViewReference,
-      overlayProvider: model.translationCoordinator ?? environmentOverlayProvider,
+      overlayProvider: ReaderPageOverlayCompositeProvider(providers: overlayProviders),
       annotationModel: annotations,
       onStateChanged: model.receivePDFViewState
     )
@@ -252,6 +291,17 @@ private struct ReaderDetail: View {
               ? "text.page"
               : "character.book.closed"
           )
+        }
+
+        if regular {
+          Button(action: onCompare) {
+            Label("Compare", systemImage: "rectangle.split.2x1")
+          }
+          .disabled(model.translationCoordinator == nil)
+        }
+
+        if let coordinator = model.translationCoordinator {
+          TranslateAllPagesButton(coordinator: coordinator)
         }
       }
     }

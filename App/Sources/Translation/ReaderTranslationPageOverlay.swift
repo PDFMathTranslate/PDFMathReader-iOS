@@ -20,6 +20,7 @@ final class ReaderTranslationPageOverlay: UIView {
   private weak var page: PDFPage?
   private var state = PageTranslationState(pageIndex: 0)
   private var showTranslations = true
+  private var readingAidsConfiguration = ReadingAidsConfiguration()
   private var originalOverrides = Set<Int>()
   private var labels: [Int: ReaderTranslationLabel] = [:]
   private var remotePageData: Data?
@@ -57,6 +58,16 @@ final class ReaderTranslationPageOverlay: UIView {
       remoteImageView?.isHidden = !showTranslations
     }
     updateProgress()
+    setNeedsLayout()
+  }
+
+  func updateReadingAids(_ configuration: ReadingAidsConfiguration) {
+    readingAidsConfiguration = configuration
+    guard remotePageData == nil else { return }
+    for item in state.paragraphs {
+      guard let label = labels[item.paragraph.id] else { continue }
+      updateLabel(label, item: item)
+    }
     setNeedsLayout()
   }
 
@@ -152,14 +163,22 @@ final class ReaderTranslationPageOverlay: UIView {
 
   private func updateLabel(_ label: ReaderTranslationLabel, item: PageTranslationParagraph) {
     let useOriginal = originalOverrides.contains(item.paragraph.id)
-    label.text = useOriginal ? item.paragraph.text : item.translation
+    let text = useOriginal ? item.paragraph.text : (item.translation ?? "")
+    label.text = text
     let baseSize = max(6, min(36, CGFloat(item.paragraph.fontSize)))
     let rect = overlayRect(for: item.paragraph)
-    label.font = fittingFont(
-      text: label.text ?? "",
+    let font = fittingFont(
+      text: text,
       baseSize: baseSize,
       rect: rect,
       bold: item.paragraph.bold
+    )
+    label.font = font
+    label.attributedText = readingAidsAttributedString(
+      text: text,
+      font: font,
+      configuration: readingAidsConfiguration,
+      isOriginal: useOriginal
     )
   }
 

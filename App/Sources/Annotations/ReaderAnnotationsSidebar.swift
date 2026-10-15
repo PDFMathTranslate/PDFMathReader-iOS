@@ -9,15 +9,27 @@ struct ReaderAnnotationsSidebar: View {
   @State private var editing: ReaderAnnotation?
 
   var body: some View {
-    Group {
-      if model.annotations.isEmpty {
-        ContentUnavailableView(
-          "No annotations",
-          systemImage: "highlighter",
-          description: Text("Select text to highlight it or add a comment.")
-        )
-      } else {
-        List {
+    List {
+      Section {
+        Button {
+          guard let view = pdfViewReference.view,
+            let selection = view.currentSelection,
+            let origin = model.quickLinkOrigin(from: selection, in: view)
+          else {
+            model.lastError = "Select text before creating a quick link."
+            return
+          }
+          presentReaderQuickLinkTargetPrompt(model: model, pdfView: view, origin: origin)
+        } label: {
+          Label("Create Quick Link", systemImage: "link.badge.plus")
+        }
+      }
+
+      Section("Annotations") {
+        if model.annotations.isEmpty {
+          Text("Select text to highlight it or add a comment.")
+            .foregroundStyle(.secondary)
+        } else {
           ForEach(model.annotations) { annotation in
             Button {
               onJump(annotation.page)
@@ -53,9 +65,55 @@ struct ReaderAnnotationsSidebar: View {
             }
           }
         }
-        .listStyle(.plain)
+      }
+
+      Section("Quick Links") {
+        if model.quickLinks.isEmpty {
+          Text("Create a link from selected text to a page location.")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(model.quickLinks) { link in
+            HStack(spacing: 8) {
+              Button {
+                onJump(link.result.page)
+                model.followQuickLink(link, side: .origin, in: pdfViewReference.view)
+              } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                  Label("From page \(link.origin.page)", systemImage: "arrow.up.right")
+                  Text(quickLinkLocation(link.origin.box))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+              }
+              .buttonStyle(.plain)
+
+              Image(systemName: "arrow.left.arrow.right")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+              Button {
+                onJump(link.origin.page)
+                model.followQuickLink(link, side: .result, in: pdfViewReference.view)
+              } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                  Label("To page \(link.result.page)", systemImage: "arrow.down.left")
+                  Text(quickLinkLocation(link.result.box))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+              }
+              .buttonStyle(.plain)
+            }
+            .contextMenu {
+              Button("Delete", systemImage: "trash", role: .destructive) {
+                model.deleteQuickLink(link)
+              }
+            }
+          }
+        }
       }
     }
+    .listStyle(.plain)
     .sheet(item: $editing) { annotation in
       AnnotationCommentEditor(
         annotation: annotation,
@@ -82,6 +140,10 @@ struct ReaderAnnotationsSidebar: View {
     } message: {
       Text(model.lastError ?? "")
     }
+  }
+
+  private func quickLinkLocation(_ box: ReaderQuickLinkBox) -> String {
+    "x \(box.x.formatted(.number.precision(.fractionLength(0...1)))), y \(box.y.formatted(.number.precision(.fractionLength(0...1))))"
   }
 }
 

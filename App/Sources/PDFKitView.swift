@@ -17,7 +17,7 @@ final class PDFViewReference: ObservableObject {
 
 // P2 hook: translation overlays can supply a provider through this environment value.
 @MainActor
-protocol ReaderPageOverlayProviding: AnyObject, Sendable {
+public protocol ReaderPageOverlayProviding: AnyObject, Sendable {
   func overlayView(for page: PDFPage, in pdfView: PDFView) -> UIView?
 }
 
@@ -25,7 +25,7 @@ private struct ReaderPageOverlayProviderKey: EnvironmentKey {
   static let defaultValue: (any ReaderPageOverlayProviding)? = nil
 }
 
-extension EnvironmentValues {
+public extension EnvironmentValues {
   var readerPageOverlayProvider: (any ReaderPageOverlayProviding)? {
     get { self[ReaderPageOverlayProviderKey.self] }
     set { self[ReaderPageOverlayProviderKey.self] = newValue }

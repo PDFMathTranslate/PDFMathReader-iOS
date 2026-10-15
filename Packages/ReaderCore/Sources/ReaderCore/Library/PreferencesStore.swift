@@ -30,6 +30,19 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
   public var showTranslations: Bool
   public var translateFullDocument: Bool
   public var theme: ReaderTheme
+  public var glossaries: [GlossaryLibrary]
+  public var bionicReading: BionicReadingMode
+  public var bionicFixedLength: Int
+  public var bionicOriginalOnly: Bool
+  public var emphasizeInformation: Bool
+  public var emphasizeResearchFindings: Bool
+  public var emphasizeOrdinals: Bool
+  public var emphasizeKeyVerbs: Bool
+  public var emphasizeLogicalConnectives: Bool
+  public var tfidfWeightingEnabled: Bool
+  public var emphasizeTopicSentences: Bool
+  public var readingLinksEnabled: Bool
+  public var tocGenerationEnabled: Bool
 
   public init(
     uiLanguage: String = "system",
@@ -42,7 +55,20 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     remoteKernelURL: String = "",
     showTranslations: Bool = true,
     translateFullDocument: Bool = false,
-    theme: ReaderTheme = .system
+    theme: ReaderTheme = .system,
+    glossaries: [GlossaryLibrary] = [],
+    bionicReading: BionicReadingMode = .off,
+    bionicFixedLength: Int = BionicReading.fixedLengthDefault,
+    bionicOriginalOnly: Bool = true,
+    emphasizeInformation: Bool = false,
+    emphasizeResearchFindings: Bool = true,
+    emphasizeOrdinals: Bool = true,
+    emphasizeKeyVerbs: Bool = true,
+    emphasizeLogicalConnectives: Bool = true,
+    tfidfWeightingEnabled: Bool = false,
+    emphasizeTopicSentences: Bool = false,
+    readingLinksEnabled: Bool = true,
+    tocGenerationEnabled: Bool = false
   ) {
     self.uiLanguage = uiLanguage
     self.sourceLanguage = sourceLanguage
@@ -55,6 +81,23 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     self.showTranslations = showTranslations
     self.translateFullDocument = translateFullDocument
     self.theme = theme
+    self.glossaries = cloneGlossaries(glossaries)
+    let normalizedBionic = BionicReading.normalize(
+      mode: bionicReading,
+      fixedLength: Double(bionicFixedLength)
+    )
+    self.bionicReading = normalizedBionic.mode
+    self.bionicFixedLength = normalizedBionic.fixedLength
+    self.bionicOriginalOnly = bionicOriginalOnly
+    self.emphasizeInformation = emphasizeInformation
+    self.emphasizeResearchFindings = emphasizeResearchFindings
+    self.emphasizeOrdinals = emphasizeOrdinals
+    self.emphasizeKeyVerbs = emphasizeKeyVerbs
+    self.emphasizeLogicalConnectives = emphasizeLogicalConnectives
+    self.tfidfWeightingEnabled = tfidfWeightingEnabled
+    self.emphasizeTopicSentences = emphasizeTopicSentences
+    self.readingLinksEnabled = readingLinksEnabled
+    self.tocGenerationEnabled = tocGenerationEnabled
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -69,6 +112,19 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     case showTranslations
     case translateFullDocument
     case theme
+    case glossaries
+    case bionicReading
+    case bionicFixedLength
+    case bionicOriginalOnly
+    case emphasizeInformation
+    case emphasizeResearchFindings
+    case emphasizeOrdinals
+    case emphasizeKeyVerbs
+    case emphasizeLogicalConnectives
+    case tfidfWeightingEnabled
+    case emphasizeTopicSentences
+    case readingLinksEnabled
+    case tocGenerationEnabled
   }
 
   public init(from decoder: Decoder) throws {
@@ -84,7 +140,20 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
       remoteKernelURL: try container.decodeIfPresent(String.self, forKey: .remoteKernelURL) ?? "",
       showTranslations: try container.decodeIfPresent(Bool.self, forKey: .showTranslations) ?? true,
       translateFullDocument: try container.decodeIfPresent(Bool.self, forKey: .translateFullDocument) ?? false,
-      theme: try container.decodeIfPresent(ReaderTheme.self, forKey: .theme) ?? .system
+      theme: try container.decodeIfPresent(ReaderTheme.self, forKey: .theme) ?? .system,
+      glossaries: try container.decodeIfPresent([GlossaryLibrary].self, forKey: .glossaries) ?? [],
+      bionicReading: try container.decodeIfPresent(BionicReadingMode.self, forKey: .bionicReading) ?? .off,
+      bionicFixedLength: try container.decodeIfPresent(Int.self, forKey: .bionicFixedLength) ?? BionicReading.fixedLengthDefault,
+      bionicOriginalOnly: try container.decodeIfPresent(Bool.self, forKey: .bionicOriginalOnly) ?? true,
+      emphasizeInformation: try container.decodeIfPresent(Bool.self, forKey: .emphasizeInformation) ?? false,
+      emphasizeResearchFindings: try container.decodeIfPresent(Bool.self, forKey: .emphasizeResearchFindings) ?? true,
+      emphasizeOrdinals: try container.decodeIfPresent(Bool.self, forKey: .emphasizeOrdinals) ?? true,
+      emphasizeKeyVerbs: try container.decodeIfPresent(Bool.self, forKey: .emphasizeKeyVerbs) ?? true,
+      emphasizeLogicalConnectives: try container.decodeIfPresent(Bool.self, forKey: .emphasizeLogicalConnectives) ?? true,
+      tfidfWeightingEnabled: try container.decodeIfPresent(Bool.self, forKey: .tfidfWeightingEnabled) ?? false,
+      emphasizeTopicSentences: try container.decodeIfPresent(Bool.self, forKey: .emphasizeTopicSentences) ?? false,
+      readingLinksEnabled: try container.decodeIfPresent(Bool.self, forKey: .readingLinksEnabled) ?? true,
+      tocGenerationEnabled: try container.decodeIfPresent(Bool.self, forKey: .tocGenerationEnabled) ?? false
     )
   }
 }

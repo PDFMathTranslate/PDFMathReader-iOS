@@ -28,6 +28,8 @@ final class ReaderViewModel: ObservableObject {
   @Published var searchQuery = ""
   @Published private(set) var searchResults: [SearchResult] = []
   @Published private(set) var translationCoordinator: ReaderTranslationCoordinator?
+  // Generated TOC extracts every page, so compute it once per document.
+  private var cachedGeneratedTOC: [OutlineEntry]?
 
   init(session: DocumentSession, library: LibraryModel) {
     self.session = session
@@ -49,10 +51,18 @@ final class ReaderViewModel: ObservableObject {
   var pageCount: Int { document?.pageCount ?? 0 }
 
   var outlineEntries: [OutlineEntry] {
-    guard let root = document?.outlineRoot else { return [] }
-    var entries: [OutlineEntry] = []
-    appendOutlineEntries(from: root, depth: 0, path: "", into: &entries)
-    return entries
+    if let root = document?.outlineRoot {
+      var entries: [OutlineEntry] = []
+      appendOutlineEntries(from: root, depth: 0, path: "", into: &entries)
+      if !entries.isEmpty { return entries }
+    }
+    guard let document, library.preferences.tocGenerationEnabled else { return [] }
+    if let cachedGeneratedTOC { return cachedGeneratedTOC }
+    let generated = generatedTOCFallback(for: document).map { item in
+      OutlineEntry(id: item.id, title: item.title, page: item.page, depth: item.depth)
+    }
+    cachedGeneratedTOC = generated
+    return generated
   }
 
   func receivePDFViewState(_ view: PDFView) {

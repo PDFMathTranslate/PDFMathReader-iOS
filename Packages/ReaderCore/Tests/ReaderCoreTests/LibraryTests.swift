@@ -87,3 +87,33 @@ private func temporaryLibraryDirectory() throws -> URL {
   try store.save(preferences)
   #expect(store.load() == preferences)
 }
+
+@Test func glossaryStoreRoundTripsAndRejectsInvalidValues() throws {
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+
+  let store = GlossaryStore(directory: directory)
+  let libraries = [
+    GlossaryLibrary(
+      id: "research",
+      name: "Research terms",
+      enabled: true,
+      entries: [GlossaryEntry(source: "effect size", target: "效应量")]
+    )
+  ]
+
+  try store.save(libraries)
+  #expect(store.load() == libraries)
+
+  let invalid = [
+    GlossaryLibrary(
+      id: "invalid",
+      name: "Invalid",
+      enabled: true,
+      entries: [GlossaryEntry(source: String(repeating: "x", count: 501), target: "term")]
+    )
+  ]
+  #expect(throws: GlossaryStoreError.invalidGlossary) {
+    try store.save(invalid)
+  }
+}

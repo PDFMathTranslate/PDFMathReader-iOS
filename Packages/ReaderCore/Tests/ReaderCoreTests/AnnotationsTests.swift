@@ -97,6 +97,21 @@ struct ReaderAnnotationsTests {
   }
 
   @Test
+  func importsForeignMarkupWhenPageAnnotationsUseCompressedObjectStreams() throws {
+    let source = try fixtureData("compressed-object-stream.pdf")
+    let imported = try ReaderAnnotationPDF.importAnnotations(from: source)
+
+    #expect(imported.annotations.count == 1)
+    let foreign = try #require(imported.annotations.first)
+    #expect(foreign.nativeRef == "7 0 R")
+    #expect(imported.nativeRefs == ["7 0 R"])
+
+    let stripped = try ReaderAnnotationPDF.embedAnnotations([], in: source, nativeRefs: imported.nativeRefs)
+    let reloaded = try ReaderAnnotationPDF.importAnnotations(from: stripped)
+    #expect(reloaded.annotations.isEmpty)
+  }
+
+  @Test
   func annotationStoreUsesDesktopHashAndCacheSemantics() throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }

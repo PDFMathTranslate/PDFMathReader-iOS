@@ -29,6 +29,8 @@ targets:
         UISupportsDocumentBrowser: true
         LSSupportsOpeningDocumentsInPlace: true
         UIApplicationSupportsMultipleScenes: true
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.pdfmathtranslate.PDFMathReader.continuedProcessingTask.*
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
         UISupportedInterfaceOrientations:

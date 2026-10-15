@@ -231,6 +231,7 @@ public actor TranslationQueue {
     moving: Bool = false,
     manual: Bool = false,
     force: Bool = false,
+    excludedPages: Set<Int> = [],
     context: TranslationQueueContext? = nil
   ) {
     if let context, context != self.context {
@@ -244,7 +245,7 @@ public actor TranslationQueue {
       aheadPages: aheadPages,
       direction: direction,
       moving: moving
-    )
+    ).filter { !excludedPages.contains($0) }
     queueState.translateAllPages = mode == .full
     let priorities = Array(pages.indices)
     enqueuePages(pages, manual: manual, priorities: priorities, force: force)

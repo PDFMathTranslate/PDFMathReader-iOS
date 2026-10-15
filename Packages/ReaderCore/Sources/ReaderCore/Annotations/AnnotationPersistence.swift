@@ -176,10 +176,25 @@ public struct ReaderQuickLinkBox: Codable, Hashable, Sendable {
 public struct ReaderQuickLinkEndpoint: Codable, Hashable, Sendable {
   public var page: Int
   public var box: ReaderQuickLinkBox
+  public var blockID: ReaderAnnotationBlockID?
+  public var translationVersion: ReaderAnnotationTranslationVersion?
 
-  public init(page: Int, box: ReaderQuickLinkBox) {
+  public init(
+    page: Int,
+    box: ReaderQuickLinkBox,
+    blockID: ReaderAnnotationBlockID? = nil,
+    translationVersion: ReaderAnnotationTranslationVersion? = nil
+  ) {
     self.page = page
     self.box = box
+    self.blockID = blockID
+    self.translationVersion = translationVersion
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case page, box
+    case blockID = "blockId"
+    case translationVersion
   }
 }
 
