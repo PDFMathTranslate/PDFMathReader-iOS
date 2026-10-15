@@ -19301,6 +19301,406 @@
         }
       }
     },
+    "ios.disclosureAppleOnDevice": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apple Translation runs on this device; document text is not sent to a translation server."
+          }
+        }
+      }
+    },
+    "ios.disclosureFreeProxy": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+          }
+        }
+      }
+    },
+    "ios.disclosureOpenAI": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+          }
+        }
+      }
+    },
+    "ios.disclosureRemoteKernel": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+          }
+        }
+      }
+    },
     "ios.documentFilename": {
       "localizations": {
         "ar": {

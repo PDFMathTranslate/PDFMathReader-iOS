@@ -329,6 +329,18 @@
   "ios.remoteKernelDescription": {
     "en": "Fast and Precise use the remote kernel for visible pages and fall back to Ultra fast when it is unavailable."
   },
+  "ios.disclosureFreeProxy": {
+    "en": "Paragraph text from your PDF is sent to the free SiliconFlow translation proxy."
+  },
+  "ios.disclosureOpenAI": {
+    "en": "Paragraph text from your PDF is sent to the OpenAI-compatible server you configure."
+  },
+  "ios.disclosureAppleOnDevice": {
+    "en": "Apple Translation runs on this device; document text is not sent to a translation server."
+  },
+  "ios.disclosureRemoteKernel": {
+    "en": "Fast and Precise upload individual PDF pages to the remote kernel server you enter."
+  },
   "ios.removeGlossary": {
     "en": "Remove glossary"
   },

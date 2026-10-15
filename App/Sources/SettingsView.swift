@@ -65,7 +65,7 @@ struct SettingsView: View {
           }
         }
 
-        Section(L10n.string("settings.translation")) {
+        Section {
           Picker(L10n.string("settings.sourceLanguage"), selection: $draft.sourceLanguage) {
             Text(L10n.string("settings.automaticDetection")).tag("")
             ForEach(translationLanguageOptions) { option in
@@ -145,6 +145,10 @@ struct SettingsView: View {
           } footer: {
             Text(L10n.string("ios.remoteKernelDescription"))
           }
+        } header: {
+          Text(L10n.string("settings.translation"))
+        } footer: {
+          Text(translationDataDisclosure)
         }
 
         ReadingAidsSettingsSection(preferences: $draft)
@@ -196,6 +200,19 @@ struct SettingsView: View {
       services.append(.appleOnDevice)
     }
     return services
+  }
+
+  private var translationDataDisclosure: String {
+    var lines: [String] = []
+    switch draft.translationService {
+    case .siliconFlowFree: lines.append(L10n.string("ios.disclosureFreeProxy"))
+    case .openAICompatible: lines.append(L10n.string("ios.disclosureOpenAI"))
+    case .appleOnDevice: lines.append(L10n.string("ios.disclosureAppleOnDevice"))
+    }
+    if draft.engine != .ultraFast {
+      lines.append(L10n.string("ios.disclosureRemoteKernel"))
+    }
+    return lines.joined(separator: " ")
   }
 
   private func checkRemoteKernel() {
