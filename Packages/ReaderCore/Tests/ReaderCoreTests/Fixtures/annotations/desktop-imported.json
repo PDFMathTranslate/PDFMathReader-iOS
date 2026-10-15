@@ -1,0 +1,55 @@
+{
+  "annotations": [
+    {
+      "id": "desktop-highlight-1",
+      "page": 1,
+      "kind": "highlight",
+      "origin": "source",
+      "text": "A desktop-written highlight",
+      "comment": "",
+      "color": "#fff36a",
+      "rects": [
+        {
+          "x": 72,
+          "y": 110,
+          "width": 180,
+          "height": 14
+        },
+        {
+          "x": 72,
+          "y": 128,
+          "width": 130,
+          "height": 14
+        }
+      ],
+      "createdAt": "2026-01-02T03:04:05.000Z",
+      "author": "PDFMathReader"
+    },
+    {
+      "id": "desktop-comment-1",
+      "page": 1,
+      "kind": "comment",
+      "origin": "source",
+      "text": "",
+      "comment": "A desktop-written comment",
+      "color": "#ff8a65",
+      "rects": [
+        {
+          "x": 300,
+          "y": 210,
+          "width": 16,
+          "height": 16
+        }
+      ],
+      "createdAt": "2026-01-02T03:04:05.000Z",
+      "author": "PDFMathReader",
+      "sourceRect": {
+        "x": 300,
+        "y": 210,
+        "width": 16,
+        "height": 16
+      }
+    }
+  ],
+  "nativeRefs": []
+}

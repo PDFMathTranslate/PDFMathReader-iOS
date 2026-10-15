@@ -5,11 +5,13 @@ import SwiftUI
 private enum ReaderSidebarMode: String, CaseIterable {
   case thumbnails
   case outline
+  case annotations
 
   var title: String {
     switch self {
     case .thumbnails: "Pages"
     case .outline: "Outline"
+    case .annotations: "Annotations"
     }
   }
 }
@@ -17,6 +19,7 @@ private enum ReaderSidebarMode: String, CaseIterable {
 struct ReaderView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @StateObject private var model: ReaderViewModel
+  @StateObject private var annotationModel: ReaderAnnotationViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var sidebarMode: ReaderSidebarMode = .thumbnails
   @State private var isCompactSidebarPresented = false
@@ -26,6 +29,7 @@ struct ReaderView: View {
 
   init(session: DocumentSession, library: LibraryModel) {
     _model = StateObject(wrappedValue: ReaderViewModel(session: session, library: library))
+    _annotationModel = StateObject(wrappedValue: ReaderAnnotationViewModel(session: session))
   }
 
   var body: some View {
@@ -33,7 +37,7 @@ struct ReaderView: View {
       if let document = model.document {
         if horizontalSizeClass == .regular {
           NavigationSplitView(columnVisibility: $columnVisibility) {
-            ReaderSidebar(model: model, mode: $sidebarMode)
+            ReaderSidebar(model: model, annotations: annotationModel, mode: $sidebarMode)
               .navigationTitle("Reader")
               .navigationBarTitleDisplayMode(.inline)
           } detail: {
@@ -51,7 +55,7 @@ struct ReaderView: View {
           readerDetail(document: document, regular: false)
             .sheet(isPresented: $isCompactSidebarPresented) {
               NavigationStack {
-                ReaderSidebar(model: model, mode: $sidebarMode)
+                ReaderSidebar(model: model, annotations: annotationModel, mode: $sidebarMode)
                   .navigationTitle("Reader tools")
                   .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
@@ -80,6 +84,9 @@ struct ReaderView: View {
         model.readingState.sidebarVisible = false
         model.persistReadingState()
       }
+    }
+    .onChange(of: model.library.preferences) { _, value in
+      model.updateTranslationPreferences(value)
     }
     .onAppear {
       ReaderCommandRouter.shared.activate(model)
@@ -131,6 +138,7 @@ struct ReaderView: View {
   private func readerDetail(document: PDFDocument, regular: Bool) -> some View {
     ReaderDetail(
       model: model,
+      annotations: annotationModel,
       regular: regular,
       onToggleSidebar: toggleSidebar,
       onSearch: { isSearchPresented = true },
@@ -154,7 +162,8 @@ struct ReaderView: View {
 
 private struct ReaderDetail: View {
   @ObservedObject var model: ReaderViewModel
-  @Environment(\.readerPageOverlayProvider) private var overlayProvider
+  @ObservedObject var annotations: ReaderAnnotationViewModel
+  @Environment(\.readerPageOverlayProvider) private var environmentOverlayProvider
   let regular: Bool
   let onToggleSidebar: () -> Void
   let onSearch: () -> Void
@@ -165,7 +174,8 @@ private struct ReaderDetail: View {
       document: model.document!,
       readingState: $model.readingState,
       reference: model.pdfViewReference,
-      overlayProvider: overlayProvider,
+      overlayProvider: model.translationCoordinator ?? environmentOverlayProvider,
+      annotationModel: annotations,
       onStateChanged: model.receivePDFViewState
     )
     .background(Color(uiColor: .secondarySystemBackground))
@@ -232,6 +242,17 @@ private struct ReaderDetail: View {
         Button(action: onSearch) {
           Label("Search", systemImage: "magnifyingglass")
         }
+
+        Button {
+          model.toggleTranslations()
+        } label: {
+          Label(
+            model.translationCoordinator?.showTranslations == true ? "Show original" : "Show translation",
+            systemImage: model.translationCoordinator?.showTranslations == true
+              ? "text.page"
+              : "character.book.closed"
+          )
+        }
       }
     }
   }
@@ -260,6 +281,7 @@ private struct ReaderDetail: View {
 
 private struct ReaderSidebar: View {
   @ObservedObject var model: ReaderViewModel
+  @ObservedObject var annotations: ReaderAnnotationViewModel
   @Binding var mode: ReaderSidebarMode
 
   var body: some View {
@@ -278,6 +300,12 @@ private struct ReaderSidebar: View {
         PDFThumbnailRepresentable(reference: model.pdfViewReference, horizontal: false)
       case .outline:
         OutlineList(model: model)
+      case .annotations:
+        ReaderAnnotationsSidebar(
+          model: annotations,
+          pdfViewReference: model.pdfViewReference,
+          onJump: model.goToPage
+        )
       }
     }
     .background(.regularMaterial)

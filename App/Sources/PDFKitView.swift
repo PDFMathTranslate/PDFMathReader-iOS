@@ -51,14 +51,15 @@ struct PDFKitView: UIViewRepresentable {
   @Binding var readingState: ReadingState
   @ObservedObject var reference: PDFViewReference
   let overlayProvider: (any ReaderPageOverlayProviding)?
+  let annotationModel: ReaderAnnotationViewModel?
   let onStateChanged: (PDFView) -> Void
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(onStateChanged: onStateChanged)
+    Coordinator(onStateChanged: onStateChanged, annotationModel: annotationModel)
   }
 
   func makeUIView(context: Context) -> PDFView {
-    let view = PDFView()
+    let view = ReaderAnnotationPDFView()
     view.backgroundColor = UIColor.secondarySystemBackground
     view.pageShadowsEnabled = true
     view.minScaleFactor = 0.25
@@ -71,9 +72,12 @@ struct PDFKitView: UIViewRepresentable {
   }
 
   func updateUIView(_ view: PDFView, context: Context) {
-    if view.document !== document {
+    // Annotation actions replace the PDFDocument instance after writing its
+    // managed markup. Keep that live document during SwiftUI updates.
+    if view.document == nil || view.document?.pageCount != document.pageCount {
       view.document = document
     }
+    context.coordinator.updateOverlayProvider(overlayProvider)
     context.coordinator.apply(readingState)
   }
 
@@ -81,18 +85,25 @@ struct PDFKitView: UIViewRepresentable {
   final class Coordinator: NSObject {
     private weak var pdfView: PDFView?
     private var overlayBridge: PDFPageOverlayBridge?
+    private var annotationController: ReaderAnnotationInteractionController?
     private let onStateChanged: (PDFView) -> Void
+    private let annotationModel: ReaderAnnotationViewModel?
 
-    init(onStateChanged: @escaping (PDFView) -> Void) {
+    init(
+      onStateChanged: @escaping (PDFView) -> Void,
+      annotationModel: ReaderAnnotationViewModel?
+    ) {
       self.onStateChanged = onStateChanged
+      self.annotationModel = annotationModel
     }
 
     func attach(_ view: PDFView, overlayProvider: (any ReaderPageOverlayProviding)?) {
       pdfView = view
-      if let overlayProvider {
-        let bridge = PDFPageOverlayBridge(provider: overlayProvider)
-        overlayBridge = bridge
-        view.pageOverlayViewProvider = bridge
+      updateOverlayProvider(overlayProvider)
+      if let annotationView = view as? ReaderAnnotationPDFView, let annotationModel {
+        let controller = ReaderAnnotationInteractionController(model: annotationModel, pdfView: view)
+        annotationController = controller
+        annotationView.annotationController = controller
       }
 
       let center = NotificationCenter.default
@@ -108,6 +119,18 @@ struct PDFKitView: UIViewRepresentable {
         name: Notification.Name.PDFViewScaleChanged,
         object: view
       )
+    }
+
+    func updateOverlayProvider(_ provider: (any ReaderPageOverlayProviding)?) {
+      guard let view = pdfView else { return }
+      if let provider {
+        let bridge = PDFPageOverlayBridge(provider: provider)
+        overlayBridge = bridge
+        view.pageOverlayViewProvider = bridge
+      } else {
+        overlayBridge = nil
+        view.pageOverlayViewProvider = nil
+      }
     }
 
     @objc private func handleViewChanged(_ notification: Notification) {

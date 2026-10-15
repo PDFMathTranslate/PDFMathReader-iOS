@@ -1,5 +1,17 @@
 import Foundation
 
+public struct TranslationLanguageOption: Codable, Hashable, Sendable, Identifiable {
+  public let name: String
+  public let code: String
+
+  public var id: String { code }
+
+  public init(name: String, code: String) {
+    self.name = name
+    self.code = code
+  }
+}
+
 private let translationLanguageEntries: [(name: String, code: String)] = [
   ("Simplified Chinese", "zh"),
   ("Traditional Chinese", "zh-TW"),
@@ -53,6 +65,9 @@ private let translationLanguageEntries: [(name: String, code: String)] = [
   ("Hindi", "hi"),
   ("Persian", "fa"),
 ]
+
+public let translationLanguageOptions: [TranslationLanguageOption] =
+  translationLanguageEntries.map { TranslationLanguageOption(name: $0.name, code: $0.code) }
 
 public let LANGUAGE_CODES: [String: String] = Dictionary(
   uniqueKeysWithValues: translationLanguageEntries.map { ($0.name, $0.code) }

@@ -27,15 +27,22 @@ final class ReaderViewModel: ObservableObject {
   @Published var readingState: ReadingState
   @Published var searchQuery = ""
   @Published private(set) var searchResults: [SearchResult] = []
+  @Published private(set) var translationCoordinator: ReaderTranslationCoordinator?
 
   init(session: DocumentSession, library: LibraryModel) {
     self.session = session
     self.library = library
     self.readingState = library.readingState(for: session)
     self.document = PDFDocument(url: session.url)
+    self.translationCoordinator = nil
     if let document {
       library.updateDocumentMetadata(for: session, document: document)
       cacheThumbnail(document: document)
+      translationCoordinator = ReaderTranslationCoordinator(
+        document: document,
+        documentID: session.id,
+        preferences: library.preferences
+      )
     }
   }
 
@@ -140,6 +147,18 @@ final class ReaderViewModel: ObservableObject {
   func clearSearch() {
     searchQuery = ""
     searchResults = []
+  }
+
+  func updateTranslationPreferences(_ preferences: ReaderPreferences) {
+    translationCoordinator?.updatePreferences(preferences)
+  }
+
+  func toggleTranslations() {
+    translationCoordinator?.toggleTranslations()
+    guard let visible = translationCoordinator?.showTranslations else { return }
+    var preferences = library.preferences
+    preferences.showTranslations = visible
+    library.savePreferences(preferences)
   }
 
   func persistReadingState() {

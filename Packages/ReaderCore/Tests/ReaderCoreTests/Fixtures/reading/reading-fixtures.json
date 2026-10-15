@@ -1,0 +1,2209 @@
+{
+  "bionic": [
+    {
+      "fixation": [
+        {
+          "length": 3,
+          "word": "Reading"
+        },
+        {
+          "length": 3,
+          "word": "aids"
+        },
+        {
+          "length": 3,
+          "word": "make"
+        },
+        {
+          "length": 3,
+          "word": "complicated"
+        },
+        {
+          "length": 3,
+          "word": "words"
+        },
+        {
+          "length": 3,
+          "word": "easier."
+        }
+      ],
+      "normalized": {
+        "fixedLength": 3,
+        "mode": "fixed"
+      },
+      "options": {
+        "fixedLength": 3,
+        "mode": "fixed"
+      },
+      "ranges": [
+        {
+          "end": 3,
+          "start": 0
+        },
+        {
+          "end": 11,
+          "start": 8
+        },
+        {
+          "end": 16,
+          "start": 13
+        },
+        {
+          "end": 21,
+          "start": 18
+        },
+        {
+          "end": 33,
+          "start": 30
+        },
+        {
+          "end": 39,
+          "start": 36
+        }
+      ],
+      "segments": [
+        {
+          "bionic": true,
+          "end": 3,
+          "start": 0,
+          "text": "Rea"
+        },
+        {
+          "bionic": false,
+          "end": 8,
+          "start": 3,
+          "text": "ding "
+        },
+        {
+          "bionic": true,
+          "end": 11,
+          "start": 8,
+          "text": "aid"
+        },
+        {
+          "bionic": false,
+          "end": 13,
+          "start": 11,
+          "text": "s "
+        },
+        {
+          "bionic": true,
+          "end": 16,
+          "start": 13,
+          "text": "mak"
+        },
+        {
+          "bionic": false,
+          "end": 18,
+          "start": 16,
+          "text": "e "
+        },
+        {
+          "bionic": true,
+          "end": 21,
+          "start": 18,
+          "text": "com"
+        },
+        {
+          "bionic": false,
+          "end": 30,
+          "start": 21,
+          "text": "plicated "
+        },
+        {
+          "bionic": true,
+          "end": 33,
+          "start": 30,
+          "text": "wor"
+        },
+        {
+          "bionic": false,
+          "end": 36,
+          "start": 33,
+          "text": "ds "
+        },
+        {
+          "bionic": true,
+          "end": 39,
+          "start": 36,
+          "text": "eas"
+        },
+        {
+          "bionic": false,
+          "end": 43,
+          "start": 39,
+          "text": "ier."
+        }
+      ],
+      "text": "Reading aids make complicated words easier."
+    },
+    {
+      "fixation": [
+        {
+          "length": 6,
+          "word": "international"
+        },
+        {
+          "length": 5,
+          "word": "studies"
+        },
+        {
+          "length": 2,
+          "word": "don't"
+        },
+        {
+          "length": 3,
+          "word": "support"
+        },
+        {
+          "length": 1,
+          "word": "the"
+        },
+        {
+          "length": 2,
+          "word": "null"
+        },
+        {
+          "length": 3,
+          "word": "result"
+        }
+      ],
+      "normalized": {
+        "fixedLength": 3,
+        "mode": "root"
+      },
+      "options": {
+        "fixedLength": 3,
+        "mode": "root"
+      },
+      "ranges": [
+        {
+          "end": 6,
+          "start": 0
+        },
+        {
+          "end": 19,
+          "start": 14
+        },
+        {
+          "end": 24,
+          "start": 22
+        },
+        {
+          "end": 31,
+          "start": 28
+        },
+        {
+          "end": 37,
+          "start": 36
+        },
+        {
+          "end": 42,
+          "start": 40
+        },
+        {
+          "end": 48,
+          "start": 45
+        }
+      ],
+      "segments": [
+        {
+          "bionic": true,
+          "end": 6,
+          "start": 0,
+          "text": "intern"
+        },
+        {
+          "bionic": false,
+          "end": 14,
+          "start": 6,
+          "text": "ational "
+        },
+        {
+          "bionic": true,
+          "end": 19,
+          "start": 14,
+          "text": "studi"
+        },
+        {
+          "bionic": false,
+          "end": 22,
+          "start": 19,
+          "text": "es "
+        },
+        {
+          "bionic": true,
+          "end": 24,
+          "start": 22,
+          "text": "do"
+        },
+        {
+          "bionic": false,
+          "end": 28,
+          "start": 24,
+          "text": "n't "
+        },
+        {
+          "bionic": true,
+          "end": 31,
+          "start": 28,
+          "text": "sup"
+        },
+        {
+          "bionic": false,
+          "end": 36,
+          "start": 31,
+          "text": "port "
+        },
+        {
+          "bionic": true,
+          "end": 37,
+          "start": 36,
+          "text": "t"
+        },
+        {
+          "bionic": false,
+          "end": 40,
+          "start": 37,
+          "text": "he "
+        },
+        {
+          "bionic": true,
+          "end": 42,
+          "start": 40,
+          "text": "nu"
+        },
+        {
+          "bionic": false,
+          "end": 45,
+          "start": 42,
+          "text": "ll "
+        },
+        {
+          "bionic": true,
+          "end": 48,
+          "start": 45,
+          "text": "res"
+        },
+        {
+          "bionic": false,
+          "end": 51,
+          "start": 48,
+          "text": "ult"
+        }
+      ],
+      "text": "international studies don't support the null result"
+    },
+    {
+      "fixation": [
+        {
+          "length": 3,
+          "word": "中文阅读辅助工具与日本語テキスト"
+        }
+      ],
+      "normalized": {
+        "fixedLength": 3,
+        "mode": "fixed"
+      },
+      "options": {
+        "fixedLength": 3,
+        "mode": "fixed"
+      },
+      "ranges": [
+        {
+          "end": 1,
+          "start": 0
+        },
+        {
+          "end": 3,
+          "start": 2
+        },
+        {
+          "end": 5,
+          "start": 4
+        },
+        {
+          "end": 7,
+          "start": 6
+        },
+        {
+          "end": 11,
+          "start": 9
+        },
+        {
+          "end": 15,
+          "start": 12
+        }
+      ],
+      "segments": [
+        {
+          "bionic": true,
+          "end": 1,
+          "start": 0,
+          "text": "中"
+        },
+        {
+          "bionic": false,
+          "end": 2,
+          "start": 1,
+          "text": "文"
+        },
+        {
+          "bionic": true,
+          "end": 3,
+          "start": 2,
+          "text": "阅"
+        },
+        {
+          "bionic": false,
+          "end": 4,
+          "start": 3,
+          "text": "读"
+        },
+        {
+          "bionic": true,
+          "end": 5,
+          "start": 4,
+          "text": "辅"
+        },
+        {
+          "bionic": false,
+          "end": 6,
+          "start": 5,
+          "text": "助"
+        },
+        {
+          "bionic": true,
+          "end": 7,
+          "start": 6,
+          "text": "工"
+        },
+        {
+          "bionic": false,
+          "end": 9,
+          "start": 7,
+          "text": "具与"
+        },
+        {
+          "bionic": true,
+          "end": 11,
+          "start": 9,
+          "text": "日本"
+        },
+        {
+          "bionic": false,
+          "end": 12,
+          "start": 11,
+          "text": "語"
+        },
+        {
+          "bionic": true,
+          "end": 15,
+          "start": 12,
+          "text": "テキス"
+        },
+        {
+          "bionic": false,
+          "end": 16,
+          "start": 15,
+          "text": "ト"
+        }
+      ],
+      "text": "中文阅读辅助工具与日本語テキスト"
+    },
+    {
+      "fixation": [
+        {
+          "length": 1,
+          "word": "A🙂é"
+        },
+        {
+          "length": 0,
+          "word": "42"
+        },
+        {
+          "length": 0,
+          "word": "—"
+        },
+        {
+          "length": 2,
+          "word": "naïve"
+        }
+      ],
+      "normalized": {
+        "fixedLength": 3,
+        "mode": "root"
+      },
+      "options": {
+        "mode": "root"
+      },
+      "ranges": [
+        {
+          "end": 1,
+          "start": 0
+        },
+        {
+          "end": 5,
+          "start": 3
+        },
+        {
+          "end": 13,
+          "start": 11
+        }
+      ],
+      "segments": [
+        {
+          "bionic": true,
+          "end": 1,
+          "start": 0,
+          "text": "A"
+        },
+        {
+          "bionic": false,
+          "end": 3,
+          "start": 1,
+          "text": "🙂"
+        },
+        {
+          "bionic": true,
+          "end": 5,
+          "start": 3,
+          "text": "é"
+        },
+        {
+          "bionic": false,
+          "end": 11,
+          "start": 5,
+          "text": " 42 — "
+        },
+        {
+          "bionic": true,
+          "end": 13,
+          "start": 11,
+          "text": "na"
+        },
+        {
+          "bionic": false,
+          "end": 16,
+          "start": 13,
+          "text": "ïve"
+        }
+      ],
+      "text": "A🙂é 42 — naïve"
+    },
+    {
+      "fixation": [
+        {
+          "length": 0,
+          "word": "edge"
+        }
+      ],
+      "normalized": {
+        "fixedLength": 6,
+        "mode": "off"
+      },
+      "options": {
+        "fixedLength": 9,
+        "mode": "off"
+      },
+      "ranges": [],
+      "segments": [
+        {
+          "bionic": false,
+          "end": 4,
+          "start": 0,
+          "text": "edge"
+        }
+      ],
+      "text": "edge"
+    }
+  ],
+  "bionicRuns": {
+    "fixed": [
+      {
+        "end": 3,
+        "index": 0,
+        "start": 0
+      },
+      {
+        "end": 12,
+        "index": 1,
+        "start": 9
+      },
+      {
+        "end": 2,
+        "index": 2,
+        "start": 0
+      },
+      {
+        "end": 7,
+        "index": 2,
+        "start": 4
+      }
+    ],
+    "input": [
+      {
+        "height": 12,
+        "text": "inter-",
+        "width": 40,
+        "x": 40,
+        "y": 30
+      },
+      {
+        "height": 12,
+        "text": "national results",
+        "width": 110,
+        "x": 40,
+        "y": 46
+      },
+      {
+        "height": 12,
+        "text": "are higher",
+        "width": 75,
+        "x": 170,
+        "y": 46
+      }
+    ],
+    "root": [
+      {
+        "end": 6,
+        "index": 0,
+        "start": 0
+      },
+      {
+        "end": 1,
+        "index": 1,
+        "start": 0
+      },
+      {
+        "end": 15,
+        "index": 1,
+        "start": 9
+      },
+      {
+        "end": 1,
+        "index": 2,
+        "start": 0
+      },
+      {
+        "end": 7,
+        "index": 2,
+        "start": 4
+      }
+    ]
+  },
+  "compaction": {
+    "cuts": [
+      {
+        "end": 28,
+        "start": 18
+      }
+    ],
+    "mapped": [
+      23
+    ],
+    "rect": {
+      "height": 22,
+      "width": 10,
+      "x": 1,
+      "y": 18
+    },
+    "trailing": {
+      "end": 46,
+      "start": 40
+    },
+    "typical": 12
+  },
+  "fonts": [
+    {
+      "family": "",
+      "font": "",
+      "language": "",
+      "serif": false,
+      "stripped": "",
+      "valid": true
+    },
+    {
+      "family": "\"Iowan Old Style\", \"Georgia\", \"Times New Roman\", \"Hiragino Mincho ProN\", \"Yu Mincho\", \"Noto Serif CJK JP\", serif",
+      "font": "",
+      "language": "Japanese",
+      "serif": true,
+      "stripped": "",
+      "valid": true
+    },
+    {
+      "family": "\"My Font\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
+      "font": "My Font",
+      "language": "en",
+      "serif": false,
+      "stripped": "My Font",
+      "valid": true
+    },
+    {
+      "family": "\"badfont\", \"Iowan Old Style\", \"Georgia\", \"Times New Roman\", \"Songti TC\", \"PMingLiU\", \"Noto Serif CJK TC\", serif",
+      "font": "bad;font",
+      "language": "Traditional Chinese",
+      "serif": true,
+      "stripped": "badfont",
+      "valid": false
+    }
+  ],
+  "information": [
+    {
+      "ranges": [
+        {
+          "category": "ordinals",
+          "end": 9,
+          "start": 4
+        },
+        {
+          "category": "results",
+          "end": 16,
+          "start": 10
+        },
+        {
+          "category": "results",
+          "end": 32,
+          "start": 21
+        },
+        {
+          "category": "logic",
+          "end": 41,
+          "start": 34
+        },
+        {
+          "category": "results",
+          "end": 55,
+          "start": 47
+        },
+        {
+          "category": "discovery",
+          "end": 72,
+          "start": 56
+        },
+        {
+          "category": "comparison",
+          "end": 81,
+          "start": 75
+        },
+        {
+          "category": "results",
+          "end": 93,
+          "start": 82
+        }
+      ],
+      "segments": [
+        {
+          "end": 4,
+          "important": false,
+          "start": 0,
+          "text": "The ",
+          "topic": true
+        },
+        {
+          "end": 9,
+          "important": true,
+          "start": 4,
+          "text": "first",
+          "topic": true
+        },
+        {
+          "end": 10,
+          "important": false,
+          "start": 9,
+          "text": " ",
+          "topic": true
+        },
+        {
+          "end": 12,
+          "important": true,
+          "start": 10,
+          "text": "re",
+          "topic": true
+        },
+        {
+          "end": 16,
+          "important": true,
+          "start": 12,
+          "text": "sult",
+          "topic": false
+        },
+        {
+          "end": 21,
+          "important": false,
+          "start": 16,
+          "text": " was ",
+          "topic": false
+        },
+        {
+          "end": 32,
+          "important": true,
+          "start": 21,
+          "text": "significant",
+          "topic": false
+        },
+        {
+          "end": 34,
+          "important": false,
+          "start": 32,
+          "text": "; ",
+          "topic": false
+        },
+        {
+          "end": 41,
+          "important": true,
+          "start": 34,
+          "text": "however",
+          "topic": false
+        },
+        {
+          "end": 47,
+          "important": false,
+          "start": 41,
+          "text": ", the ",
+          "topic": false
+        },
+        {
+          "end": 55,
+          "important": true,
+          "start": 47,
+          "text": "evidence",
+          "topic": false
+        },
+        {
+          "end": 56,
+          "important": false,
+          "start": 55,
+          "text": " ",
+          "topic": false
+        },
+        {
+          "end": 72,
+          "important": true,
+          "start": 56,
+          "text": "does not support",
+          "topic": false
+        },
+        {
+          "end": 75,
+          "important": false,
+          "start": 72,
+          "text": " a ",
+          "topic": false
+        },
+        {
+          "end": 81,
+          "important": true,
+          "start": 75,
+          "text": "higher",
+          "topic": false
+        },
+        {
+          "end": 82,
+          "important": false,
+          "start": 81,
+          "text": " ",
+          "topic": false
+        },
+        {
+          "end": 93,
+          "important": true,
+          "start": 82,
+          "text": "effect size",
+          "topic": false
+        },
+        {
+          "end": 94,
+          "important": false,
+          "start": 93,
+          "text": ".",
+          "topic": false
+        }
+      ],
+      "text": "The first result was significant; however, the evidence does not support a higher effect size."
+    },
+    {
+      "ranges": [
+        {
+          "category": "results",
+          "end": 4,
+          "start": 0
+        },
+        {
+          "category": "discovery",
+          "end": 6,
+          "start": 4
+        },
+        {
+          "category": "results",
+          "end": 8,
+          "start": 6
+        },
+        {
+          "category": "comparison",
+          "end": 10,
+          "start": 8
+        },
+        {
+          "category": "logic",
+          "end": 13,
+          "start": 11
+        },
+        {
+          "category": "results",
+          "end": 15,
+          "start": 13
+        },
+        {
+          "category": "discovery",
+          "end": 18,
+          "start": 15
+        },
+        {
+          "category": "comparison",
+          "end": 20,
+          "start": 18
+        },
+        {
+          "category": "results",
+          "end": 23,
+          "start": 20
+        }
+      ],
+      "segments": [
+        {
+          "end": 4,
+          "important": true,
+          "start": 0,
+          "text": "研究结果",
+          "topic": true
+        },
+        {
+          "end": 6,
+          "important": true,
+          "start": 4,
+          "text": "显示",
+          "topic": true
+        },
+        {
+          "end": 8,
+          "important": true,
+          "start": 6,
+          "text": "显著",
+          "topic": true
+        },
+        {
+          "end": 10,
+          "important": true,
+          "start": 8,
+          "text": "差异",
+          "topic": true
+        },
+        {
+          "end": 11,
+          "important": false,
+          "start": 10,
+          "text": "，",
+          "topic": true
+        },
+        {
+          "end": 12,
+          "important": true,
+          "start": 11,
+          "text": "但",
+          "topic": true
+        },
+        {
+          "end": 13,
+          "important": true,
+          "start": 12,
+          "text": "是",
+          "topic": false
+        },
+        {
+          "end": 15,
+          "important": true,
+          "start": 13,
+          "text": "证据",
+          "topic": false
+        },
+        {
+          "end": 18,
+          "important": true,
+          "start": 15,
+          "text": "不支持",
+          "topic": false
+        },
+        {
+          "end": 20,
+          "important": true,
+          "start": 18,
+          "text": "更高",
+          "topic": false
+        },
+        {
+          "end": 23,
+          "important": true,
+          "start": 20,
+          "text": "效应量",
+          "topic": false
+        },
+        {
+          "end": 24,
+          "important": false,
+          "start": 23,
+          "text": "。",
+          "topic": false
+        }
+      ],
+      "text": "研究结果显示显著差异，但是证据不支持更高效应量。"
+    },
+    {
+      "ranges": [
+        {
+          "category": "discovery",
+          "end": 10,
+          "start": 0
+        },
+        {
+          "category": "discovery",
+          "end": 19,
+          "start": 11
+        },
+        {
+          "category": "discovery",
+          "end": 29,
+          "start": 20
+        },
+        {
+          "category": "comparison",
+          "end": 52,
+          "start": 39
+        },
+        {
+          "category": "comparison",
+          "end": 59,
+          "start": 53
+        }
+      ],
+      "segments": [
+        {
+          "end": 10,
+          "important": true,
+          "start": 0,
+          "text": "supporting",
+          "topic": true
+        },
+        {
+          "end": 11,
+          "important": false,
+          "start": 10,
+          "text": " ",
+          "topic": true
+        },
+        {
+          "end": 12,
+          "important": true,
+          "start": 11,
+          "text": "s",
+          "topic": true
+        },
+        {
+          "end": 19,
+          "important": true,
+          "start": 12,
+          "text": "upports",
+          "topic": false
+        },
+        {
+          "end": 20,
+          "important": false,
+          "start": 19,
+          "text": " ",
+          "topic": false
+        },
+        {
+          "end": 29,
+          "important": true,
+          "start": 20,
+          "text": "supported",
+          "topic": false
+        },
+        {
+          "end": 39,
+          "important": false,
+          "start": 29,
+          "text": "; compare ",
+          "topic": false
+        },
+        {
+          "end": 52,
+          "important": true,
+          "start": 39,
+          "text": "compared with",
+          "topic": false
+        },
+        {
+          "end": 53,
+          "important": false,
+          "start": 52,
+          "text": " ",
+          "topic": false
+        },
+        {
+          "end": 59,
+          "important": true,
+          "start": 53,
+          "text": "higher",
+          "topic": false
+        }
+      ],
+      "text": "supporting supports supported; compare compared with higher"
+    },
+    {
+      "ranges": [
+        {
+          "category": "results",
+          "end": 10,
+          "start": 4
+        },
+        {
+          "category": "results",
+          "end": 27,
+          "start": 21
+        }
+      ],
+      "segments": [
+        {
+          "end": 4,
+          "important": false,
+          "start": 0,
+          "text": "not-",
+          "topic": true
+        },
+        {
+          "end": 10,
+          "important": true,
+          "start": 4,
+          "text": "result",
+          "topic": true
+        },
+        {
+          "end": 12,
+          "important": false,
+          "start": 10,
+          "text": ", ",
+          "topic": true
+        },
+        {
+          "end": 21,
+          "important": false,
+          "start": 12,
+          "text": "result2, ",
+          "topic": false
+        },
+        {
+          "end": 27,
+          "important": true,
+          "start": 21,
+          "text": "result",
+          "topic": false
+        }
+      ],
+      "text": "not-result, result2, result"
+    }
+  ],
+  "informationRuns": [
+    {
+      "category": "results",
+      "end": 16,
+      "index": 1,
+      "start": 9
+    },
+    {
+      "category": "comparison",
+      "end": 10,
+      "index": 2,
+      "start": 4
+    }
+  ],
+  "links": [
+    {
+      "emails": [
+        "author@example.edu"
+      ],
+      "links": [
+        "https://example.org/paper"
+      ],
+      "text": "Read https://example.org/paper, email author@example.edu."
+    },
+    {
+      "emails": [],
+      "links": [
+        "https://doi.org/10.1000/test"
+      ],
+      "text": "Wrapped https://doi.\norg/10.1000/test."
+    },
+    {
+      "emails": [],
+      "links": [
+        "https://www.example.com/path?q=1"
+      ],
+      "text": "(www.example.com/path?q=1), www.example.com/path?q=1"
+    },
+    {
+      "emails": [
+        "person@example.org",
+        "second@example.org"
+      ],
+      "links": [],
+      "text": "mailto:person@example.org and second@example.org"
+    }
+  ],
+  "pdfToc": {
+    "precise-compaction.pdf": {
+      "generated": {
+        "items": [],
+        "source": null
+      },
+      "pages": [
+        {
+          "height": 792,
+          "lines": [
+            {
+              "body": null,
+              "bold": false,
+              "chars": 38,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 525.77741,
+              "size": 11.9552,
+              "text": "在此环境中。首先需要注意的是，单位级因果效应的无条件平均值 τi 没有实际意义，",
+              "x": 79.2,
+              "y": 75.84680000000002
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 31,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 449.8111999999998,
+              "size": 11.9552,
+              "text": "因为处理措施并非以系统方式排序，因此无条件平均值在构造上为零。",
+              "x": 79.2,
+              "y": 95.93808
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 24,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 332.408267,
+              "size": 11.9552,
+              "text": "LEMMA 1. 假设随机分配（假设 1）成立。那么",
+              "x": 79.2,
+              "y": 140.73938399999994
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 37,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 416.47618700000004,
+              "size": 11.9552,
+              "text": "E[τ |A (0), A (1), Y (A (0)), Y (A (1)), X ] = 0.",
+              "x": 195.529,
+              "y": 174.4588
+            },
+            {
+              "body": "i i i i i i i",
+              "bold": false,
+              "chars": 8,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": "i",
+              "right": 390.073593,
+              "size": 9.9626,
+              "text": "i i i i i i i i",
+              "x": 212.653,
+              "y": 179.80540000000002
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 36,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 525.7774099999999,
+              "size": 11.9552,
+              "text": "相反，我们关注 τi 的条件或加权平均值。这些权重取决于潜在治疗特征的函数，",
+              "x": 103.11040000000001,
+              "y": 203.86879999999996
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 40,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 535.528549376,
+              "size": 11.9552,
+              "text": "也可能取决于单位级特征。我们将这些平均值称为条件治疗平均因果效应，或 C-TACE",
+              "x": 79.2,
+              "y": 223.00366400000004
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 17,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 275.505819,
+              "size": 11.9552,
+              "text": "s，并在下一节中对其进行正式定义。",
+              "x": 79.2,
+              "y": 239.74094399999998
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 24,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 352.264361,
+              "size": 15.493896,
+              "text": "4. Estimands，处理特征函数与识别结果",
+              "x": 100.053,
+              "y": 299.35810399999997
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 53,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 532.210509,
+              "size": 11.9552,
+              "text": "令 h : Rd ×Rd 7→ R p 为一个反对称函数，即 h(v, v′) = −h(v′, v)。一个自然的例子是差",
+              "x": 79.2,
+              "y": 355.3494
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 49,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 526.622827,
+              "size": 11.9552,
+              "text": "异 h(v, v′) = v−v′。我们将其称为特征处理函数或 TCF。函数 h(v, v′) 在我们的分析中",
+              "x": 79.2,
+              "y": 372.08668
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 38,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 533.4975999999998,
+              "size": 11.9552,
+              "text": "起着至关重要的作用。它定义了我们特征化处理的方向，并隐含地定义了该处理。这是",
+              "x": 79.2,
+              "y": 391.17036
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 21,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 330.2591999999999,
+              "size": 11.9552,
+              "text": "研究人员的一项重要选择，也是关键性的选择。",
+              "x": 79.2,
+              "y": 407.90764
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 51,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 534.4987001279999,
+              "size": 12.911616,
+              "text": "TCF 定义了子群体 Ph(δ) ≡ {i : h(Vi, V Ni ) = δ}。假设 Vi 取两个值 0 和 1，且 h(",
+              "x": 103.1104,
+              "y": 443.9778
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 57,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 528.663369,
+              "size": 12.911616,
+              "text": "v, v′) = 1[v = 1, v′ = 0] − 1[v = 0, v′ = 1]。那么 Ph(1) 是那些 Vi = 1，V Ni = 0 的单元",
+              "x": 79.2,
+              "y": 460.71508
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 43,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 530.2481769999999,
+              "size": 11.9552,
+              "text": "子群体，而 Ph(−1) 是那些 Vi = 0，V Ni = 1 的单元子群体。关键发现是，这两个子群",
+              "x": 79.2,
+              "y": 477.45236
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 47,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 532.745857,
+              "size": 11.9552,
+              "text": "体 Ph(1) 和 Ph(−1)，以及更一般地，子群体 Ph(δ) 和 Ph(−δ)，可以通过随机化进行比",
+              "x": 79.2,
+              "y": 494.18864
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 2,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 103.1104,
+              "size": 11.9552,
+              "text": "较。",
+              "x": 79.2,
+              "y": 514.28092
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 37,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 531.9520319999999,
+              "size": 11.9552,
+              "text": "鉴于 TCF 的存在，我们可以定义我们的基本估计量，即条件治疗平均因果效应 (C",
+              "x": 103.11040000000001,
+              "y": 536.011384
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 7,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 133.466566,
+              "size": 12.911616,
+              "text": "-TACE)。",
+              "x": 79.2,
+              "y": 550.357624
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 39,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 462.118344,
+              "size": 11.9552,
+              "text": "定义 2. （条件性治疗——平均因果效应）对于给定的 TCF h(v, v′) 和给定",
+              "x": 79.2,
+              "y": 579.1904000000001
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 14,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 221.95560899999998,
+              "size": 12.911616,
+              "text": "的特征差异 δ，C-TACE 为",
+              "x": 79.2,
+              "y": 594.9256240000001
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 21,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 376.15789399999994,
+              "size": 11.9552,
+              "text": "τ (δ) ≡ E[τ |h(V , VN) = δ].",
+              "x": 235.847,
+              "y": 629.2824
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 4,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 339.043593,
+              "size": 9.9626,
+              "text": "h i i i",
+              "x": 241.992,
+              "y": 637.5734000000001
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 40,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 532.15117,
+              "size": 11.9552,
+              "text": "在之前的示例中，有一个单一的二进制特征 Vi，τh(1) 表示那些被给予特征 Vi = 1",
+              "x": 103.11040000000001,
+              "y": 661.6358
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 36,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 485.805438,
+              "size": 11.9552,
+              "text": "治疗的单元的平均治疗效果，而它们的替代未实现治疗则具有特征 V Ni = 0。",
+              "x": 79.2,
+              "y": 680.770664
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 2,
+              "page": 1,
+              "pageHeight": 792,
+              "pageWidth": 612,
+              "printed": null,
+              "right": 311.1643518,
+              "size": 11.9552,
+              "text": "17",
+              "x": 300.584,
+              "y": 751.2438
+            }
+          ],
+          "number": 1,
+          "width": 612
+        }
+      ]
+    },
+    "sample.pdf": {
+      "generated": {
+        "items": [],
+        "source": null
+      },
+      "pages": [
+        {
+          "height": 842,
+          "lines": [
+            {
+              "body": null,
+              "bold": false,
+              "chars": 50,
+              "page": 1,
+              "pageHeight": 842,
+              "pageWidth": 595,
+              "printed": null,
+              "right": 473.75270000000006,
+              "size": 16,
+              "text": "The grass-blade is worthy of the great world where it grows.",
+              "x": 76.405,
+              "y": 499.10699999999997
+            },
+            {
+              "body": null,
+              "bold": false,
+              "chars": 29,
+              "page": 1,
+              "pageHeight": 842,
+              "pageWidth": 595,
+              "printed": null,
+              "right": 291.22940000000006,
+              "size": 16,
+              "text": "Rabindranath Tagore, Stray Birds",
+              "x": 76.381,
+              "y": 536.867
+            }
+          ],
+          "number": 1,
+          "width": 595
+        }
+      ]
+    }
+  },
+  "termCorpus": {
+    "addA": {
+      "documents": 1,
+      "terms": 3
+    },
+    "addB": {
+      "documents": 2,
+      "terms": 3
+    },
+    "addC": {
+      "documents": 2,
+      "terms": 3
+    },
+    "documents": 2,
+    "frequencies": {
+      "documents": 1,
+      "frequencies": [
+        0,
+        1,
+        1,
+        0
+      ]
+    },
+    "touchA": {
+      "known": true
+    },
+    "touchEvicted": {
+      "known": false
+    }
+  },
+  "tfidf": [
+    {
+      "ranges": [
+        {
+          "end": 16,
+          "start": 9,
+          "strength": 1
+        },
+        {
+          "end": 38,
+          "start": 31,
+          "strength": 1
+        },
+        {
+          "end": 43,
+          "start": 39,
+          "strength": 0.7
+        }
+      ],
+      "set": [
+        "rareword",
+        "appears",
+        "twice",
+        "common",
+        "once"
+      ],
+      "term": [
+        {
+          "end": 8,
+          "start": 0,
+          "term": "rareword"
+        },
+        {
+          "end": 16,
+          "start": 9,
+          "term": "appears"
+        },
+        {
+          "end": 22,
+          "start": 17,
+          "term": "twice"
+        },
+        {
+          "end": 30,
+          "start": 24,
+          "term": "common"
+        },
+        {
+          "end": 38,
+          "start": 31,
+          "term": "appears"
+        },
+        {
+          "end": 43,
+          "start": 39,
+          "term": "once"
+        }
+      ],
+      "text": "Rareword appears twice; common appears once."
+    },
+    {
+      "ranges": [
+        {
+          "end": 8,
+          "start": 5,
+          "strength": 1
+        },
+        {
+          "end": 21,
+          "start": 17,
+          "strength": 0.7
+        }
+      ],
+      "set": [
+        "中文",
+        "词语",
+        "and",
+        "unicode",
+        "café"
+      ],
+      "term": [
+        {
+          "end": 2,
+          "start": 0,
+          "term": "中文"
+        },
+        {
+          "end": 4,
+          "start": 2,
+          "term": "词语"
+        },
+        {
+          "end": 8,
+          "start": 5,
+          "term": "and"
+        },
+        {
+          "end": 16,
+          "start": 9,
+          "term": "unicode"
+        },
+        {
+          "end": 21,
+          "start": 17,
+          "term": "café"
+        }
+      ],
+      "text": "中文词语 and Unicode café."
+    },
+    {
+      "ranges": [
+        {
+          "end": 10,
+          "start": 0,
+          "strength": 0.7
+        },
+        {
+          "end": 19,
+          "start": 16,
+          "strength": 1
+        }
+      ],
+      "set": [
+        "hyphenated",
+        "word",
+        "and",
+        "naïve",
+        "terms"
+      ],
+      "term": [
+        {
+          "end": 10,
+          "start": 0,
+          "term": "hyphenated"
+        },
+        {
+          "end": 15,
+          "start": 11,
+          "term": "word"
+        },
+        {
+          "end": 19,
+          "start": 16,
+          "term": "and"
+        },
+        {
+          "end": 25,
+          "start": 20,
+          "term": "naïve"
+        },
+        {
+          "end": 31,
+          "start": 26,
+          "term": "terms"
+        }
+      ],
+      "text": "hyphenated-word and naïve terms."
+    }
+  ],
+  "tfidfRuns": {
+    "ranges": [
+      {
+        "end": 3,
+        "index": 2,
+        "start": 0,
+        "strength": 1
+      },
+      {
+        "end": 10,
+        "index": 2,
+        "start": 4,
+        "strength": 0.7
+      }
+    ],
+    "text": {
+      "logical": "international results are higher",
+      "parts": [
+        {
+          "end": 6,
+          "index": 0,
+          "start": 0
+        },
+        {
+          "end": 21,
+          "index": 1,
+          "start": 5
+        },
+        {
+          "end": 32,
+          "index": 2,
+          "start": 22
+        }
+      ],
+      "terms": [
+        "international",
+        "results",
+        "are",
+        "higher"
+      ]
+    }
+  },
+  "tfidfSample": [],
+  "toc": {
+    "generated": {
+      "items": [
+        {
+          "depth": 0,
+          "id": "0",
+          "page": 1,
+          "source": "heuristic",
+          "title": "1. Introduction ........ 1"
+        },
+        {
+          "depth": 0,
+          "id": "1",
+          "page": 1,
+          "source": "heuristic",
+          "title": "2. Methods ........ 4"
+        },
+        {
+          "depth": 0,
+          "id": "2",
+          "page": 1,
+          "source": "heuristic",
+          "title": "3. Results ........ 8"
+        },
+        {
+          "depth": 0,
+          "id": "3",
+          "page": 2,
+          "source": "heuristic",
+          "title": "Introduction"
+        },
+        {
+          "depth": 0,
+          "id": "4",
+          "page": 3,
+          "source": "heuristic",
+          "title": "Methods"
+        },
+        {
+          "depth": 0,
+          "id": "5",
+          "page": 4,
+          "source": "heuristic",
+          "title": "Results"
+        }
+      ],
+      "source": "heuristic"
+    },
+    "pages": [
+      {
+        "height": 500,
+        "lines": [
+          {
+            "body": null,
+            "bold": true,
+            "chars": 8,
+            "page": 1,
+            "pageHeight": 500,
+            "pageWidth": 400,
+            "printed": null,
+            "right": 150,
+            "size": 16,
+            "text": "Contents",
+            "x": 60,
+            "y": 370
+          },
+          {
+            "body": "1. Introduction ........",
+            "bold": false,
+            "chars": 24,
+            "page": 1,
+            "pageHeight": 500,
+            "pageWidth": 400,
+            "printed": "1",
+            "right": 328,
+            "size": 12,
+            "text": "1. Introduction ........ 1",
+            "x": 60,
+            "y": 400
+          },
+          {
+            "body": "2. Methods ........",
+            "bold": false,
+            "chars": 19,
+            "page": 1,
+            "pageHeight": 500,
+            "pageWidth": 400,
+            "printed": "4",
+            "right": 328,
+            "size": 12,
+            "text": "2. Methods ........ 4",
+            "x": 60,
+            "y": 420
+          },
+          {
+            "body": "3. Results ........",
+            "bold": false,
+            "chars": 19,
+            "page": 1,
+            "pageHeight": 500,
+            "pageWidth": 400,
+            "printed": "8",
+            "right": 328,
+            "size": 12,
+            "text": "3. Results ........ 8",
+            "x": 60,
+            "y": 440
+          }
+        ],
+        "number": 1,
+        "width": 400
+      },
+      {
+        "height": 500,
+        "lines": [
+          {
+            "bold": true,
+            "chars": 12,
+            "page": 2,
+            "pageHeight": 500,
+            "pageWidth": 400,
+            "right": 160,
+            "size": 16,
+            "text": "Introduction",
+            "width": 100,
+            "x": 60,
+            "y": 60
+          }
+        ],
+        "number": 2,
+        "width": 400
+      },
+      {
+        "height": 500,
+        "lines": [
+          {
+            "bold": true,
+            "chars": 7,
+            "page": 3,
+            "pageHeight": 500,
+            "pageWidth": 400,
+            "right": 130,
+            "size": 16,
+            "text": "Methods",
+            "width": 70,
+            "x": 60,
+            "y": 60
+          }
+        ],
+        "number": 3,
+        "width": 400
+      },
+      {
+        "height": 500,
+        "lines": [
+          {
+            "bold": true,
+            "chars": 7,
+            "page": 4,
+            "pageHeight": 500,
+            "pageWidth": 400,
+            "right": 125,
+            "size": 16,
+            "text": "Results",
+            "width": 65,
+            "x": 60,
+            "y": 60
+          }
+        ],
+        "number": 4,
+        "width": 400
+      }
+    ],
+    "syntheticItems": [
+      {
+        "bold": true,
+        "size": 16,
+        "text": "Contents",
+        "width": 90,
+        "x": 60,
+        "y": 370
+      },
+      {
+        "bold": false,
+        "size": 12,
+        "text": "1. Introduction",
+        "width": 120,
+        "x": 60,
+        "y": 400
+      },
+      {
+        "bold": false,
+        "size": 12,
+        "text": "........",
+        "width": 50,
+        "x": 220,
+        "y": 400
+      },
+      {
+        "bold": false,
+        "size": 12,
+        "text": "1",
+        "width": 8,
+        "x": 320,
+        "y": 400
+      },
+      {
+        "bold": false,
+        "size": 12,
+        "text": "2. Methods",
+        "width": 100,
+        "x": 60,
+        "y": 420
+      },
+      {
+        "bold": false,
+        "size": 12,
+        "text": "........",
+        "width": 50,
+        "x": 220,
+        "y": 420
+      },
+      {
+        "bold": false,
+        "size": 12,
+        "text": "4",
+        "width": 8,
+        "x": 320,
+        "y": 420
+      },
+      {
+        "bold": false,
+        "size": 12,
+        "text": "3. Results",
+        "width": 95,
+        "x": 60,
+        "y": 440
+      },
+      {
+        "bold": false,
+        "size": 12,
+        "text": "........",
+        "width": 50,
+        "x": 220,
+        "y": 440
+      },
+      {
+        "bold": false,
+        "size": 12,
+        "text": "8",
+        "width": 8,
+        "x": 320,
+        "y": 440
+      }
+    ],
+    "syntheticLines": [
+      {
+        "body": null,
+        "bold": true,
+        "chars": 8,
+        "page": 1,
+        "pageHeight": 500,
+        "pageWidth": 400,
+        "printed": null,
+        "right": 150,
+        "size": 16,
+        "text": "Contents",
+        "x": 60,
+        "y": 370
+      },
+      {
+        "body": "1. Introduction ........",
+        "bold": false,
+        "chars": 24,
+        "page": 1,
+        "pageHeight": 500,
+        "pageWidth": 400,
+        "printed": "1",
+        "right": 328,
+        "size": 12,
+        "text": "1. Introduction ........ 1",
+        "x": 60,
+        "y": 400
+      },
+      {
+        "body": "2. Methods ........",
+        "bold": false,
+        "chars": 19,
+        "page": 1,
+        "pageHeight": 500,
+        "pageWidth": 400,
+        "printed": "4",
+        "right": 328,
+        "size": 12,
+        "text": "2. Methods ........ 4",
+        "x": 60,
+        "y": 420
+      },
+      {
+        "body": "3. Results ........",
+        "bold": false,
+        "chars": 19,
+        "page": 1,
+        "pageHeight": 500,
+        "pageWidth": 400,
+        "printed": "8",
+        "right": 328,
+        "size": 12,
+        "text": "3. Results ........ 8",
+        "x": 60,
+        "y": 440
+      }
+    ]
+  },
+  "topic": [
+    {
+      "first": 16,
+      "length": 0,
+      "text": "Short paragraph."
+    },
+    {
+      "first": 81,
+      "length": 0,
+      "text": "This is a long sentence with enough words to trigger the topic sentence detector. This is a long sentence with enough words to trigger the topic sentence detector. A second sentence follows here."
+    },
+    {
+      "first": 21,
+      "length": 21,
+      "text": "这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。这是一个很长的中文句子用于测试主题句检测。第二个句子在这里。"
+    },
+    {
+      "first": 32,
+      "length": 0,
+      "text": "Dr. Smith reported 3.14 results. A second sentence follows."
+    }
+  ],
+  "topicBoxes": [
+    {
+      "eligible": true,
+      "height": 40,
+      "id": 7,
+      "width": 380,
+      "x": 35,
+      "y": 35
+    }
+  ],
+  "topicParagraphs": [
+    {
+      "firstSentence": "This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose .",
+      "ranges": [
+        {
+          "end": 631,
+          "index": 0,
+          "start": 0
+        }
+      ],
+      "text": "This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose . A second sentence follows here."
+    }
+  ],
+  "topicRuns": [
+    {
+      "height": 12,
+      "text": "This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose This is a long sentence with enough words to trigger the topic sentence detector and keep the paragraph intentionally verbose . ",
+      "width": 350,
+      "x": 40,
+      "y": 40
+    },
+    {
+      "height": 12,
+      "text": "A second sentence follows here.",
+      "width": 190,
+      "x": 40,
+      "y": 56
+    }
+  ],
+  "version": "0.1.11"
+}
