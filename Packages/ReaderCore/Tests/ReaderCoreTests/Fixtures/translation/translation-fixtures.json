@@ -1,0 +1,691 @@
+{
+  "version": "0.1.11",
+  "languages": {
+    "codes": {
+      "Simplified Chinese": "zh",
+      "Traditional Chinese": "zh-TW",
+      "English": "en",
+      "Japanese": "ja",
+      "Korean": "ko",
+      "French": "fr",
+      "German": "de",
+      "Spanish": "es",
+      "Russian": "ru",
+      "Italian": "it",
+      "Portuguese": "pt",
+      "Brazilian Portuguese": "pt-BR",
+      "Traditional Chinese (Hong Kong)": "zh-HK",
+      "Polish": "pl",
+      "Dutch": "nl",
+      "Ukrainian": "uk",
+      "Czech": "cs",
+      "Romanian": "ro",
+      "Hungarian": "hu",
+      "Slovak": "sk",
+      "Croatian": "hr",
+      "Slovenian": "sl",
+      "Bulgarian": "bg",
+      "Serbian": "sr",
+      "Greek": "el",
+      "Swedish": "sv",
+      "Danish": "da",
+      "Norwegian": "no",
+      "Finnish": "fi",
+      "Icelandic": "is",
+      "Estonian": "et",
+      "Latvian": "lv",
+      "Lithuanian": "lt",
+      "Turkish": "tr",
+      "Vietnamese": "vi",
+      "Indonesian": "id",
+      "Malay": "ms",
+      "Filipino": "tl",
+      "Thai": "th",
+      "Catalan": "ca",
+      "Irish": "ga",
+      "Albanian": "sq",
+      "Afrikaans": "af",
+      "Swahili": "sw",
+      "Armenian": "hy",
+      "Georgian": "ka",
+      "Mongolian": "mn",
+      "Arabic": "ar",
+      "Hebrew": "he",
+      "Hindi": "hi",
+      "Persian": "fa"
+    },
+    "custom": [
+      "en",
+      "pt-BR",
+      "zh-Hant",
+      " en",
+      "en ",
+      "en US",
+      ""
+    ],
+    "support": [
+      {
+        "engine": "pdf_inspector",
+        "language": "Simplified Chinese",
+        "supported": true
+      },
+      {
+        "engine": "pdf_math_fast",
+        "language": "French",
+        "supported": true
+      },
+      {
+        "engine": "pdf_math_fast",
+        "language": "Arabic",
+        "supported": false
+      },
+      {
+        "engine": "pdf_math_precise",
+        "language": "Arabic",
+        "supported": false
+      },
+      {
+        "engine": "pdf_math_precise",
+        "language": "zh-Hant",
+        "supported": true
+      }
+    ],
+    "normalized": [
+      {
+        "engine": "pdf_math_fast",
+        "language": "Arabic",
+        "fallback": "English",
+        "output": "English"
+      },
+      {
+        "engine": "pdf_math_precise",
+        "language": "Arabic",
+        "fallback": "English",
+        "output": "English"
+      },
+      {
+        "engine": "pdf_inspector",
+        "language": "missing",
+        "fallback": "English",
+        "output": "missing"
+      }
+    ],
+    "kernels": [
+      {
+        "engine": "pdf_inspector",
+        "target": [
+          "Simplified Chinese",
+          "Traditional Chinese",
+          "English",
+          "Japanese",
+          "Korean",
+          "French",
+          "German",
+          "Spanish",
+          "Russian",
+          "Italian",
+          "Portuguese",
+          "Brazilian Portuguese",
+          "Traditional Chinese (Hong Kong)",
+          "Polish",
+          "Dutch",
+          "Ukrainian",
+          "Czech",
+          "Romanian",
+          "Hungarian",
+          "Slovak",
+          "Croatian",
+          "Slovenian",
+          "Bulgarian",
+          "Serbian",
+          "Greek",
+          "Swedish",
+          "Danish",
+          "Norwegian",
+          "Finnish",
+          "Icelandic",
+          "Estonian",
+          "Latvian",
+          "Lithuanian",
+          "Turkish",
+          "Vietnamese",
+          "Indonesian",
+          "Malay",
+          "Filipino",
+          "Thai",
+          "Catalan",
+          "Irish",
+          "Albanian",
+          "Afrikaans",
+          "Swahili",
+          "Armenian",
+          "Georgian",
+          "Mongolian",
+          "Arabic",
+          "Hebrew",
+          "Hindi",
+          "Persian"
+        ],
+        "source": [
+          "Simplified Chinese",
+          "Traditional Chinese",
+          "English",
+          "Japanese",
+          "Korean",
+          "French",
+          "German",
+          "Spanish",
+          "Russian",
+          "Italian",
+          "Portuguese",
+          "Brazilian Portuguese",
+          "Traditional Chinese (Hong Kong)",
+          "Polish",
+          "Dutch",
+          "Ukrainian",
+          "Czech",
+          "Romanian",
+          "Hungarian",
+          "Slovak",
+          "Croatian",
+          "Slovenian",
+          "Bulgarian",
+          "Serbian",
+          "Greek",
+          "Swedish",
+          "Danish",
+          "Norwegian",
+          "Finnish",
+          "Icelandic",
+          "Estonian",
+          "Latvian",
+          "Lithuanian",
+          "Turkish",
+          "Vietnamese",
+          "Indonesian",
+          "Malay",
+          "Filipino",
+          "Thai",
+          "Catalan",
+          "Irish",
+          "Albanian",
+          "Afrikaans",
+          "Swahili",
+          "Armenian",
+          "Georgian",
+          "Mongolian",
+          "Arabic",
+          "Hebrew",
+          "Hindi",
+          "Persian"
+        ]
+      },
+      {
+        "engine": "pdf_math_fast",
+        "target": [
+          "Simplified Chinese",
+          "Traditional Chinese",
+          "English",
+          "Japanese",
+          "Korean",
+          "French",
+          "German",
+          "Spanish",
+          "Russian",
+          "Italian"
+        ],
+        "source": [
+          "Simplified Chinese",
+          "Traditional Chinese",
+          "English",
+          "Japanese",
+          "Korean",
+          "French",
+          "German",
+          "Spanish",
+          "Russian",
+          "Italian",
+          "Portuguese",
+          "Brazilian Portuguese",
+          "Traditional Chinese (Hong Kong)",
+          "Polish",
+          "Dutch",
+          "Ukrainian",
+          "Czech",
+          "Romanian",
+          "Hungarian",
+          "Slovak",
+          "Croatian",
+          "Slovenian",
+          "Bulgarian",
+          "Serbian",
+          "Greek",
+          "Swedish",
+          "Danish",
+          "Norwegian",
+          "Finnish",
+          "Icelandic",
+          "Estonian",
+          "Latvian",
+          "Lithuanian",
+          "Turkish",
+          "Vietnamese",
+          "Indonesian",
+          "Malay",
+          "Filipino",
+          "Thai",
+          "Catalan",
+          "Irish",
+          "Albanian",
+          "Afrikaans",
+          "Swahili",
+          "Armenian",
+          "Georgian",
+          "Mongolian",
+          "Arabic",
+          "Hebrew",
+          "Hindi",
+          "Persian"
+        ]
+      },
+      {
+        "engine": "pdf_math_precise",
+        "target": [
+          "Simplified Chinese",
+          "Traditional Chinese",
+          "English",
+          "Japanese",
+          "Korean",
+          "French",
+          "German",
+          "Spanish",
+          "Russian",
+          "Italian",
+          "Portuguese",
+          "Brazilian Portuguese",
+          "Traditional Chinese (Hong Kong)",
+          "Polish",
+          "Dutch",
+          "Ukrainian",
+          "Czech",
+          "Romanian",
+          "Hungarian",
+          "Slovak",
+          "Croatian",
+          "Slovenian",
+          "Bulgarian",
+          "Serbian",
+          "Greek",
+          "Swedish",
+          "Danish",
+          "Norwegian",
+          "Finnish",
+          "Icelandic",
+          "Estonian",
+          "Latvian",
+          "Lithuanian",
+          "Turkish",
+          "Vietnamese",
+          "Indonesian",
+          "Malay",
+          "Filipino",
+          "Thai",
+          "Catalan",
+          "Irish",
+          "Albanian",
+          "Afrikaans",
+          "Swahili",
+          "Armenian",
+          "Georgian",
+          "Mongolian"
+        ],
+        "source": [
+          "Simplified Chinese",
+          "Traditional Chinese",
+          "English",
+          "Japanese",
+          "Korean",
+          "French",
+          "German",
+          "Spanish",
+          "Russian",
+          "Italian",
+          "Portuguese",
+          "Brazilian Portuguese",
+          "Traditional Chinese (Hong Kong)",
+          "Polish",
+          "Dutch",
+          "Ukrainian",
+          "Czech",
+          "Romanian",
+          "Hungarian",
+          "Slovak",
+          "Croatian",
+          "Slovenian",
+          "Bulgarian",
+          "Serbian",
+          "Greek",
+          "Swedish",
+          "Danish",
+          "Norwegian",
+          "Finnish",
+          "Icelandic",
+          "Estonian",
+          "Latvian",
+          "Lithuanian",
+          "Turkish",
+          "Vietnamese",
+          "Indonesian",
+          "Malay",
+          "Filipino",
+          "Thai",
+          "Catalan",
+          "Irish",
+          "Albanian",
+          "Afrikaans",
+          "Swahili",
+          "Armenian",
+          "Georgian",
+          "Mongolian",
+          "Arabic",
+          "Hebrew",
+          "Hindi",
+          "Persian"
+        ]
+      }
+    ]
+  },
+  "glossary": {
+    "entries": [
+      {
+        "source": "treatment effect",
+        "target": "处理效应"
+      },
+      {
+        "source": "effect",
+        "target": "效应"
+      },
+      {
+        "source": "C++",
+        "target": "$&术语"
+      }
+    ],
+    "protected": "PMRGLOSSARYX0END and PMRGLOSSARYX1END; PMRGLOSSARYX2END PMRGLOSSARY0END",
+    "restored": "处理效应 and 效应; $&术语 PMRGLOSSARY0END"
+  },
+  "spacing": [
+    {
+      "input": "English中文",
+      "output": "English 中文",
+      "display": "English 中文"
+    },
+    {
+      "input": "中文English",
+      "output": "中文 English",
+      "display": "中文 English"
+    },
+    {
+      "input": "A1中文",
+      "output": "A1 中文",
+      "display": "A1 中文"
+    },
+    {
+      "input": "中文42",
+      "output": "中文 42",
+      "display": "中文 42"
+    },
+    {
+      "input": "é中文",
+      "output": "é 中文",
+      "display": "é 中文"
+    },
+    {
+      "input": "  中文段落\n  English paragraph",
+      "output": "  中文段落\n  English paragraph",
+      "display": "　　中文段落\n  English paragraph"
+    }
+  ],
+  "kernelSpacing": [
+    {
+      "input": "{\"a\":\"English中文\",\"nested\":[\"中文English\",3],\"formula\":\"{v0}\"}",
+      "output": "{\"a\":\"English 中文\",\"nested\":[\"中文 English\",3],\"formula\":\"{v0}\"}"
+    },
+    {
+      "input": "not json 中文English",
+      "output": "not json 中文 English"
+    }
+  ],
+  "placeholders": [
+    {
+      "input": "<样式 id='1'>谁</样式>: 将<style id=\"2\">媒体干扰</ style>作为处理变量",
+      "has": true,
+      "stripped": "谁: 将媒体干扰作为处理变量",
+      "unparsed": true
+    },
+    {
+      "input": "x < y and y > z",
+      "has": false,
+      "stripped": "x < y and y > z",
+      "unparsed": false
+    },
+    {
+      "input": "<code id=\"2\">x</code>",
+      "has": true,
+      "stripped": "x",
+      "unparsed": true
+    },
+    {
+      "input": "见 {v*}",
+      "has": false,
+      "stripped": "见 {v*}",
+      "unparsed": true
+    },
+    {
+      "input": "见 {{v3}}",
+      "has": false,
+      "stripped": "见 {{v3}}",
+      "unparsed": true
+    },
+    {
+      "input": "<style id='1'>谁</style>",
+      "has": true,
+      "stripped": "谁",
+      "unparsed": false
+    },
+    {
+      "input": "见 {v1}",
+      "has": false,
+      "stripped": "见 {v1}",
+      "unparsed": false
+    }
+  ],
+  "formulaPlaceholders": [
+    {
+      "translation": "A {v0}",
+      "formulaTexts": [
+        "FORMULA"
+      ],
+      "sourceInput": "{v0}",
+      "output": "A FORMULA"
+    },
+    {
+      "translation": "A {{v1}}",
+      "formulaTexts": [
+        "F0",
+        "F1"
+      ],
+      "sourceInput": "{{v1}}",
+      "output": "A F1"
+    },
+    {
+      "translation": "A {v*}",
+      "formulaTexts": [
+        "FORMULA"
+      ],
+      "sourceInput": "{v0}",
+      "output": "A FORMULA"
+    },
+    {
+      "translation": "A {v*}",
+      "formulaTexts": [
+        "F0",
+        "F1"
+      ],
+      "sourceInput": "{v0} {v1}",
+      "text": "original",
+      "output": "original"
+    }
+  ],
+  "requestBodies": [
+    {
+      "provider": "openai",
+      "input": {
+        "model": "caller-model",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Keep the formula notation {v*} unchanged."
+          },
+          {
+            "role": "user",
+            "content": "Energy {v0} in 中文"
+          }
+        ],
+        "response_format": {
+          "type": "text"
+        }
+      },
+      "calls": [
+        {
+          "url": "https://example.test/v1/chat/completions",
+          "headers": {
+            "Authorization": "Bearer fixture-key",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "model": "gpt-4.1-mini",
+            "messages": [
+              {
+                "role": "system",
+                "content": "Preserve every numbered formula placeholder exactly as it appears in Source Text (for example {{v0}} or {v0}). Never output the generic wildcard {v*} or invent a placeholder."
+              },
+              {
+                "role": "user",
+                "content": "Energy {v0} in 中文"
+              }
+            ],
+            "response_format": {
+              "type": "text"
+            },
+            "stream": false
+          }
+        }
+      ],
+      "completionBody": {
+        "model": "gpt-4.1-mini",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Preserve every numbered formula placeholder exactly as it appears in Source Text (for example {{v0}} or {v0}). Never output the generic wildcard {v*} or invent a placeholder."
+          },
+          {
+            "role": "user",
+            "content": "Energy {v0} in 中文"
+          }
+        ],
+        "response_format": {
+          "type": "text"
+        },
+        "stream": false
+      }
+    },
+    {
+      "provider": "siliconflow-free",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Translate formally into Chinese:\n\nHi 中文 {v0}"
+          }
+        ],
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "calls": [
+        {
+          "url": "https://api1.pdf2zh-next.com/chatproxy/check",
+          "headers": {},
+          "body": null
+        },
+        {
+          "url": "https://api2.pdf2zh-next.com/chatproxy/check",
+          "headers": {},
+          "body": null
+        },
+        {
+          "url": "https://api1.pdf2zh-next.com/chatproxy/config",
+          "headers": {},
+          "body": null
+        },
+        {
+          "url": "https://api1.pdf2zh-next.com/chatproxy",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "text": "You are a professional,authentic machine translation engine.\n\n;; Treat next line as plain text input and translate it into Simplified Chinese, output translation ONLY. If translation is unnecessary (e.g. proper nouns, codes, {{1}}, etc. ), return the original text. NO explanations. NO notes. Input:\n\nThe input below is a complete task with its own rules and output format. Follow those rules exactly and return only the output they request; never translate or repeat the rules themselves.\n\nTranslate formally into Chinese:\n\nHi 中文 {v0}"
+          }
+        }
+      ],
+      "completionBody": {
+        "text": "You are a professional,authentic machine translation engine.\n\n;; Treat next line as plain text input and translate it into Simplified Chinese, output translation ONLY. If translation is unnecessary (e.g. proper nouns, codes, {{1}}, etc. ), return the original text. NO explanations. NO notes. Input:\n\nThe input below is a complete task with its own rules and output format. Follow those rules exactly and return only the output they request; never translate or repeat the rules themselves.\n\nTranslate formally into Chinese:\n\nHi 中文 {v0}"
+      }
+    },
+    {
+      "provider": "siliconflow-free-fast-template",
+      "input": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "You are a professional, authentic machine translation engine. Only Output the translated text, do not include any other text.\n\nTranslate the following markdown source text to zh. Keep the formula notation {v*} unchanged. Output translation directly without any additional text.\n\nSource Text: Energy {v0}\n\nTranslated Text:"
+          }
+        ]
+      },
+      "calls": [
+        {
+          "url": "https://api1.pdf2zh-next.com/chatproxy/check",
+          "headers": {},
+          "body": null
+        },
+        {
+          "url": "https://api2.pdf2zh-next.com/chatproxy/check",
+          "headers": {},
+          "body": null
+        },
+        {
+          "url": "https://api1.pdf2zh-next.com/chatproxy/config",
+          "headers": {},
+          "body": null
+        },
+        {
+          "url": "https://api1.pdf2zh-next.com/chatproxy",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "text": "You are a professional,authentic machine translation engine.\n\n;; Treat next line as plain text input and translate it into zh, output translation ONLY. If translation is unnecessary (e.g. proper nouns, codes, {{1}}, etc. ), return the original text. NO explanations. NO notes. Input:\n\nEnergy {v0}\nPreserve every numbered formula placeholder from the input exactly (for example {{v0}} or {v0}); never output {v*} or invent a placeholder."
+          }
+        }
+      ],
+      "completionBody": {
+        "text": "You are a professional,authentic machine translation engine.\n\n;; Treat next line as plain text input and translate it into zh, output translation ONLY. If translation is unnecessary (e.g. proper nouns, codes, {{1}}, etc. ), return the original text. NO explanations. NO notes. Input:\n\nEnergy {v0}\nPreserve every numbered formula placeholder from the input exactly (for example {{v0}} or {v0}); never output {v*} or invent a placeholder."
+      }
+    }
+  ],
+  "cacheKeys": {
+    "paragraph": "230a16633556c657a72cc3fdc6af49bc1c81f813bc088a9509448dd0cd15e6be",
+    "compatibleParagraph": "82b91fe8b16140c9f8490ba1be4e885ef07f0f2df9277c70f982086a1fb16402",
+    "provider": "991ff2c7fba38d101b49e5741a64b2e6da3973741cc01430954d92be1e933407"
+  }
+}

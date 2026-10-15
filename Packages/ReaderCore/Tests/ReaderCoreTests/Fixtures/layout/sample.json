@@ -1,0 +1,213 @@
+{
+  "pages": [
+    {
+      "page": 1,
+      "width": 595,
+      "height": 842,
+      "items": [
+        {
+          "page": 1,
+          "text": "The",
+          "x": 76.405,
+          "y": 326.89300000000003,
+          "width": 24.866551000000005,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "grass-blade",
+          "x": 106.92580000000001,
+          "y": 326.89300000000003,
+          "width": 72.85203999999995,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "is",
+          "x": 185.4322,
+          "y": 326.89300000000003,
+          "width": 10.65799999999999,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "worthy",
+          "x": 201.7707,
+          "y": 326.89300000000003,
+          "width": 45.3287,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "of",
+          "x": 252.7666,
+          "y": 326.89300000000003,
+          "width": 13.328,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "the",
+          "x": 271.7622,
+          "y": 326.89300000000003,
+          "width": 19.53799999999999,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "great",
+          "x": 296.9546,
+          "y": 326.89300000000003,
+          "width": 31.9584,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "world",
+          "x": 333.34760000000006,
+          "y": 326.89300000000003,
+          "width": 37.32869999999994,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "where",
+          "x": 374.67629999999997,
+          "y": 326.89300000000003,
+          "width": 39.088799999999914,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "it",
+          "x": 417.7527,
+          "y": 326.89300000000003,
+          "width": 8.88199999999999,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "grows.",
+          "x": 430.62070000000006,
+          "y": 326.89300000000003,
+          "width": 43.13200000000002,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "Rabindranath",
+          "x": 76.381,
+          "y": 289.13300000000004,
+          "width": 88.84207,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "Tagore,",
+          "x": 168.46967,
+          "y": 289.13300000000004,
+          "width": 48.00733000000001,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "Stray",
+          "x": 219.977,
+          "y": 289.13300000000004,
+          "width": 33.77030000000001,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        },
+        {
+          "page": 1,
+          "text": "Birds",
+          "x": 257.23990000000003,
+          "y": 289.13300000000004,
+          "width": 33.98949999999999,
+          "height": 16,
+          "fontSize": 16,
+          "isBold": false,
+          "rotation": 0,
+          "itemType": "Text"
+        }
+      ],
+      "paragraphs": [
+        {
+          "id": 0,
+          "text": "The grass-blade is worthy of the great world where it grows.",
+          "x": 76.405,
+          "y": 499.10699999999997,
+          "width": 397.34770000000003,
+          "height": 16,
+          "fontSize": 16,
+          "bold": false
+        },
+        {
+          "id": 1,
+          "text": "Rabindranath Tagore, Stray Birds",
+          "x": 76.381,
+          "y": 536.867,
+          "width": 214.84840000000005,
+          "height": 16,
+          "fontSize": 16,
+          "bold": false
+        }
+      ]
+    }
+  ]
+}
