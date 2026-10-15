@@ -140,3 +140,27 @@ monitors, update checker (App Store/TestFlight handles it), Windows/Linux specif
 3. Port `layout.mjs` -> `Paragraphs.swift` and make the fixture tests pass.
 4. Build the PDFKit extractor and compare it against `extractPdfJsPositions` fixtures.
 5. Wire one provider (OpenAI-compatible) end to end for a single page overlay.
+
+## 7. Status (2026-10-16)
+
+Implemented and building for the iOS Simulator SDK (`xcodebuild ... build`, zero warnings);
+ReaderCore has 58 Swift Testing tests, all green, most driven by fixtures exported from the desktop JS.
+
+- **P0/P1** done: library and recents, PDFKit reader, thumbnails, outline (with generated-TOC
+  fallback), search, zoom, 1/2/4-page layouts, scroll direction, per-document state, multi-window.
+- **P2** done: PDFKit extraction -> `LayoutEngine.paragraphs` (strict JS parity) ->
+  `PageTranslationPipeline` -> overlays with tap-to-toggle and auto-fit. Providers: SiliconFlow
+  free proxy, OpenAI-compatible (Keychain key), Apple Translation (iOS 26+). Desktop cache keys.
+- **P3** done: desktop-compatible `PDFMathReader:` highlights/comments (round-trip fixtures,
+  compressed object streams), quick links, export original/translated PDF via share sheet and Files.
+- **P4** done in code: remote zotero-pdf2zh client, health check, page substitution, fallback.
+- **P5** done: bionic (fixed/root), TF-IDF emphasis, topic sentences, link detection, glossary
+  editor, iPad compare view, 16-locale String Catalog generated from desktop locales.
+- **P6** partial: "Translate all pages" via `BGContinuedProcessingTask` (iOS 26) with
+  `beginBackgroundTask` fallback; EPUB design note in `docs/EPUB.md`.
+
+Not yet done: desktop companion kernel (needs a desktop change), formula OCR via Core ML,
+ChatGPT subscription sign-in, EPUB implementation.
+
+Not yet verified: no simulator runtime or device was available, so nothing has been run
+interactively; no live network translation or remote-kernel call has been made.
