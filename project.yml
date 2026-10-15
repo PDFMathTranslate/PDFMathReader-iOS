@@ -1,0 +1,71 @@
+name: PDFMathReader
+options:
+  bundleIdPrefix: com.pdfmathtranslate
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+packages:
+  ReaderCore:
+    path: Packages/ReaderCore
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  PDFMathReader:
+    type: application
+    platform: iOS
+    sources:
+      - App/Sources
+      - App/Resources
+    dependencies:
+      - package: ReaderCore
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: PDFMathReader
+        UILaunchScreen: {}
+        UISupportsDocumentBrowser: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIApplicationSupportsMultipleScenes: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocalNetworkUsageDescription: PDFMathReader connects to translation kernels you add on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PDF Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.adobe.pdf]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pdfmathtranslate.PDFMathReader
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+  PDFMathReaderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [App/Tests]
+    dependencies:
+      - target: PDFMathReader
+schemes:
+  PDFMathReader:
+    build:
+      targets:
+        PDFMathReader: all
+        PDFMathReaderTests: [test]
+    test:
+      targets: [PDFMathReaderTests]
+      gatherCoverageData: false
