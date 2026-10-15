@@ -15,7 +15,7 @@ struct PDFMathReaderApp: App {
         ReaderWindow(url: url)
           .environmentObject(library)
       } else {
-        ContentUnavailableView("No PDF selected", systemImage: "doc")
+        ContentUnavailableView(L10n.string("ios.noPDFSelected"), systemImage: "doc")
       }
     }
     .commands { ReaderCommandMenu() }

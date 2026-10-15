@@ -23,22 +23,22 @@ struct GlossaryEditorView: View {
   var body: some View {
     List {
       Section {
-        Text("Exact phrase matching is case sensitive. The longest match applies to new translations.")
+        Text(L10n.string("ios.glossaryInstructions"))
           .font(.footnote)
           .foregroundStyle(.secondary)
 
         Button {
           addLibrary()
         } label: {
-          Label("Add glossary", systemImage: "plus.circle.fill")
+          Label(L10n.string("ios.addGlossary"), systemImage: "plus.circle.fill")
         }
       }
 
       if libraries.isEmpty {
         ContentUnavailableView(
-          "No terminology libraries",
+          L10n.string("ios.noTerminologyLibraries"),
           systemImage: "text.book.closed",
-          description: Text("Add a glossary to keep preferred translations for recurring terms.")
+          description: Text(L10n.string("ios.addGlossaryDescription"))
         )
         .listRowBackground(Color.clear)
       } else {
@@ -47,19 +47,19 @@ struct GlossaryEditorView: View {
         }
       }
     }
-    .navigationTitle("Terminology glossary")
+    .navigationTitle(L10n.string("ios.terminologyGlossary"))
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Menu {
-          Button("Import glossary…", systemImage: "arrow.down.doc") {
+          Button(L10n.string("ios.importGlossary"), systemImage: "arrow.down.doc") {
             isImporting = true
           }
-          Button("Export glossary…", systemImage: "arrow.up.doc") {
+          Button(L10n.string("ios.exportGlossary"), systemImage: "arrow.up.doc") {
             exportDocument = GlossaryFileDocument(libraries: libraries)
             isExporting = true
           }
         } label: {
-          Label("Glossary files", systemImage: "ellipsis.circle")
+          Label(L10n.string("ios.glossaryFiles"), systemImage: "ellipsis.circle")
         }
       }
     }
@@ -74,17 +74,17 @@ struct GlossaryEditorView: View {
       isPresented: $isExporting,
       document: exportDocument,
       contentType: .json,
-      defaultFilename: "glossaries.json"
+      defaultFilename: L10n.string("ios.glossariesFilename")
     ) { result in
       if case .failure(let error) = result {
         errorMessage = error.localizedDescription
       }
     }
-    .alert("Glossary error", isPresented: Binding(
+    .alert(L10n.string("ios.glossaryError"), isPresented: Binding(
       get: { errorMessage != nil },
       set: { if !$0 { errorMessage = nil } }
     )) {
-      Button("OK") { errorMessage = nil }
+      Button(L10n.string("ios.ok")) { errorMessage = nil }
     } message: {
       Text(errorMessage ?? "")
     }
@@ -108,7 +108,7 @@ struct GlossaryEditorView: View {
   private func librarySection(at libraryIndex: Int) -> some View {
     Section {
       TextField(
-        "Library name",
+        L10n.string("ios.libraryName"),
         text: Binding(
           get: { libraries[libraryIndex].name },
           set: { libraries[libraryIndex].name = $0 }
@@ -117,7 +117,7 @@ struct GlossaryEditorView: View {
       .textInputAutocapitalization(.sentences)
 
       Toggle(
-        "Enabled",
+        L10n.string("ios.enabled"),
         isOn: Binding(
           get: { libraries[libraryIndex].enabled },
           set: { libraries[libraryIndex].enabled = $0 }
@@ -125,7 +125,7 @@ struct GlossaryEditorView: View {
       )
 
       if libraries[libraryIndex].entries.isEmpty {
-        Text("No terms yet.")
+        Text(L10n.string("ios.noTerms"))
           .foregroundStyle(.secondary)
       } else {
         ForEach(Array(libraries[libraryIndex].entries.indices), id: \.self) { entryIndex in
@@ -136,13 +136,13 @@ struct GlossaryEditorView: View {
       Button {
         addEntry(to: libraryIndex)
       } label: {
-        Label("Add term", systemImage: "plus")
+        Label(L10n.string("ios.addTerm"), systemImage: "plus")
       }
 
       Button(role: .destructive) {
         deleteLibrary(at: libraryIndex)
       } label: {
-        Label("Remove glossary", systemImage: "trash")
+        Label(L10n.string("ios.removeGlossary"), systemImage: "trash")
       }
     } header: {
       Text(displayName(for: libraries[libraryIndex]))
@@ -152,7 +152,7 @@ struct GlossaryEditorView: View {
   private func entryRow(libraryIndex: Int, entryIndex: Int) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       TextField(
-        "Source phrase",
+        L10n.string("ios.sourcePhrase"),
         text: Binding(
           get: { libraries[libraryIndex].entries[entryIndex].source },
           set: { libraries[libraryIndex].entries[entryIndex].source = $0 }
@@ -162,7 +162,7 @@ struct GlossaryEditorView: View {
       .autocorrectionDisabled()
 
       TextField(
-        "Target phrase",
+        L10n.string("ios.targetPhrase"),
         text: Binding(
           get: { libraries[libraryIndex].entries[entryIndex].target },
           set: { libraries[libraryIndex].entries[entryIndex].target = $0 }
@@ -174,7 +174,7 @@ struct GlossaryEditorView: View {
       Button(role: .destructive) {
         deleteEntry(libraryIndex: libraryIndex, entryIndex: entryIndex)
       } label: {
-        Label("Remove term", systemImage: "minus.circle")
+        Label(L10n.string("ios.removeTerm"), systemImage: "minus.circle")
           .font(.footnote)
       }
     }
@@ -185,7 +185,7 @@ struct GlossaryEditorView: View {
     libraries.append(
       GlossaryLibrary(
         id: "glossary-\(UUID().uuidString)",
-        name: "New glossary",
+        name: L10n.string("ios.newGlossary"),
         enabled: true,
         entries: [GlossaryEntry(source: "", target: "")]
       )
@@ -211,7 +211,7 @@ struct GlossaryEditorView: View {
 
   private func displayName(for library: GlossaryLibrary) -> String {
     let value = library.name.trimmingCharacters(in: .whitespacesAndNewlines)
-    return value.isEmpty ? "Unnamed glossary" : value
+    return value.isEmpty ? L10n.string("ios.unnamedGlossary") : value
   }
 
   private func importGlossary(_ result: Result<[URL], Error>) {

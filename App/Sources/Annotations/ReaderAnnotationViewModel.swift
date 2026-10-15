@@ -135,7 +135,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
   ) -> Bool {
     let link = ReaderQuickLink(id: UUID().uuidString, origin: origin, result: result)
     guard !quickLinks.contains(where: { $0.origin == origin && $0.result == result }) else {
-      lastError = "This quick link already exists."
+      lastError = L10n.string("ios.quickLinkAlreadyExists")
       return false
     }
     let updated = quickLinks + [link]
@@ -145,7 +145,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
       lastError = nil
       return true
     } catch {
-      lastError = "The quick link could not be saved."
+      lastError = L10n.string("ios.quickLinkSaveFailed")
       return false
     }
   }
@@ -157,7 +157,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
       quickLinks = updated
       lastError = nil
     } catch {
-      lastError = "The quick link could not be deleted."
+      lastError = L10n.string("ios.quickLinkDeleteFailed")
     }
   }
 
@@ -193,7 +193,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
       )
       lastError = nil
     } catch {
-      lastError = "The annotation could not be saved."
+      lastError = L10n.string("ios.annotationSaveFailed")
     }
   }
 }
@@ -223,27 +223,27 @@ func presentReaderQuickLinkTargetPrompt(
     return index == NSNotFound ? nil : index + 1
   } ?? origin.page
   let alert = UIAlertController(
-    title: "Create Quick Link",
-    message: "Choose the destination page and its top-left page location.",
+    title: L10n.string("ios.createQuickLink"),
+    message: L10n.string("ios.quickLinkDestinationMessage"),
     preferredStyle: .alert
   )
   alert.addTextField { field in
-    field.placeholder = "Page"
+    field.placeholder = L10n.string("ios.page")
     field.text = "\(currentPage)"
     field.keyboardType = .numberPad
   }
   alert.addTextField { field in
-    field.placeholder = "X"
+    field.placeholder = L10n.string("ios.x")
     field.text = "0"
     field.keyboardType = .decimalPad
   }
   alert.addTextField { field in
-    field.placeholder = "Y"
+    field.placeholder = L10n.string("ios.y")
     field.text = "0"
     field.keyboardType = .decimalPad
   }
-  alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-  alert.addAction(UIAlertAction(title: "Create", style: .default) { [weak model, weak pdfView, weak alert] _ in
+  alert.addAction(UIAlertAction(title: L10n.string("ios.cancel"), style: .cancel))
+  alert.addAction(UIAlertAction(title: L10n.string("ios.create"), style: .default) { [weak model, weak pdfView, weak alert] _ in
     guard let model, let pdfView, let fields = alert?.textFields,
       let page = Int(fields[0].text ?? ""),
       let x = Double(fields[1].text ?? ""),
@@ -253,7 +253,7 @@ func presentReaderQuickLinkTargetPrompt(
       page <= pageCount,
       x.isFinite, y.isFinite, x >= 0, y >= 0
     else {
-      model?.lastError = "Enter a valid destination page and location."
+      model?.lastError = L10n.string("ios.enterValidQuickLinkTarget")
       return
     }
     let result = ReaderQuickLinkEndpoint(
@@ -332,13 +332,17 @@ final class ReaderAnnotationInteractionController: NSObject {
 
   @objc func addComment(_ sender: Any?) {
     guard let view = pdfView, let selection = view.currentSelection else { return }
-    let alert = UIAlertController(title: "Add Comment", message: nil, preferredStyle: .alert)
+    let alert = UIAlertController(
+      title: L10n.string("ios.addComment"),
+      message: nil,
+      preferredStyle: .alert
+    )
     alert.addTextField { field in
-      field.placeholder = "Comment"
+      field.placeholder = L10n.string("sidebar.comment")
       field.autocapitalizationType = .sentences
     }
-    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-    alert.addAction(UIAlertAction(title: "Add", style: .default) { [weak self, weak view, weak alert] _ in
+    alert.addAction(UIAlertAction(title: L10n.string("ios.cancel"), style: .cancel))
+    alert.addAction(UIAlertAction(title: L10n.string("ios.add"), style: .default) { [weak self, weak view, weak alert] _ in
       guard let self, let view, let comment = alert?.textFields?.first?.text,
         !comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       else { return }
@@ -367,18 +371,23 @@ final class ReaderAnnotationInteractionController: NSObject {
 
   func menuCommands() -> [UIMenuElement] {
     let actions: [(String, Selector)] = [
-      ("Highlight Yellow", #selector(highlightYellow(_:))),
-      ("Highlight Pink", #selector(highlightPink(_:))),
-      ("Highlight Blue", #selector(highlightBlue(_:))),
-      ("Highlight Green", #selector(highlightGreen(_:))),
-      ("Add Comment", #selector(addComment(_:))),
-      ("Create Quick Link", #selector(createQuickLink(_:))),
+      (L10n.string("ios.highlightYellow"), #selector(highlightYellow(_:))),
+      (L10n.string("ios.highlightPink"), #selector(highlightPink(_:))),
+      (L10n.string("ios.highlightBlue"), #selector(highlightBlue(_:))),
+      (L10n.string("ios.highlightGreen"), #selector(highlightGreen(_:))),
+      (L10n.string("ios.addComment"), #selector(addComment(_:))),
+      (L10n.string("ios.createQuickLink"), #selector(createQuickLink(_:))),
     ]
     var commands = actions.compactMap { title, action -> UIMenuElement? in
       canPerform(action) ? UICommand(title: title, action: action) : nil
     }
     if canPerform(#selector(copyEmail(_:))) {
-      commands.append(UICommand(title: "Copy Email", action: #selector(copyEmail(_:))))
+      commands.append(
+        UICommand(
+          title: L10n.string("menu.extra.messages.Copy Email"),
+          action: #selector(copyEmail(_:))
+        )
+      )
     }
     return commands
   }
@@ -400,7 +409,7 @@ final class ReaderAnnotationPDFView: PDFView {
     super.buildMenu(with: builder)
     guard let commands = annotationController?.menuCommands(), !commands.isEmpty else { return }
     let menu = UIMenu(
-      title: "Annotate",
+      title: L10n.string("ios.annotate"),
       identifier: UIMenu.Identifier("com.pdfmathreader.annotate"),
       options: .displayInline,
       children: commands

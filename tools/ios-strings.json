@@ -1,0 +1,428 @@
+{
+  "ios.add": {
+    "en": "Add"
+  },
+  "ios.addComment": {
+    "en": "Add Comment"
+  },
+  "ios.addGlossary": {
+    "en": "Add glossary"
+  },
+  "ios.addGlossaryDescription": {
+    "en": "Add a glossary to keep preferred translations for recurring terms."
+  },
+  "ios.addTerm": {
+    "en": "Add term"
+  },
+  "ios.allPagesTranslated": {
+    "en": "All pages translated"
+  },
+  "ios.annotate": {
+    "en": "Annotate"
+  },
+  "ios.annotationEmpty": {
+    "en": "Select text to highlight it or add a comment."
+  },
+  "ios.annotationSaveFailed": {
+    "en": "The annotation could not be saved."
+  },
+  "ios.apiKeyStorage": {
+    "en": "The API key is stored in the iOS Keychain and is never written to preferences."
+  },
+  "ios.appleTranslationRequires": {
+    "en": "Apple Translation requires iOS 26 or later."
+  },
+  "ios.appleTranslationUnavailable": {
+    "en": "Apple Translation is unavailable in this SDK."
+  },
+  "ios.actualSize": {
+    "en": "Actual size"
+  },
+  "ios.baseURL": {
+    "en": "Base URL"
+  },
+  "ios.cancel": {
+    "en": "Cancel"
+  },
+  "ios.cancelTranslation": {
+    "en": "Cancel translation"
+  },
+  "ios.chooseFileAgain": {
+    "en": "Choose the file again from the Library."
+  },
+  "ios.check": {
+    "en": "Check"
+  },
+  "ios.clearHistory": {
+    "en": "Clear History"
+  },
+  "ios.clearHistoryMessage": {
+    "en": "This removes the recent list and cached thumbnails. Your original files stay untouched."
+  },
+  "ios.clearRecentPDFsTitle": {
+    "en": "Clear recent PDFs?"
+  },
+  "ios.compareIPad": {
+    "en": "Compare is available on iPad"
+  },
+  "ios.compareIPadDescription": {
+    "en": "Use the translation overlay on this screen, or open the document on an iPad."
+  },
+  "ios.compareTranslations": {
+    "en": "Compare translations"
+  },
+  "ios.compare": {
+    "en": "Compare"
+  },
+  "ios.create": {
+    "en": "Create"
+  },
+  "ios.createQuickLink": {
+    "en": "Create Quick Link"
+  },
+  "ios.delete": {
+    "en": "Delete"
+  },
+  "ios.detectedLinks": {
+    "en": "Detected links"
+  },
+  "ios.documentFilename": {
+    "en": "Document.pdf"
+  },
+  "ios.documentFilenameStem": {
+    "en": "Document"
+  },
+  "ios.editComment": {
+    "en": "Edit Comment"
+  },
+  "ios.engineFast": {
+    "en": "Fast via remote server"
+  },
+  "ios.enginePrecise": {
+    "en": "Precise via remote server"
+  },
+  "ios.engineUltraFast": {
+    "en": "Ultra fast on device"
+  },
+  "ios.enabled": {
+    "en": "Enabled"
+  },
+  "ios.enterValidQuickLinkTarget": {
+    "en": "Enter a valid destination page and location."
+  },
+  "ios.export": {
+    "en": "Export"
+  },
+  "ios.exportFailed": {
+    "en": "Export failed"
+  },
+  "ios.exportGlossary": {
+    "en": "Export glossary…"
+  },
+  "ios.exportOriginalPDF": {
+    "en": "Export original PDF"
+  },
+  "ios.exportPDF": {
+    "en": "Export PDF"
+  },
+  "ios.exportSerializationFailed": {
+    "en": "The PDF could not be serialized for export."
+  },
+  "ios.exportTranslatedPDF": {
+    "en": "Export translated PDF"
+  },
+  "ios.exportingPDF": {
+    "en": "Exporting PDF"
+  },
+  "ios.findInDocument": {
+    "en": "Find in Document"
+  },
+  "ios.fitPage": {
+    "en": "Fit page"
+  },
+  "ios.fixedPrefixCount": {
+    "en": "Fixed prefix: {count}"
+  },
+  "ios.fourPages": {
+    "en": "Four pages (compact two-up)"
+  },
+  "ios.fromPage": {
+    "en": "From page {page}"
+  },
+  "ios.generatedOutlineFallback": {
+    "en": "Generated outline fallback"
+  },
+  "ios.glossariesFilename": {
+    "en": "glossaries.json"
+  },
+  "ios.glossaryInstructions": {
+    "en": "Exact phrase matching is case sensitive. The longest match applies to new translations."
+  },
+  "ios.glossaryError": {
+    "en": "Glossary error"
+  },
+  "ios.glossaryFiles": {
+    "en": "Glossary files"
+  },
+  "ios.goToPage": {
+    "en": "Go to page"
+  },
+  "ios.highlightBlue": {
+    "en": "Highlight Blue"
+  },
+  "ios.highlightGreen": {
+    "en": "Highlight Green"
+  },
+  "ios.highlightPink": {
+    "en": "Highlight Pink"
+  },
+  "ios.highlightYellow": {
+    "en": "Highlight Yellow"
+  },
+  "ios.horizontalScroll": {
+    "en": "Horizontal scroll"
+  },
+  "ios.importGlossary": {
+    "en": "Import glossary…"
+  },
+  "ios.importPDF": {
+    "en": "Import PDF"
+  },
+  "ios.importPDFFailed": {
+    "en": "The PDF could not be imported."
+  },
+  "ios.library": {
+    "en": "Library"
+  },
+  "ios.libraryName": {
+    "en": "Library name"
+  },
+  "ios.missingOpenAIAPIKey": {
+    "en": "Add an OpenAI-compatible API key in Settings."
+  },
+  "ios.localPDFOnly": {
+    "en": "PDFMathReader can open local PDF files only."
+  },
+  "ios.model": {
+    "en": "Model"
+  },
+  "ios.missingBookmark": {
+    "en": "This recent PDF no longer has a file bookmark."
+  },
+  "ios.newGlossary": {
+    "en": "New glossary"
+  },
+  "ios.noBookmarks": {
+    "en": "This PDF does not contain bookmarks."
+  },
+  "ios.noOutline": {
+    "en": "No outline"
+  },
+  "ios.noPDFSelected": {
+    "en": "No PDF selected"
+  },
+  "ios.noRecentPDFsDescription": {
+    "en": "Import a PDF to start reading. Your position and display settings will be restored next time."
+  },
+  "ios.noTerms": {
+    "en": "No terms yet."
+  },
+  "ios.noTerminologyLibraries": {
+    "en": "No terminology libraries"
+  },
+  "ios.noTranslatablePages": {
+    "en": "The PDF has no translatable pages."
+  },
+  "ios.ok": {
+    "en": "OK"
+  },
+  "ios.openAIService": {
+    "en": "OpenAI-compatible service"
+  },
+  "ios.openPDF": {
+    "en": "Open PDF"
+  },
+  "ios.originalPage": {
+    "en": "Original page"
+  },
+  "ios.originalTranslatedPages": {
+    "en": "Original and translated pages"
+  },
+  "ios.page": {
+    "en": "Page"
+  },
+  "ios.pageRange": {
+    "en": "1–{count}"
+  },
+  "ios.pageStreamEnded": {
+    "en": "The page stream ended before completion."
+  },
+  "ios.pagesCount": {
+    "en": "{count} pages"
+  },
+  "ios.pagesProgress": {
+    "en": "{processed} of {total} pages"
+  },
+  "ios.pageTranslationCancelled": {
+    "en": "The page translation was cancelled."
+  },
+  "ios.pageTranslationFailed": {
+    "en": "The page translation failed."
+  },
+  "ios.pdfDocument": {
+    "en": "PDF document"
+  },
+  "ios.pdfMetadataSaveFailed": {
+    "en": "The PDF metadata could not be saved."
+  },
+  "ios.pdfReadFailed": {
+    "en": "This PDF could not be read."
+  },
+  "ios.pdfUnavailable": {
+    "en": "PDF unavailable"
+  },
+  "ios.pdfUnavailableFromFiles": {
+    "en": "This PDF is unavailable. Choose it again from Files."
+  },
+  "ios.preferencesSaveFailed": {
+    "en": "Preferences could not be saved."
+  },
+  "ios.quickLinkAlreadyExists": {
+    "en": "This quick link already exists."
+  },
+  "ios.quickLinkDeleteFailed": {
+    "en": "The quick link could not be deleted."
+  },
+  "ios.quickLinkDestinationMessage": {
+    "en": "Choose the destination page and its top-left page location."
+  },
+  "ios.quickLinkEmpty": {
+    "en": "Create a link from selected text to a page location."
+  },
+  "ios.quickLinkLocation": {
+    "en": "x {x}, y {y}"
+  },
+  "ios.quickLinks": {
+    "en": "Quick Links"
+  },
+  "ios.quickLinkSaveFailed": {
+    "en": "The quick link could not be saved."
+  },
+  "ios.reader": {
+    "en": "Reader"
+  },
+  "ios.readerSidebar": {
+    "en": "Reader sidebar"
+  },
+  "ios.readerTools": {
+    "en": "Reader tools"
+  },
+  "ios.recentHistoryClearFailed": {
+    "en": "The recent-document history could not be cleared."
+  },
+  "ios.readingAids": {
+    "en": "Reading aids"
+  },
+  "ios.remoteKernel": {
+    "en": "Remote kernel"
+  },
+  "ios.remoteKernelDescription": {
+    "en": "Fast and Precise use the remote kernel for visible pages and fall back to Ultra fast when it is unavailable."
+  },
+  "ios.removeGlossary": {
+    "en": "Remove glossary"
+  },
+  "ios.removeTerm": {
+    "en": "Remove term"
+  },
+  "ios.resumeTranslation": {
+    "en": "Resume translation"
+  },
+  "ios.resumeReading": {
+    "en": "Pick up where you left off, or import a paper from Files."
+  },
+  "ios.save": {
+    "en": "Save"
+  },
+  "ios.saveToFiles": {
+    "en": "Save to Files…"
+  },
+  "ios.searchDescription": {
+    "en": "Searches the PDF's available text layer."
+  },
+  "ios.searchThisPDF": {
+    "en": "Search this PDF"
+  },
+  "ios.selectTextQuickLink": {
+    "en": "Select text before creating a quick link."
+  },
+  "ios.singlePage": {
+    "en": "Single page"
+  },
+  "ios.serializeTranslationFailed": {
+    "en": "This PDF could not be serialized for translation."
+  },
+  "ios.serverURL": {
+    "en": "Server URL"
+  },
+  "ios.sourcePhrase": {
+    "en": "Source phrase"
+  },
+  "ios.share": {
+    "en": "Share…"
+  },
+  "ios.showTranslationOverlay": {
+    "en": "Show translation overlay"
+  },
+  "ios.targetPhrase": {
+    "en": "Target phrase"
+  },
+  "ios.theme": {
+    "en": "Theme"
+  },
+  "ios.terminologyGlossary": {
+    "en": "Terminology glossary"
+  },
+  "ios.tfidfEmphasis": {
+    "en": "TF-IDF emphasis"
+  },
+  "ios.toPage": {
+    "en": "To page {page}"
+  },
+  "ios.translatedPage": {
+    "en": "Translated page"
+  },
+  "ios.translateAllPages": {
+    "en": "Translate all pages"
+  },
+  "ios.twoPages": {
+    "en": "Two pages"
+  },
+  "ios.translationCoordinatorUnavailable": {
+    "en": "The translation coordinator is unavailable."
+  },
+  "ios.translationPipelineUnavailable": {
+    "en": "The translation pipeline could not be prepared."
+  },
+  "ios.translationStreamUnavailable": {
+    "en": "The translation stream is unavailable."
+  },
+  "ios.translatingPDF": {
+    "en": "Translating this PDF"
+  },
+  "ios.unnamedGlossary": {
+    "en": "Unnamed glossary"
+  },
+  "ios.untitledSection": {
+    "en": "Untitled section"
+  },
+  "ios.verticalScroll": {
+    "en": "Vertical scroll"
+  },
+  "ios.x": {
+    "en": "X"
+  },
+  "ios.y": {
+    "en": "Y"
+  }
+}

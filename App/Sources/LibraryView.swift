@@ -38,19 +38,19 @@ struct LibraryView: View {
       .frame(maxWidth: .infinity, alignment: .center)
     }
     .background(Color(uiColor: .systemGroupedBackground))
-    .navigationTitle("Library")
+    .navigationTitle(L10n.string("ios.library"))
     .navigationBarTitleDisplayMode(.large)
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Button {
           isShowingSettings = true
         } label: {
-          Label("Settings", systemImage: "gearshape")
+          Label(L10n.string("settings.title"), systemImage: "gearshape")
         }
         Button {
           isImporting = true
         } label: {
-          Label("Import PDF", systemImage: "plus")
+          Label(L10n.string("ios.importPDF"), systemImage: "plus")
         }
       }
     }
@@ -64,47 +64,47 @@ struct LibraryView: View {
         guard let url = urls.first, let session = library.makeSession(for: url) else { return }
         onOpenDocument(session)
       case .failure:
-        library.lastError = "The PDF could not be imported."
+        library.lastError = L10n.string("ios.importPDFFailed")
       }
     }
     .sheet(isPresented: $isShowingSettings) {
       SettingsView().environmentObject(library)
     }
     .confirmationDialog(
-      "Clear recent PDFs?",
+      L10n.string("ios.clearRecentPDFsTitle"),
       isPresented: $isConfirmingClear,
       titleVisibility: .visible
     ) {
-      Button("Clear History", role: .destructive) { library.clearHistory() }
-      Button("Cancel", role: .cancel) {}
+      Button(L10n.string("ios.clearHistory"), role: .destructive) { library.clearHistory() }
+      Button(L10n.string("ios.cancel"), role: .cancel) {}
     } message: {
-      Text("This removes the recent list and cached thumbnails. Your original files stay untouched.")
+      Text(L10n.string("ios.clearHistoryMessage"))
     }
   }
 
   private var header: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(alignment: .firstTextBaseline) {
-        Text("Recent PDFs")
+        Text(L10n.string("startup.recentDocuments"))
           .font(.title2.weight(.semibold))
         Spacer()
         if !library.recents.isEmpty {
-          Button("Clear", role: .destructive) { isConfirmingClear = true }
+          Button(L10n.string("startup.clear"), role: .destructive) { isConfirmingClear = true }
             .font(.subheadline.weight(.medium))
         }
       }
-      Text("Pick up where you left off, or import a paper from Files.")
+      Text(L10n.string("ios.resumeReading"))
         .foregroundStyle(.secondary)
     }
   }
 
   private var emptyState: some View {
     ContentUnavailableView {
-      Label("No recent PDFs", systemImage: "doc.text.magnifyingglass")
+      Label(L10n.string("menu.extra.messages.No Recent Documents"), systemImage: "doc.text.magnifyingglass")
     } description: {
-      Text("Import a PDF to start reading. Your position and display settings will be restored next time.")
+      Text(L10n.string("ios.noRecentPDFsDescription"))
     } actions: {
-      Button("Import PDF") { isImporting = true }
+      Button(L10n.string("ios.importPDF")) { isImporting = true }
         .buttonStyle(.borderedProminent)
     }
     .frame(maxWidth: .infinity, minHeight: 340)
@@ -130,7 +130,7 @@ private struct RecentDocumentCard: View {
             .multilineTextAlignment(.leading)
           HStack(spacing: 5) {
             if let pageCount = document.pageCount {
-              Text("\(pageCount) pages")
+              Text(L10n.string("ios.pagesCount", String(pageCount)))
             }
             Text("·")
             Text(document.lastOpened, style: .relative)
@@ -145,7 +145,7 @@ private struct RecentDocumentCard: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(document.title)
-    .accessibilityHint("Open PDF")
+    .accessibilityHint(L10n.string("ios.openPDF"))
   }
 }
 

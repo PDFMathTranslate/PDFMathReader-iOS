@@ -91,7 +91,7 @@ final class TranslateAllPagesJob: ObservableObject {
     guard !isRunActive, runTask == nil else { return }
     guard let coordinator, coordinator.translationPageCount > 0 else {
       state.status = .failed
-      state.lastError = "The PDF has no translatable pages."
+      state.lastError = L10n.string("ios.noTranslatablePages")
       publish(persist: true)
       return
     }
@@ -169,8 +169,8 @@ final class TranslateAllPagesJob: ObservableObject {
 
     let request = BGContinuedProcessingTaskRequest(
       identifier: identifier,
-      title: "Translate all pages",
-      subtitle: "Translating this PDF"
+      title: L10n.string("ios.translateAllPages"),
+      subtitle: L10n.string("ios.translatingPDF")
     )
     request.strategy = .queue
     do {
@@ -187,7 +187,7 @@ final class TranslateAllPagesJob: ObservableObject {
   private func beginLegacyBackgroundTask() {
     guard legacyBackgroundTaskID == .invalid else { return }
     legacyBackgroundTaskID = UIApplication.shared.beginBackgroundTask(
-      withName: "Translate all pages"
+      withName: L10n.string("ios.translateAllPages")
     ) { [weak self] in
       Task { @MainActor [weak self] in
         self?.handleExpiration()
@@ -219,7 +219,7 @@ final class TranslateAllPagesJob: ObservableObject {
   private func performRun() async {
     guard let coordinator else {
       state.status = .failed
-      state.lastError = "The translation coordinator is unavailable."
+      state.lastError = L10n.string("ios.translationCoordinatorUnavailable")
       publish(persist: true)
       isRunActive = false
       finishSystemTask(success: false)
@@ -237,7 +237,7 @@ final class TranslateAllPagesJob: ObservableObject {
       excluding: Set(state.completedPageIndices)
     ) else {
       state.status = .failed
-      state.lastError = "The translation pipeline could not be prepared."
+      state.lastError = L10n.string("ios.translationPipelineUnavailable")
       publish(persist: true)
       isRunActive = false
       finishSystemTask(success: false)
@@ -266,7 +266,7 @@ final class TranslateAllPagesJob: ObservableObject {
     coordinator: ReaderTranslationCoordinator
   ) async {
     guard let stream = await coordinator.translationStream(for: pageIndex) else {
-      state.markFailed(pageIndex: pageIndex, error: "The translation stream is unavailable.")
+      state.markFailed(pageIndex: pageIndex, error: L10n.string("ios.translationStreamUnavailable"))
       publish(persist: true)
       return
     }
@@ -281,11 +281,11 @@ final class TranslateAllPagesJob: ObservableObject {
       case .error:
         state.markFailed(
           pageIndex: pageIndex,
-          error: pageState.error ?? "The page translation failed."
+          error: pageState.error ?? L10n.string("ios.pageTranslationFailed")
         )
         reachedTerminalState = true
       case .cancelled:
-        state.markFailed(pageIndex: pageIndex, error: "The page translation was cancelled.")
+        state.markFailed(pageIndex: pageIndex, error: L10n.string("ios.pageTranslationCancelled"))
         reachedTerminalState = true
       case .idle, .queued, .extracting, .translating:
         continue
@@ -295,7 +295,7 @@ final class TranslateAllPagesJob: ObservableObject {
     }
 
     guard isRunActive, !Task.isCancelled, !reachedTerminalState else { return }
-    state.markFailed(pageIndex: pageIndex, error: "The page stream ended before completion.")
+    state.markFailed(pageIndex: pageIndex, error: L10n.string("ios.pageStreamEnded"))
     publish(persist: true)
   }
 
@@ -325,8 +325,12 @@ final class TranslateAllPagesJob: ObservableObject {
     task.progress.totalUnitCount = Int64(total)
     task.progress.completedUnitCount = Int64(min(total, progress.processedPages))
     task.updateTitle(
-      "Translate all pages",
-      subtitle: "\(progress.processedPages) of \(progress.totalPages) pages"
+      L10n.string("ios.translateAllPages"),
+      subtitle: L10n.string(
+        "ios.pagesProgress",
+        String(progress.processedPages),
+        String(progress.totalPages)
+      )
     )
   }
 
@@ -367,14 +371,20 @@ struct TranslateAllPagesButton: View {
     }
     .disabled(job.isFinished && !job.isRunning)
     .accessibilityValue(
-      "\(job.progress.processedPages) of \(job.progress.totalPages) pages"
+      L10n.string(
+        "ios.pagesProgress",
+        String(job.progress.processedPages),
+        String(job.progress.totalPages)
+      )
     )
   }
 
   private var labelTitle: String {
-    if job.isRunning { return "Cancel translation" }
-    if job.isFinished { return "All pages translated" }
-    return job.progress.processedPages > 0 ? "Resume translation" : "Translate all pages"
+    if job.isRunning { return L10n.string("ios.cancelTranslation") }
+    if job.isFinished { return L10n.string("ios.allPagesTranslated") }
+    return job.progress.processedPages > 0
+      ? L10n.string("ios.resumeTranslation")
+      : L10n.string("ios.translateAllPages")
   }
 
   private var labelSymbol: String {

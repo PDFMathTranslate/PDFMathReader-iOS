@@ -36,17 +36,17 @@ struct ReaderCompareView: View {
         compactFallback
       }
     }
-    .navigationTitle("Compare translations")
+    .navigationTitle(L10n.string("ios.compareTranslations"))
     .navigationBarTitleDisplayMode(.inline)
   }
 
   private var compactFallback: some View {
     ContentUnavailableView {
-      Label("Compare is available on iPad", systemImage: "rectangle.split.2x1")
+      Label(L10n.string("ios.compareIPad"), systemImage: "rectangle.split.2x1")
     } description: {
-      Text("Use the translation overlay on this screen, or open the document on an iPad.")
+      Text(L10n.string("ios.compareIPadDescription"))
     } actions: {
-      Button("Show translation overlay") {
+      Button(L10n.string("ios.showTranslationOverlay")) {
         if let onShowOverlay {
           onShowOverlay()
         } else {
@@ -110,7 +110,7 @@ private struct ReaderCompareRegularView: View {
                   }
                 }
                 .overlay(alignment: .bottom) {
-                  Text("Page \(pageIndex + 1)")
+                  Text(L10n.string("sidebar.page", String(pageIndex + 1)))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
@@ -153,9 +153,9 @@ private struct ReaderCompareRegularView: View {
     }
     .overlay(alignment: .top) {
       HStack(spacing: 0) {
-        Text("Original")
+        Text(L10n.string("paragraph.original"))
         Spacer()
-        Text("Translated")
+        Text(L10n.string("sidebar.translated"))
       }
       .font(.subheadline.weight(.semibold))
       .foregroundStyle(.primary)
@@ -164,7 +164,7 @@ private struct ReaderCompareRegularView: View {
       .background(.bar)
     }
     .accessibilityElement(children: .contain)
-    .accessibilityLabel("Original and translated pages")
+    .accessibilityLabel(L10n.string("ios.originalTranslatedPages"))
   }
 
   private func columnWidth(for availableWidth: CGFloat) -> CGFloat {
@@ -210,7 +210,9 @@ private struct ReaderComparePageSurface: View {
     .background(Color(uiColor: .systemBackground))
     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     .shadow(color: .black.opacity(0.14), radius: 5, y: 2)
-    .accessibilityLabel(translated ? "Translated page" : "Original page")
+    .accessibilityLabel(
+      translated ? L10n.string("ios.translatedPage") : L10n.string("ios.originalPage")
+    )
   }
 
   private var replacementPage: PDFPage? {

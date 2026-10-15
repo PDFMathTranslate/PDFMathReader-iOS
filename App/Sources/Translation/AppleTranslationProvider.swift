@@ -50,7 +50,7 @@ final class AppleTranslationProvider: TranslationProvider, @unchecked Sendable {
 
     #if canImport(Translation)
     guard #available(iOS 26.0, *) else {
-      throw TranslationProviderError.network("Apple Translation requires iOS 26 or later.")
+      throw TranslationProviderError.network(L10n.string("ios.appleTranslationRequires"))
     }
     let source = Locale.Language(identifier: sourceLanguage ?? "en")
     let target = Locale.Language(identifier: targetLanguage)
@@ -72,7 +72,7 @@ final class AppleTranslationProvider: TranslationProvider, @unchecked Sendable {
       throw TranslationProviderError.network(error.localizedDescription)
     }
     #else
-    throw TranslationProviderError.network("Apple Translation is unavailable in this SDK.")
+    throw TranslationProviderError.network(L10n.string("ios.appleTranslationUnavailable"))
     #endif
   }
 }

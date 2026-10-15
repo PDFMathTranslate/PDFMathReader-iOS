@@ -1,6 +1,24 @@
 name: PDFMathReader
 options:
   bundleIdPrefix: com.pdfmathtranslate
+  developmentLanguage: en
+  knownRegions:
+    - ar
+    - arz
+    - bn
+    - de
+    - en
+    - es
+    - fr
+    - hi
+    - ja
+    - ko
+    - pcm
+    - pt
+    - ru
+    - ur
+    - zh-CN
+    - zh-TW
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -18,7 +36,8 @@ targets:
     platform: iOS
     sources:
       - App/Sources
-      - App/Resources
+      - path: App/Resources/Localizable.xcstrings
+        buildPhase: resources
     dependencies:
       - package: ReaderCore
     info:

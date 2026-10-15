@@ -29,7 +29,7 @@ final class LibraryModel: ObservableObject {
 
   func makeSession(for url: URL) -> DocumentSession? {
     guard url.isFileURL else {
-      lastError = "PDFMathReader can open local PDF files only."
+      lastError = L10n.string("ios.localPDFOnly")
       return nil
     }
 
@@ -37,13 +37,13 @@ final class LibraryModel: ObservableObject {
     do {
       id = try DocumentIdentity.contentHash(for: url)
     } catch {
-      lastError = "This PDF could not be read."
+      lastError = L10n.string("ios.pdfReadFailed")
       return nil
     }
 
     let previous = recentsStore.document(id: id)
     let bookmarkData = (try? recentsStore.bookmarkData(for: url)) ?? previous?.bookmarkData ?? Data()
-    let title = url.lastPathComponent.isEmpty ? "PDF document" : url.lastPathComponent
+    let title = url.lastPathComponent.isEmpty ? L10n.string("ios.pdfDocument") : url.lastPathComponent
     let thumbnailPath = previous?.thumbnailCachePath ?? recentsStore.thumbnailURL(for: id).path
     let record = RecentDocument(
       id: id,
@@ -56,7 +56,7 @@ final class LibraryModel: ObservableObject {
     do {
       recents = try recentsStore.upsert(record)
     } catch {
-      lastError = "The recent-document history could not be saved."
+      lastError = L10n.string("error.saveRecentHistory")
       return nil
     }
     return DocumentSession(id: id, title: title, url: url)
@@ -64,7 +64,7 @@ final class LibraryModel: ObservableObject {
 
   func makeSession(for recent: RecentDocument) -> DocumentSession? {
     guard !recent.bookmarkData.isEmpty else {
-      lastError = "This recent PDF no longer has a file bookmark."
+      lastError = L10n.string("ios.missingBookmark")
       return nil
     }
 
@@ -76,7 +76,7 @@ final class LibraryModel: ObservableObject {
       }
       return makeSession(for: url)
     } catch {
-      lastError = "This PDF is unavailable. Choose it again from Files."
+      lastError = L10n.string("ios.pdfUnavailableFromFiles")
       return nil
     }
   }
@@ -90,7 +90,7 @@ final class LibraryModel: ObservableObject {
       try recentsStore.clearHistory()
       recents = []
     } catch {
-      lastError = "The recent-document history could not be cleared."
+      lastError = L10n.string("ios.recentHistoryClearFailed")
     }
   }
 
@@ -105,7 +105,7 @@ final class LibraryModel: ObservableObject {
       )
       refreshRecents()
     } catch {
-      lastError = "The PDF metadata could not be saved."
+      lastError = L10n.string("ios.pdfMetadataSaveFailed")
     }
   }
 
@@ -129,7 +129,7 @@ final class LibraryModel: ObservableObject {
       try preferencesStore.save(value)
       preferences = value
     } catch {
-      lastError = "Preferences could not be saved."
+      lastError = L10n.string("ios.preferencesSaveFailed")
     }
   }
 

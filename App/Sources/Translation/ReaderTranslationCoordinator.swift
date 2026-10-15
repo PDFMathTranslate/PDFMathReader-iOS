@@ -224,7 +224,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     Task { await oldPipeline?.close() }
 
     guard !documentData.isEmpty else {
-      configurationMessage = "This PDF could not be serialized for translation."
+      configurationMessage = L10n.string("ios.serializeTranslationFailed")
       return
     }
     configurationMessage = nil
@@ -268,7 +268,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     case .openAICompatible:
       let key = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       guard !key.isEmpty else {
-        return UnavailableTranslationProvider(message: "Add an OpenAI-compatible API key in Settings.")
+        return UnavailableTranslationProvider(message: L10n.string("ios.missingOpenAIAPIKey"))
       }
       guard let url = URL(string: value.openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
         throw TranslationProviderError.invalidBaseURL

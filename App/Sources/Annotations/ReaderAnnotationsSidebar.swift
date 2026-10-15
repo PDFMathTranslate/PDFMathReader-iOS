@@ -16,18 +16,18 @@ struct ReaderAnnotationsSidebar: View {
             let selection = view.currentSelection,
             let origin = model.quickLinkOrigin(from: selection, in: view)
           else {
-            model.lastError = "Select text before creating a quick link."
+            model.lastError = L10n.string("ios.selectTextQuickLink")
             return
           }
           presentReaderQuickLinkTargetPrompt(model: model, pdfView: view, origin: origin)
         } label: {
-          Label("Create Quick Link", systemImage: "link.badge.plus")
+          Label(L10n.string("ios.createQuickLink"), systemImage: "link.badge.plus")
         }
       }
 
-      Section("Annotations") {
+      Section(L10n.string("sidebar.annotations")) {
         if model.annotations.isEmpty {
-          Text("Select text to highlight it or add a comment.")
+          Text(L10n.string("ios.annotationEmpty"))
             .foregroundStyle(.secondary)
         } else {
           ForEach(model.annotations) { annotation in
@@ -39,11 +39,15 @@ struct ReaderAnnotationsSidebar: View {
                   Circle()
                     .fill(Color(uiColor: UIColor(hex: annotation.color)))
                     .frame(width: 9, height: 9)
-                  Text(annotation.kind == .highlight ? "Highlight" : "Comment")
+                  Text(
+                    annotation.kind == .highlight
+                      ? L10n.string("sidebar.highlight")
+                      : L10n.string("sidebar.comment")
+                  )
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                   Spacer(minLength: 4)
-                  Text("p. \(annotation.page)")
+                  Text(L10n.string("sidebar.page", String(annotation.page)))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 }
@@ -55,11 +59,11 @@ struct ReaderAnnotationsSidebar: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
-              Button("Edit Comment", systemImage: "pencil") {
+              Button(L10n.string("ios.editComment"), systemImage: "pencil") {
                 editing = annotation
               }
               .disabled(annotation.kind != .comment)
-              Button("Delete", systemImage: "trash", role: .destructive) {
+              Button(L10n.string("ios.delete"), systemImage: "trash", role: .destructive) {
                 model.delete(annotation, pdfView: pdfViewReference.view)
               }
             }
@@ -67,9 +71,9 @@ struct ReaderAnnotationsSidebar: View {
         }
       }
 
-      Section("Quick Links") {
+      Section(L10n.string("ios.quickLinks")) {
         if model.quickLinks.isEmpty {
-          Text("Create a link from selected text to a page location.")
+          Text(L10n.string("ios.quickLinkEmpty"))
             .foregroundStyle(.secondary)
         } else {
           ForEach(model.quickLinks) { link in
@@ -79,7 +83,10 @@ struct ReaderAnnotationsSidebar: View {
                 model.followQuickLink(link, side: .origin, in: pdfViewReference.view)
               } label: {
                 VStack(alignment: .leading, spacing: 3) {
-                  Label("From page \(link.origin.page)", systemImage: "arrow.up.right")
+                  Label(
+                    L10n.string("ios.fromPage", String(link.origin.page)),
+                    systemImage: "arrow.up.right"
+                  )
                   Text(quickLinkLocation(link.origin.box))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -96,7 +103,10 @@ struct ReaderAnnotationsSidebar: View {
                 model.followQuickLink(link, side: .result, in: pdfViewReference.view)
               } label: {
                 VStack(alignment: .leading, spacing: 3) {
-                  Label("To page \(link.result.page)", systemImage: "arrow.down.left")
+                  Label(
+                    L10n.string("ios.toPage", String(link.result.page)),
+                    systemImage: "arrow.down.left"
+                  )
                   Text(quickLinkLocation(link.result.box))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -105,7 +115,7 @@ struct ReaderAnnotationsSidebar: View {
               .buttonStyle(.plain)
             }
             .contextMenu {
-              Button("Delete", systemImage: "trash", role: .destructive) {
+              Button(L10n.string("ios.delete"), systemImage: "trash", role: .destructive) {
                 model.deleteQuickLink(link)
               }
             }
@@ -136,14 +146,18 @@ struct ReaderAnnotationsSidebar: View {
         set: { if !$0 { model.lastError = nil } }
       )
     ) {
-      Button("OK") { model.lastError = nil }
+      Button(L10n.string("ios.ok")) { model.lastError = nil }
     } message: {
       Text(model.lastError ?? "")
     }
   }
 
   private func quickLinkLocation(_ box: ReaderQuickLinkBox) -> String {
-    "x \(box.x.formatted(.number.precision(.fractionLength(0...1)))), y \(box.y.formatted(.number.precision(.fractionLength(0...1))))"
+    L10n.string(
+      "ios.quickLinkLocation",
+      box.x.formatted(.number.precision(.fractionLength(0...1))),
+      box.y.formatted(.number.precision(.fractionLength(0...1)))
+    )
   }
 }
 
@@ -163,16 +177,16 @@ private struct AnnotationCommentEditor: View {
   var body: some View {
     NavigationStack {
       Form {
-        TextField("Comment", text: $comment, axis: .vertical)
+        TextField(L10n.string("sidebar.comment"), text: $comment, axis: .vertical)
           .lineLimit(4...8)
       }
-      .navigationTitle("Edit Comment")
+      .navigationTitle(L10n.string("ios.editComment"))
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel", action: onCancel)
+          Button(L10n.string("ios.cancel"), action: onCancel)
         }
         ToolbarItem(placement: .confirmationAction) {
-          Button("Save") { onSave(comment) }
+          Button(L10n.string("ios.save")) { onSave(comment) }
             .disabled(comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
       }

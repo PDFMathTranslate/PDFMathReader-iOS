@@ -149,7 +149,9 @@ final class ReaderViewModel: ObservableObject {
       return SearchResult(
         id: "\(pageIndex)-\(index)-\(text ?? "")",
         page: pageIndex + 1,
-        text: text?.isEmpty == false ? text! : "Page \(pageIndex + 1)"
+        text: text?.isEmpty == false
+          ? text!
+          : L10n.string("sidebar.page", String(pageIndex + 1))
       )
     }
   }
@@ -194,7 +196,7 @@ final class ReaderViewModel: ObservableObject {
           id: childPath,
           title: child.label?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? child.label!
-            : "Untitled section",
+            : L10n.string("ios.untitledSection"),
           page: pageNumber,
           depth: depth
         )

@@ -9,35 +9,35 @@ public struct ReadingAidsSettingsSection: View {
   }
 
   public var body: some View {
-    Section("Reading aids") {
-      Picker("Bionic reading", selection: $preferences.bionicReading) {
-        Text("Off").tag(BionicReadingMode.off)
-        Text("Fixed prefix").tag(BionicReadingMode.fixed)
-        Text("Word root").tag(BionicReadingMode.root)
+    Section(L10n.string("ios.readingAids")) {
+      Picker(L10n.string("settings.bionicReading"), selection: $preferences.bionicReading) {
+        Text(L10n.string("settings.bionicReadingOff")).tag(BionicReadingMode.off)
+        Text(L10n.string("settings.bionicReadingFixed")).tag(BionicReadingMode.fixed)
+        Text(L10n.string("settings.bionicReadingRoot")).tag(BionicReadingMode.root)
       }
 
       if preferences.bionicReading != .off {
         Stepper(
-          "Fixed prefix: \(preferences.bionicFixedLength)",
+          L10n.string("ios.fixedPrefixCount", String(preferences.bionicFixedLength)),
           value: $preferences.bionicFixedLength,
           in: BionicReading.fixedLengthMinimum...BionicReading.fixedLengthMaximum
         )
-        Toggle("Original text only", isOn: $preferences.bionicOriginalOnly)
+        Toggle(L10n.string("settings.bionicOriginalOnly"), isOn: $preferences.bionicOriginalOnly)
       }
 
-      Toggle("Information emphasis", isOn: $preferences.emphasizeInformation)
-      Toggle("Research findings", isOn: $preferences.emphasizeResearchFindings)
+      Toggle(L10n.string("settings.emphasizeInformation"), isOn: $preferences.emphasizeInformation)
+      Toggle(L10n.string("settings.emphasizeResearchFindings"), isOn: $preferences.emphasizeResearchFindings)
         .disabled(!preferences.emphasizeInformation)
-      Toggle("Ordinals", isOn: $preferences.emphasizeOrdinals)
+      Toggle(L10n.string("settings.emphasizeOrdinals"), isOn: $preferences.emphasizeOrdinals)
         .disabled(!preferences.emphasizeInformation)
-      Toggle("Key verbs", isOn: $preferences.emphasizeKeyVerbs)
+      Toggle(L10n.string("settings.emphasizeKeyVerbs"), isOn: $preferences.emphasizeKeyVerbs)
         .disabled(!preferences.emphasizeInformation)
-      Toggle("Logical connectives", isOn: $preferences.emphasizeLogicalConnectives)
+      Toggle(L10n.string("settings.emphasizeLogicalConnectives"), isOn: $preferences.emphasizeLogicalConnectives)
         .disabled(!preferences.emphasizeInformation)
-      Toggle("TF-IDF emphasis", isOn: $preferences.tfidfWeightingEnabled)
-      Toggle("Topic-sentence highlighting", isOn: $preferences.emphasizeTopicSentences)
-      Toggle("Detected links", isOn: $preferences.readingLinksEnabled)
-      Toggle("Generated outline fallback", isOn: $preferences.tocGenerationEnabled)
+      Toggle(L10n.string("ios.tfidfEmphasis"), isOn: $preferences.tfidfWeightingEnabled)
+      Toggle(L10n.string("settings.emphasizeTopicSentences"), isOn: $preferences.emphasizeTopicSentences)
+      Toggle(L10n.string("ios.detectedLinks"), isOn: $preferences.readingLinksEnabled)
+      Toggle(L10n.string("ios.generatedOutlineFallback"), isOn: $preferences.tocGenerationEnabled)
     }
   }
 }

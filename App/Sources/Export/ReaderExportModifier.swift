@@ -10,8 +10,8 @@ private enum ReaderExportKind {
 
   var title: String {
     switch self {
-    case .original: "Export original PDF"
-    case .translated: "Export translated PDF"
+    case .original: L10n.string("ios.exportOriginalPDF")
+    case .translated: L10n.string("ios.exportTranslatedPDF")
     }
   }
 }
@@ -29,7 +29,7 @@ private enum ReaderExportError: Error, LocalizedError {
   var errorDescription: String? {
     switch self {
     case .invalidDocument:
-      "The PDF could not be serialized for export."
+      L10n.string("ios.exportSerializationFailed")
     }
   }
 }
@@ -45,7 +45,7 @@ struct ReaderExportModifier: ViewModifier {
   @State private var progress = 0.0
   @State private var preparedExport: PreparedReaderExport?
   @State private var fileDocument = ExportPDFFileDocument()
-  @State private var fileName = "Document.pdf"
+  @State private var fileName = L10n.string("ios.documentFilename")
   @State private var isFileExporterPresented = false
   @State private var errorMessage: String?
 
@@ -68,7 +68,7 @@ struct ReaderExportModifier: ViewModifier {
           if isExporting {
             ProgressView(value: progress)
               .frame(width: 76)
-              .accessibilityLabel("Exporting PDF")
+              .accessibilityLabel(L10n.string("ios.exportingPDF"))
           } else {
             Menu {
               Button(ReaderExportKind.original.title, systemImage: "doc") {
@@ -78,9 +78,9 @@ struct ReaderExportModifier: ViewModifier {
                 beginExport(.translated)
               }
             } label: {
-              Label("Export", systemImage: "square.and.arrow.up")
+              Label(L10n.string("ios.export"), systemImage: "square.and.arrow.up")
             }
-            .accessibilityLabel("Export PDF")
+            .accessibilityLabel(L10n.string("ios.exportPDF"))
           }
         }
       }
@@ -104,11 +104,11 @@ struct ReaderExportModifier: ViewModifier {
           errorMessage = error.localizedDescription
         }
       }
-      .alert("Export failed", isPresented: Binding(
+      .alert(L10n.string("ios.exportFailed"), isPresented: Binding(
         get: { errorMessage != nil },
         set: { if !$0 { errorMessage = nil } }
       )) {
-        Button("OK") { errorMessage = nil }
+        Button(L10n.string("ios.ok")) { errorMessage = nil }
       } message: {
         Text(errorMessage ?? "")
       }
@@ -182,7 +182,7 @@ struct ReaderExportModifier: ViewModifier {
     let component = (name as NSString).lastPathComponent
     let stem = (component as NSString).deletingPathExtension
       .trimmingCharacters(in: .whitespacesAndNewlines)
-    return "\(stem.isEmpty ? "Document" : stem).pdf"
+    return "\(stem.isEmpty ? L10n.string("ios.documentFilenameStem") : stem).pdf"
   }
 }
 
@@ -207,7 +207,7 @@ private struct PreparedReaderExportView: View {
           subject: Text(export.title),
           message: Text(export.fileName)
         ) {
-          Label("Share…", systemImage: "square.and.arrow.up")
+          Label(L10n.string("ios.share"), systemImage: "square.and.arrow.up")
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
@@ -216,7 +216,7 @@ private struct PreparedReaderExportView: View {
           onSaveToFiles()
           dismiss()
         } label: {
-          Label("Save to Files…", systemImage: "folder")
+          Label(L10n.string("ios.saveToFiles"), systemImage: "folder")
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
@@ -226,7 +226,7 @@ private struct PreparedReaderExportView: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Done") { dismiss() }
+          Button(L10n.string("search.done")) { dismiss() }
         }
       }
     }

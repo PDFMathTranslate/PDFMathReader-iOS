@@ -9,9 +9,9 @@ private enum ReaderSidebarMode: String, CaseIterable {
 
   var title: String {
     switch self {
-    case .thumbnails: "Pages"
-    case .outline: "Outline"
-    case .annotations: "Annotations"
+    case .thumbnails: L10n.string("sidebar.thumbnails")
+    case .outline: L10n.string("sidebar.outline")
+    case .annotations: L10n.string("sidebar.annotations")
     }
   }
 }
@@ -39,7 +39,7 @@ struct ReaderView: View {
         if horizontalSizeClass == .regular {
           NavigationSplitView(columnVisibility: $columnVisibility) {
             ReaderSidebar(model: model, annotations: annotationModel, mode: $sidebarMode)
-              .navigationTitle("Reader")
+              .navigationTitle(L10n.string("ios.reader"))
               .navigationBarTitleDisplayMode(.inline)
           } detail: {
             readerDetail(document: document, regular: true)
@@ -57,10 +57,10 @@ struct ReaderView: View {
             .sheet(isPresented: $isCompactSidebarPresented) {
               NavigationStack {
                 ReaderSidebar(model: model, annotations: annotationModel, mode: $sidebarMode)
-                  .navigationTitle("Reader tools")
+                  .navigationTitle(L10n.string("ios.readerTools"))
                   .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                      Button("Done") { isCompactSidebarPresented = false }
+                      Button(L10n.string("search.done")) { isCompactSidebarPresented = false }
                     }
                   }
               }
@@ -69,9 +69,9 @@ struct ReaderView: View {
         }
       } else {
         ContentUnavailableView(
-          "PDF unavailable",
+          L10n.string("ios.pdfUnavailable"),
           systemImage: "exclamationmark.triangle",
-          description: Text("Choose the file again from the Library.")
+          description: Text(L10n.string("ios.chooseFileAgain"))
         )
       }
     }
@@ -171,7 +171,7 @@ struct ReaderView: View {
           )
           .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-              Button("Done") { isComparePresented = false }
+              Button(L10n.string("search.done")) { isComparePresented = false }
             }
           }
         }
@@ -230,22 +230,28 @@ private struct ReaderDetail: View {
     .toolbar {
       ToolbarItemGroup(placement: .topBarLeading) {
         Button(action: onToggleSidebar) {
-          Label("Thumbnails", systemImage: "sidebar.left")
+          Label(L10n.string("sidebar.thumbnails"), systemImage: "sidebar.left")
         }
         .labelStyle(.iconOnly)
 
         Button(action: onGoToPage) {
-          Text("\(model.readingState.page) / \(model.pageCount)")
+          Text(
+            L10n.string(
+              "status.pageOf",
+              String(model.readingState.page),
+              String(model.pageCount)
+            )
+          )
             .monospacedDigit()
             .font(.subheadline.weight(.semibold))
         }
-        .accessibilityLabel("Go to page")
+        .accessibilityLabel(L10n.string("ios.goToPage"))
       }
 
       ToolbarItemGroup(placement: .topBarTrailing) {
         Menu {
-          Button("Zoom in", systemImage: "plus.magnifyingglass") { model.zoomIn() }
-          Button("Zoom out", systemImage: "minus.magnifyingglass") { model.zoomOut() }
+          Button(L10n.string("toolbar.zoomIn"), systemImage: "plus.magnifyingglass") { model.zoomIn() }
+          Button(L10n.string("toolbar.zoomOut"), systemImage: "minus.magnifyingglass") { model.zoomOut() }
           Divider()
           ForEach(ReaderScaleMode.allCases, id: \.self) { mode in
             Button {
@@ -255,7 +261,7 @@ private struct ReaderDetail: View {
             }
           }
         } label: {
-          Label("Zoom", systemImage: "plus.magnifyingglass")
+          Label(L10n.string("toolbar.zoom"), systemImage: "plus.magnifyingglass")
         }
 
         Menu {
@@ -275,18 +281,20 @@ private struct ReaderDetail: View {
             }
           }
         } label: {
-          Label("Layout", systemImage: "rectangle.split.2x1")
+          Label(L10n.string("menu.extra.messages.Layout"), systemImage: "rectangle.split.2x1")
         }
 
         Button(action: onSearch) {
-          Label("Search", systemImage: "magnifyingglass")
+          Label(L10n.string("toolbar.searchDocument"), systemImage: "magnifyingglass")
         }
 
         Button {
           model.toggleTranslations()
         } label: {
           Label(
-            model.translationCoordinator?.showTranslations == true ? "Show original" : "Show translation",
+            model.translationCoordinator?.showTranslations == true
+              ? L10n.string("toolbar.showOriginalText")
+              : L10n.string("toolbar.showTranslatedText"),
             systemImage: model.translationCoordinator?.showTranslations == true
               ? "text.page"
               : "character.book.closed"
@@ -295,7 +303,7 @@ private struct ReaderDetail: View {
 
         if regular {
           Button(action: onCompare) {
-            Label("Compare", systemImage: "rectangle.split.2x1")
+            Label(L10n.string("ios.compare"), systemImage: "rectangle.split.2x1")
           }
           .disabled(model.translationCoordinator == nil)
         }
@@ -309,23 +317,25 @@ private struct ReaderDetail: View {
 
   private func scaleTitle(_ mode: ReaderScaleMode) -> String {
     switch mode {
-    case .fitPage: "Fit page"
-    case .fitWidth: "Fit width"
-    case .actualSize: "Actual size"
-    case .custom: "Custom"
+    case .fitPage: L10n.string("ios.fitPage")
+    case .fitWidth: L10n.string("menu.extra.messages.Fit Width")
+    case .actualSize: L10n.string("ios.actualSize")
+    case .custom: L10n.string("appearance.custom")
     }
   }
 
   private func displayTitle(_ mode: ReaderDisplayMode) -> String {
     switch mode {
-    case .singlePage: "Single page"
-    case .twoPages: "Two pages"
-    case .fourPages: "Four pages (compact two-up)"
+    case .singlePage: L10n.string("ios.singlePage")
+    case .twoPages: L10n.string("ios.twoPages")
+    case .fourPages: L10n.string("ios.fourPages")
     }
   }
 
   private func directionTitle(_ direction: ReaderScrollDirection) -> String {
-    direction == .vertical ? "Vertical scroll" : "Horizontal scroll"
+    direction == .vertical
+      ? L10n.string("ios.verticalScroll")
+      : L10n.string("ios.horizontalScroll")
   }
 }
 
@@ -336,7 +346,7 @@ private struct ReaderSidebar: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      Picker("Reader sidebar", selection: $mode) {
+      Picker(L10n.string("ios.readerSidebar"), selection: $mode) {
         ForEach(ReaderSidebarMode.allCases, id: \.self) { mode in
           Text(mode.title).tag(mode)
         }
@@ -368,9 +378,9 @@ private struct OutlineList: View {
   var body: some View {
     if model.outlineEntries.isEmpty {
       ContentUnavailableView(
-        "No outline",
+        L10n.string("ios.noOutline"),
         systemImage: "list.bullet.indent",
-        description: Text("This PDF does not contain bookmarks.")
+        description: Text(L10n.string("ios.noBookmarks"))
       )
     } else {
       List(model.outlineEntries) { entry in
@@ -406,9 +416,11 @@ private struct SearchSheet: View {
       List {
         if model.searchResults.isEmpty {
           ContentUnavailableView(
-            model.searchQuery.isEmpty ? "Search this PDF" : "No matches",
+            model.searchQuery.isEmpty
+              ? L10n.string("ios.searchThisPDF")
+              : L10n.string("search.noMatches"),
             systemImage: "magnifyingglass",
-            description: Text("Searches the PDF's available text layer.")
+            description: Text(L10n.string("ios.searchDescription"))
           )
           .listRowBackground(Color.clear)
         } else {
@@ -420,7 +432,7 @@ private struct SearchSheet: View {
               VStack(alignment: .leading, spacing: 4) {
                 Text(result.text)
                   .lineLimit(2)
-                Text("Page \(result.page)")
+                Text(L10n.string("sidebar.page", String(result.page)))
                   .font(.caption)
                   .foregroundStyle(.secondary)
               }
@@ -429,13 +441,13 @@ private struct SearchSheet: View {
         }
       }
       .listStyle(.plain)
-      .navigationTitle("Search")
+      .navigationTitle(L10n.string("search.documentText"))
       .navigationBarTitleDisplayMode(.inline)
       .searchable(text: $model.searchQuery, placement: .navigationBarDrawer(displayMode: .always))
       .onSubmit(of: .search) { model.search() }
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Done") { dismiss() }
+          Button(L10n.string("search.done")) { dismiss() }
         }
       }
       .onChange(of: model.searchQuery) { _, _ in model.search() }
@@ -453,21 +465,21 @@ private struct GoToPageSheet: View {
   var body: some View {
     NavigationStack {
       Form {
-        Section("Page") {
-          TextField("1–\(model.pageCount)", text: $pageText)
+        Section(L10n.string("navigator.pageNumber")) {
+          TextField(L10n.string("ios.pageRange", String(model.pageCount)), text: $pageText)
             .keyboardType(.numberPad)
             .submitLabel(.go)
             .onSubmit { submit() }
         }
       }
-      .navigationTitle("Go to page")
+      .navigationTitle(L10n.string("ios.goToPage"))
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel") { dismiss() }
+          Button(L10n.string("ios.cancel")) { dismiss() }
         }
         ToolbarItem(placement: .confirmationAction) {
-          Button("Go") { submit() }
+          Button(L10n.string("menu.extra.messages.Go")) { submit() }
             .disabled(Int(pageText) == nil)
         }
       }

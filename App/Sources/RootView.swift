@@ -26,7 +26,7 @@ struct RootView: View {
         set: { if !$0 { library.lastError = nil } }
       )
     ) {
-      Button("OK") { library.lastError = nil }
+      Button(L10n.string("ios.ok")) { library.lastError = nil }
     } message: {
       Text(library.lastError ?? "")
     }
@@ -56,7 +56,7 @@ struct ReaderWindow: View {
       if let session {
         ReaderView(session: session, library: library)
       } else {
-        ProgressView("Opening PDF…")
+        ProgressView(L10n.string("status.openingPDF"))
       }
     }
     .task {

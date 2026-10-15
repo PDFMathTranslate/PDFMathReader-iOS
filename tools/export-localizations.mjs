@@ -10,6 +10,7 @@ const desktopRoot = resolve(
 );
 const localeRoot = join(desktopRoot, 'src/i18n/locales');
 const output = join(repoRoot, 'App/Resources/Localizable.xcstrings');
+const iosExtrasPath = join(repoRoot, 'tools/ios-strings.json');
 
 const localeFiles = (await readdir(localeRoot))
   .filter((file) => file.endsWith('.mjs'))
@@ -44,6 +45,14 @@ function flatten(value, prefix = '', result = {}) {
 
 for (const [locale, messages] of Object.entries(locales)) {
   for (const [key, value] of Object.entries(flatten(messages))) setValue(key, locale, value);
+}
+
+// iOS-only labels and messages live outside the generated desktop locale files.
+// Keeping them in a small source file makes the catalog reproducible.
+const iosExtras = JSON.parse(await readFile(iosExtrasPath, 'utf8'));
+for (const [key, messages] of Object.entries(iosExtras)) {
+  if (!key.startsWith('ios.')) throw new Error(`iOS localization key must use ios.*: ${key}`);
+  for (const [locale, value] of Object.entries(messages)) setValue(key, locale, value);
 }
 
 // The desktop menu has a few strings that are shared with the native shell.

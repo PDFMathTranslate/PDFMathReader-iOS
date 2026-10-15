@@ -11,35 +11,35 @@ extension Notification.Name {
 
 struct ReaderCommandMenu: Commands {
   var body: some Commands {
-    CommandMenu("Reader") {
-      Button("Next Page") {
+    CommandMenu(L10n.string("ios.reader")) {
+      Button(L10n.string("menu.extra.messages.Next Page")) {
         NotificationCenter.default.post(name: .readerNextPage, object: ReaderCommandRouter.shared.activeModel)
       }
       .keyboardShortcut(.rightArrow, modifiers: [])
 
-      Button("Previous Page") {
+      Button(L10n.string("menu.extra.messages.Previous Page")) {
         NotificationCenter.default.post(name: .readerPreviousPage, object: ReaderCommandRouter.shared.activeModel)
       }
       .keyboardShortcut(.leftArrow, modifiers: [])
 
       Divider()
 
-      Button("Zoom In") {
+      Button(L10n.string("menu.extra.messages.Zoom In")) {
         NotificationCenter.default.post(name: .readerZoomIn, object: ReaderCommandRouter.shared.activeModel)
       }
       .keyboardShortcut("=", modifiers: [.command])
 
-      Button("Zoom Out") {
+      Button(L10n.string("menu.extra.messages.Zoom Out")) {
         NotificationCenter.default.post(name: .readerZoomOut, object: ReaderCommandRouter.shared.activeModel)
       }
       .keyboardShortcut("-", modifiers: [.command])
 
-      Button("Toggle Thumbnails") {
+      Button(L10n.string("toolbar.toggleThumbnails")) {
         NotificationCenter.default.post(name: .readerToggleSidebar, object: ReaderCommandRouter.shared.activeModel)
       }
       .keyboardShortcut("b", modifiers: [.command])
 
-      Button("Find in Document") {
+      Button(L10n.string("ios.findInDocument")) {
         NotificationCenter.default.post(name: .readerOpenSearch, object: ReaderCommandRouter.shared.activeModel)
       }
       .keyboardShortcut("f", modifiers: [.command])
