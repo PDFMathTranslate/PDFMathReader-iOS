@@ -64,21 +64,50 @@ struct RootView: View {
 
 struct ReaderWindow: View {
   @EnvironmentObject private var library: LibraryModel
+  @Environment(\.dismissWindow) private var dismissWindow
   let url: URL
   @State private var session: DocumentSession?
+  @State private var failure: String?
 
   var body: some View {
     Group {
       if let session {
         ReaderView(session: session, library: library)
+      } else if let failure {
+        // The library window's alert may be hidden; report the failure here
+        // instead of spinning forever.
+        ContentUnavailableView {
+          Label(L10n.string("ios.pdfUnavailable"), systemImage: "doc.questionmark")
+        } description: {
+          Text(failure)
+        } actions: {
+          Button(L10n.string("menu.extra.messages.Close Window")) { dismissWindow() }
+        }
       } else {
         ProgressView(L10n.string("status.openingPDF"))
       }
     }
     .task {
+      guard session == nil, failure == nil else { return }
+      session = library.makeSession(for: Self.relocatedIntoCurrentContainer(url))
       if session == nil {
-        session = library.makeSession(for: url)
+        failure = library.lastError ?? L10n.string("error.thisPDFUnavailable")
+        library.lastError = nil
       }
     }
+  }
+
+  /// Restored windows keep an absolute URL, but iOS may move the app's data
+  /// container between installs. Re-root a missing in-container file under
+  /// the current Documents directory.
+  static func relocatedIntoCurrentContainer(_ url: URL) -> URL {
+    let path = url.path
+    guard url.isFileURL,
+          !FileManager.default.fileExists(atPath: path),
+          path.contains("/Containers/Data/Application/"),
+          let documents = path.range(of: "/Documents/")
+    else { return url }
+    let candidate = URL.documentsDirectory.appendingPathComponent(String(path[documents.upperBound...]))
+    return FileManager.default.fileExists(atPath: candidate.path) ? candidate : url
   }
 }

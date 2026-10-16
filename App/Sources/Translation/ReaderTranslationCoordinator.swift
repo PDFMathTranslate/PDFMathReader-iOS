@@ -60,25 +60,24 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
 
   func updatePreferences(_ value: ReaderPreferences) {
     let visibilityChanged = showTranslations != value.showTranslations
+    let previousConfigurationID = translationConfigurationID
+    let previousFullDocument = preferences.translateFullDocument
     preferences = value
     showTranslations = value.showTranslations
     if visibilityChanged {
-      overlays.values.forEach { overlay in
-        if let state = currentState(for: overlay.pageIndex) {
-          overlay.update(state: state, showTranslations: showTranslations)
-        }
-      }
+      overlays.values.forEach { $0.setTranslationsVisible(showTranslations) }
     }
-    configure()
+    // UI-only changes (visibility, theme, reading aids) must not restart the
+    // pipeline: a restart clears the page states the overlays rely on.
+    if translationConfigurationID != previousConfigurationID
+      || preferences.translateFullDocument != previousFullDocument {
+      configure()
+    }
   }
 
   func toggleTranslations() {
     showTranslations.toggle()
-    overlays.values.forEach { overlay in
-      if let state = currentState(for: overlay.pageIndex) {
-        overlay.update(state: state, showTranslations: showTranslations)
-      }
-    }
+    overlays.values.forEach { $0.setTranslationsVisible(showTranslations) }
   }
 
   var translationDocumentID: String { documentID }
@@ -130,11 +129,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
         settings.translationMode = .full
         if !showTranslations {
           showTranslations = true
-          overlays.values.forEach { overlay in
-            if let state = currentState(for: overlay.pageIndex) {
-              overlay.update(state: state, showTranslations: true)
-            }
-          }
+          overlays.values.forEach { $0.setTranslationsVisible(true) }
         }
         await pipeline.schedule(
           settings: settings,

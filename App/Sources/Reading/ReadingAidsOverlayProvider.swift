@@ -333,6 +333,11 @@ private final class ReadingAidsCompositePageOverlay: UIView {
     super.layoutSubviews()
     subviews.forEach { $0.frame = bounds }
   }
+
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    let hit = super.hitTest(point, with: event)
+    return hit === self ? nil : hit
+  }
 }
 
 @MainActor

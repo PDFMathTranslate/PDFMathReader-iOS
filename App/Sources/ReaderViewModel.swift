@@ -30,6 +30,7 @@ final class ReaderViewModel: ObservableObject {
   @Published private(set) var translationCoordinator: ReaderTranslationCoordinator?
   // Generated TOC extracts every page, so compute it once per document.
   private var cachedGeneratedTOC: [OutlineEntry]?
+  private var cancellables = Set<AnyCancellable>()
 
   init(session: DocumentSession, library: LibraryModel) {
     self.session = session
@@ -45,6 +46,12 @@ final class ReaderViewModel: ObservableObject {
         documentID: session.id,
         preferences: library.preferences
       )
+      // Views observe this model, not the coordinator; relay visibility
+      // changes so the toolbar toggle's label and icon stay current.
+      translationCoordinator?.$showTranslations
+        .removeDuplicates()
+        .sink { [weak self] _ in self?.objectWillChange.send() }
+        .store(in: &cancellables)
     }
   }
 

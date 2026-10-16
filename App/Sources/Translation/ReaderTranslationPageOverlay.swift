@@ -85,6 +85,19 @@ final class ReaderTranslationPageOverlay: UIView {
     setNeedsLayout()
   }
 
+  /// Applies visibility with the last known state, even if the coordinator
+  /// has no state for this page right now (e.g. during a pipeline restart).
+  func setTranslationsVisible(_ visible: Bool) {
+    update(state: state, showTranslations: visible)
+  }
+
+  // Only translation labels take touches; everything else falls through to
+  // PDFKit so text selection still works under the overlay.
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    let hit = super.hitTest(point, with: event)
+    return hit === self ? nil : hit
+  }
+
   func updateReadingAids(_ configuration: ReadingAidsConfiguration) {
     readingAidsConfiguration = configuration
     guard remotePageData == nil else { return }

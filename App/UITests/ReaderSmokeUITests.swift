@@ -36,17 +36,46 @@ final class ReaderSmokeUITests: XCTestCase {
     sleep(1)
     attachScreenshot(app, name: "2-original")
 
-    // "worthy" in the first sentence of the sample page.
-    let word = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.37, dy: 0.5625))
-    word.press(forDuration: 1.2)
+    // "worthy" sits 37% along the first line; PDFKit exposes that line as
+    // static text, which keeps the press independent of device and layout.
+    let line = app.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "The grass-blade is worthy")
+    ).firstMatch
+    let hasLine = line.waitForExistence(timeout: 5)
+    let word = hasLine
+      ? line.coordinate(withNormalizedOffset: CGVector(dx: 0.37, dy: 0.5))
+      : app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.37, dy: 0.5625))
+    let wordEnd = hasLine
+      ? line.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.5))
+      : app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.5625))
 
-    let highlight = app.buttons["Highlight Yellow"].firstMatch
-    if !highlight.waitForExistence(timeout: 5) {
-      // The inline Annotate section can land on a later page of the edit menu.
-      let forward = app.buttons["Forward"].firstMatch
-      if forward.exists { forward.tap() }
+    // Selection gestures differ by device: iPhone selects on long press, while
+    // iPad can start a text drag instead. Try each until the edit menu shows;
+    // double-tap goes last because PDFKit may zoom instead of selecting.
+    let highlight = menuEntry("Highlight Yellow", in: app)
+    let gestures: [(String, () -> Void)] = [
+      ("long-press", { word.press(forDuration: 1.2) }),
+      ("press-drag", { word.press(forDuration: 0.8, thenDragTo: wordEnd) }),
+      ("double-tap", { word.doubleTap() }),
+    ]
+    var found = false
+    for (name, gesture) in gestures {
+      gesture()
+      if !highlight.waitForExistence(timeout: 3) {
+        // The inline Annotate section can land on a later page of the edit menu.
+        let forward = menuEntry("Forward", in: app)
+        if forward.exists { forward.tap() }
+      }
+      if highlight.waitForExistence(timeout: 2) {
+        XCTContext.runActivity(named: "Selection gesture: \(name)") { _ in }
+        found = true
+        break
+      }
+      attachScreenshot(app, name: "after-\(name)")
+      // Clear any partial selection before the next attempt.
+      app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)).tap()
     }
-    if !highlight.waitForExistence(timeout: 5) {
+    if !found {
       attachScreenshot(app, name: "edit-menu-missing")
       add(XCTAttachment(string: app.debugDescription))
       XCTFail("Highlight Yellow is not in the selection menu")
@@ -56,6 +85,19 @@ final class ReaderSmokeUITests: XCTestCase {
     highlight.tap()
     sleep(1)
     attachScreenshot(app, name: "4-highlighted")
+  }
+
+  @MainActor
+  /// The edit menu exposes entries as buttons on iPhone and menu items on iPad.
+  private func menuEntry(_ label: String, in app: XCUIApplication) -> XCUIElement {
+    app.descendants(matching: .any).matching(
+      NSPredicate(
+        format: "label == %@ AND (elementType == %d OR elementType == %d)",
+        label,
+        XCUIElement.ElementType.button.rawValue,
+        XCUIElement.ElementType.menuItem.rawValue
+      )
+    ).firstMatch
   }
 
   @MainActor
