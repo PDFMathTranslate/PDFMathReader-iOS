@@ -85,6 +85,7 @@ struct ReaderView: View {
               // Both split-view columns can contribute a system toggle.
               // Keep only the detail's custom tap/hold sidebar control.
               .toolbar(removing: .sidebarToggle)
+              .background(ReaderSystemSidebarToggleSuppressor())
               .toolbar {
                 if let onClose {
                   ToolbarItem(placement: .topBarLeading) {
@@ -515,14 +516,60 @@ private struct ReaderDetail: View {
   private var moreMenu: some View {
     Section {
       Menu {
+        ReaderTranslationMenu(library: model.library, availability: kernelAvailability) { preferences in
+          guard preferences != model.library.preferences else { return }
+          translateAll.cancel()
+          model.library.savePreferences(preferences)
+          model.updateTranslationPreferences(model.library.preferences)
+        }
+        Section {
+          Button {
+            translateAll.cancel()
+            model.translationCoordinator?.forceRetranslate()
+            translateAll.resetForCurrentConfiguration()
+          } label: {
+            Label(L10n.string("menu.extra.messages.Force Retranslate"), systemImage: "arrow.clockwise")
+          }
+          .accessibilityIdentifier("reader.forceRetranslate")
+          Button {
+            translateAll.cancel()
+            do { try model.translationCoordinator?.clearDocumentCache() }
+            catch { importError = error.localizedDescription }
+          } label: {
+            Label(L10n.string("ios.clearDocumentTranslationCache"), systemImage: "trash")
+          }
+          .accessibilityIdentifier("reader.clearDocumentTranslationCache")
+        }
+      } label: {
+        Label(L10n.string("settings.translation"), systemImage: "character.bubble")
+      }
+      .accessibilityIdentifier("reader.translationMenu")
+
+      Button {
+        translateAll.isRunning ? translateAll.cancel() : translateAll.start()
+      } label: {
+        Label {
+          Text(translateAll.menuTitle)
+          if let subtitle = translateAll.menuSubtitle { Text(subtitle) }
+        } icon: {
+          Image(systemName: translateAll.menuSymbol)
+        }
+      }
+      .disabled(translateAll.isFinished && !translateAll.isRunning)
+      .accessibilityIdentifier("reader.translateAllPages")
+    }
+
+    Section {
+      Menu {
         Button(L10n.string("toolbar.zoomIn"), systemImage: "plus.magnifyingglass") { model.zoomIn() }
         Button(L10n.string("toolbar.zoomOut"), systemImage: "minus.magnifyingglass") { model.zoomOut() }
         Divider()
         ForEach(ReaderScaleMode.allCases, id: \.self) { mode in
-          Button {
-            model.setScaleMode(mode)
-          } label: {
-            Label(scaleTitle(mode), systemImage: model.readingState.scaleMode == mode ? "checkmark" : "")
+          Toggle(isOn: Binding(
+            get: { model.readingState.scaleMode == mode },
+            set: { if $0 { model.setScaleMode(mode) } }
+          )) {
+            Label(scaleTitle(mode), systemImage: scaleSymbol(mode))
           }
         }
       } label: {
@@ -531,23 +578,27 @@ private struct ReaderDetail: View {
 
       Menu {
         ForEach(ReaderDisplayMode.allCases, id: \.self) { mode in
-          Button {
-            model.setDisplayMode(mode)
-          } label: {
-            Label(displayTitle(mode), systemImage: model.readingState.displayMode == mode ? "checkmark" : "")
+          Toggle(isOn: Binding(
+            get: { model.readingState.displayMode == mode },
+            set: { if $0 { model.setDisplayMode(mode) } }
+          )) {
+            Label(displayTitle(mode), systemImage: displaySymbol(mode))
           }
         }
         Divider()
         ForEach(ReaderScrollDirection.allCases, id: \.self) { direction in
-          Button {
-            model.setScrollDirection(direction)
-          } label: {
-            Label(directionTitle(direction), systemImage: model.readingState.scrollDirection == direction ? "checkmark" : "")
+          Toggle(isOn: Binding(
+            get: { model.readingState.scrollDirection == direction },
+            set: { if $0 { model.setScrollDirection(direction) } }
+          )) {
+            Label(directionTitle(direction), systemImage: direction == .vertical ? "arrow.up.and.down" : "arrow.left.and.right")
           }
+          .accessibilityIdentifier("reader.scrollDirection.\(direction.rawValue)")
         }
       } label: {
         Label(L10n.string("menu.extra.messages.Layout"), systemImage: "rectangle.split.2x1")
       }
+      .accessibilityIdentifier("reader.layoutMenu")
 
       Menu {
         let crop = model.readingState.pageCrop ?? PageCrop()
@@ -587,51 +638,6 @@ private struct ReaderDetail: View {
       if regular {
         Button(L10n.string("ios.compare"), systemImage: "rectangle.split.2x1", action: onCompare)
       }
-    }
-
-    Section {
-      Button {
-        translateAll.isRunning ? translateAll.cancel() : translateAll.start()
-      } label: {
-        Label {
-          Text(translateAll.menuTitle)
-          if let subtitle = translateAll.menuSubtitle { Text(subtitle) }
-        } icon: {
-          Image(systemName: translateAll.menuSymbol)
-        }
-      }
-      .disabled(translateAll.isFinished && !translateAll.isRunning)
-      .accessibilityIdentifier("reader.translateAllPages")
-
-      Menu {
-        ReaderTranslationMenu(library: model.library, availability: kernelAvailability) { preferences in
-          guard preferences != model.library.preferences else { return }
-          translateAll.cancel()
-          model.library.savePreferences(preferences)
-          model.updateTranslationPreferences(model.library.preferences)
-        }
-        Section {
-          Button {
-            translateAll.cancel()
-            model.translationCoordinator?.forceRetranslate()
-            translateAll.resetForCurrentConfiguration()
-          } label: {
-            Label(L10n.string("menu.extra.messages.Force Retranslate"), systemImage: "arrow.clockwise")
-          }
-          .accessibilityIdentifier("reader.forceRetranslate")
-          Button {
-            translateAll.cancel()
-            do { try model.translationCoordinator?.clearDocumentCache() }
-            catch { importError = error.localizedDescription }
-          } label: {
-            Label(L10n.string("ios.clearDocumentTranslationCache"), systemImage: "trash")
-          }
-          .accessibilityIdentifier("reader.clearDocumentTranslationCache")
-        }
-      } label: {
-        Label(L10n.string("settings.translation"), systemImage: "character.bubble")
-      }
-      .accessibilityIdentifier("reader.translationMenu")
     }
 
     Section {
@@ -676,6 +682,23 @@ private struct ReaderDetail: View {
     }
   }
 
+  private func scaleSymbol(_ mode: ReaderScaleMode) -> String {
+    switch mode {
+    case .fitPage: "arrow.up.left.and.arrow.down.right"
+    case .fitWidth: "arrow.left.and.right"
+    case .actualSize: "1.magnifyingglass"
+    case .custom: "slider.horizontal.3"
+    }
+  }
+
+  private func displaySymbol(_ mode: ReaderDisplayMode) -> String {
+    switch mode {
+    case .singlePage: "rectangle"
+    case .twoPages: "rectangle.split.2x1"
+    case .fourPages: "square.grid.2x2"
+    }
+  }
+
   private func scaleTitle(_ mode: ReaderScaleMode) -> String {
     switch mode {
     case .fitPage: L10n.string("ios.fitPage")
@@ -697,6 +720,46 @@ private struct ReaderDetail: View {
     direction == .vertical
       ? L10n.string("ios.verticalScroll")
       : L10n.string("ios.horizontalScroll")
+  }
+}
+
+/// SwiftUI's toolbar removal can leave UIKit's Liquid Glass split-view
+/// button visible. Suppress that system button while retaining our control.
+private struct ReaderSystemSidebarToggleSuppressor: UIViewControllerRepresentable {
+  func makeUIViewController(context: Context) -> Controller {
+    Controller()
+  }
+
+  func updateUIViewController(_ controller: Controller, context: Context) {
+    controller.hideSystemToggle()
+  }
+
+  final class Controller: UIViewController {
+    override func loadView() {
+      view = UIView()
+      view.isUserInteractionEnabled = false
+    }
+
+    override func didMove(toParent parent: UIViewController?) {
+      super.didMove(toParent: parent)
+      hideSystemToggle()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+      super.viewWillAppear(animated)
+      hideSystemToggle()
+    }
+
+    override func viewDidLayoutSubviews() {
+      super.viewDidLayoutSubviews()
+      hideSystemToggle()
+    }
+
+    func hideSystemToggle() {
+      guard let split = splitViewController,
+            split.displayModeButtonVisibility != .never else { return }
+      split.displayModeButtonVisibility = .never
+    }
   }
 }
 

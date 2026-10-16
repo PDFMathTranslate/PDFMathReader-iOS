@@ -185,8 +185,28 @@ struct ReaderTranslationMenu: View {
 
   var body: some View {
     Section {
+      // Individual toggles preserve selection marks alongside option icons,
+      // including when the saved kernel is currently unavailable.
+      Menu {
+        ForEach(availability.engines, id: \.self) { engine in
+          Toggle(isOn: Binding(
+            get: { engine == library.preferences.engine },
+            set: { selected in
+              guard selected else { return }
+              selectEngine(engine)
+            }
+          )) {
+            Label(engineLabel(engine), systemImage: engineSymbol(engine))
+          }
+          .accessibilityIdentifier("reader.kernel.\(engine.rawValue)")
+        }
+      } label: {
+        Label(L10n.string("recentStatus.engine"), systemImage: "cpu")
+      }
+      .accessibilityIdentifier("reader.kernel")
+
       Picker(selection: preference(\.sourceLanguage)) {
-        Text(L10n.string("settings.automaticDetection")).tag("")
+        Label(L10n.string("settings.automaticDetection"), systemImage: "sparkle.magnifyingglass").tag("")
         languageChoices(direction: "source", current: library.preferences.sourceLanguage)
       } label: {
         Label(L10n.string("settings.sourceLanguage"), systemImage: "arrow.left")
@@ -204,39 +224,10 @@ struct ReaderTranslationMenu: View {
 
       Divider()
 
-      // Buttons permit an unavailable saved selection to have no checkmark;
-      // a Picker would require keeping that unavailable option in its list.
-      Menu {
-        ForEach(availability.engines, id: \.self) { engine in
-          Button {
-            var value = library.preferences
-            value.engine = engine
-            let languages = availability.languages(value, direction: "target").map(\.name)
-            if let current = translationLanguageOptions.first(where: { $0.code == value.targetLanguage }),
-               !languages.contains(current.name),
-               let fallback = translationLanguageOptions.first(where: { languages.contains($0.name) }) {
-              value.targetLanguage = fallback.code
-            }
-            availability.normalizeSelection(&value)
-            onChange(value)
-          } label: {
-            if engine == library.preferences.engine {
-              Label(engineLabel(engine), systemImage: "checkmark")
-            } else {
-              Text(engineLabel(engine))
-            }
-          }
-          .accessibilityIdentifier("reader.kernel.\(engine.rawValue)")
-        }
-      } label: {
-        Label(L10n.string("recentStatus.engine"), systemImage: "cpu")
-      }
-      .accessibilityIdentifier("reader.kernel")
-
       if !availability.services(library.preferences).isEmpty {
         Picker(selection: preference(\.companionService)) {
           ForEach(availability.services(library.preferences)) { service in
-            Text(service.id == "auto" ? L10n.string("settings.translationServiceAuto") : service.name).tag(service.id)
+            Label(service.id == "auto" ? L10n.string("settings.translationServiceAuto") : service.name, systemImage: service.id == "auto" ? "wand.and.stars" : "desktopcomputer").tag(service.id)
           }
         } label: {
           Label(L10n.string("settings.translationService"), systemImage: "desktopcomputer")
@@ -247,7 +238,7 @@ struct ReaderTranslationMenu: View {
 
       Picker(selection: preference(\.translationMode)) {
         ForEach(TranslationMode.allCases, id: \.self) { mode in
-          Text(mode.displayName).tag(mode)
+          Label(mode.displayName, systemImage: "text.bubble").tag(mode)
         }
       } label: {
         Label(L10n.string("settings.translationMode"), systemImage: "text.bubble")
@@ -257,11 +248,36 @@ struct ReaderTranslationMenu: View {
 
       Divider()
 
-      Toggle(L10n.string("settings.reuseTranslations"), isOn: preference(\.reuseTranslations))
-        .accessibilityIdentifier("reader.reuseTranslations")
+      Toggle(isOn: preference(\.reuseTranslations)) {
+        Label(L10n.string("settings.reuseTranslations"), systemImage: "arrow.triangle.2.circlepath")
+      }
+      .accessibilityIdentifier("reader.reuseTranslations")
 
-      Toggle(L10n.string("advanced.options.ignore_cache.label"), isOn: preference(\.ignoreCache))
-        .accessibilityIdentifier("reader.ignoreCache")
+      Toggle(isOn: preference(\.ignoreCache)) {
+        Label(L10n.string("advanced.options.ignore_cache.label"), systemImage: "arrow.clockwise.circle")
+      }
+      .accessibilityIdentifier("reader.ignoreCache")
+    }
+  }
+
+  private func selectEngine(_ engine: ReaderEngine) {
+    var value = library.preferences
+    value.engine = engine
+    let languages = availability.languages(value, direction: "target").map(\.name)
+    if let current = translationLanguageOptions.first(where: { $0.code == value.targetLanguage }),
+       !languages.contains(current.name),
+       let fallback = translationLanguageOptions.first(where: { languages.contains($0.name) }) {
+      value.targetLanguage = fallback.code
+    }
+    availability.normalizeSelection(&value)
+    onChange(value)
+  }
+
+  private func engineSymbol(_ engine: ReaderEngine) -> String {
+    switch engine {
+    case .ultraFast: "bolt.fill"
+    case .fast: "hare"
+    case .precise: "scope"
     }
   }
 
@@ -283,10 +299,10 @@ struct ReaderTranslationMenu: View {
     // Custom codes remain usable by the general translation services.
     if !current.isEmpty, !appleOnly, !availability.hasComputerOptions(library.preferences),
        !translationLanguageOptions.contains(where: { $0.code == current }) {
-      Text(languageLabel(current)).tag(current)
+      Label(languageLabel(current), systemImage: "globe").tag(current)
     }
     ForEach(options) { option in
-      Text(translationLanguageLabel(option.name, locale: Locale.current.identifier)).tag(option.code)
+      Label(translationLanguageLabel(option.name, locale: Locale.current.identifier), systemImage: "globe").tag(option.code)
     }
   }
 
