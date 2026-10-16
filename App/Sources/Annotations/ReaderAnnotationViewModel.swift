@@ -414,7 +414,17 @@ final class ReaderAnnotationPDFView: PDFView {
       options: .displayInline,
       children: commands
     )
-    builder.insertChild(menu, atStartOfMenu: .text)
+    // The selection edit menu (context system) has no `.text` menu; that one only
+    // exists in the main menu bar, so inserting there is silently dropped.
+    if builder.system == .context {
+      if builder.menu(for: .standardEdit) != nil {
+        builder.insertSibling(menu, afterMenu: .standardEdit)
+      } else {
+        builder.insertChild(menu, atStartOfMenu: .root)
+      }
+    } else if builder.menu(for: .text) != nil {
+      builder.insertChild(menu, atStartOfMenu: .text)
+    }
   }
 
   override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {

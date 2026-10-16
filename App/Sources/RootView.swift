@@ -19,6 +19,9 @@ struct RootView: View {
     .onOpenURL { url in
       open(url: url)
     }
+    #if DEBUG
+    .task { openLaunchArgumentPDF() }
+    #endif
     .alert(
       "PDFMathReader",
       isPresented: Binding(
@@ -36,6 +39,19 @@ struct RootView: View {
     guard let session = library.makeSession(for: url) else { return }
     open(session)
   }
+
+  #if DEBUG
+  /// UI tests pass `-PMROpenPDF <name-or-path>`; a bare name resolves against Documents.
+  private func openLaunchArgumentPDF() {
+    let arguments = ProcessInfo.processInfo.arguments
+    guard let flag = arguments.firstIndex(of: "-PMROpenPDF"), flag + 1 < arguments.count else { return }
+    let value = arguments[flag + 1]
+    let url = value.hasPrefix("/")
+      ? URL(fileURLWithPath: value)
+      : URL.documentsDirectory.appendingPathComponent(value)
+    open(url: url)
+  }
+  #endif
 
   private func open(_ session: DocumentSession) {
     if horizontalSizeClass == .regular {

@@ -81,12 +81,26 @@ targets:
     sources: [App/Tests]
     dependencies:
       - target: PDFMathReader
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+  PDFMathReaderUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [App/UITests]
+    dependencies:
+      - target: PDFMathReader
+    settings:
+      base:
+        TEST_TARGET_NAME: PDFMathReader
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   PDFMathReader:
     build:
       targets:
         PDFMathReader: all
         PDFMathReaderTests: [test]
+        PDFMathReaderUITests: [test]
     test:
-      targets: [PDFMathReaderTests]
+      targets: [PDFMathReaderTests, PDFMathReaderUITests]
       gatherCoverageData: false

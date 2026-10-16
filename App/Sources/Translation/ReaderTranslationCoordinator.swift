@@ -108,6 +108,17 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     return Set(ready)
   }
 
+  #if DEBUG
+  /// First translated paragraph in page order; read by the UI test probe.
+  var debugFirstTranslation: String? {
+    latestStates.sorted { $0.key < $1.key }
+      .lazy
+      .flatMap(\.value.paragraphs)
+      .compactMap(\.translation)
+      .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+  }
+  #endif
+
   /// Schedules the remaining pages in full-document mode once the pipeline is ready.
   func scheduleFullDocumentTranslation(excluding pageIndices: Set<Int>) async -> Set<Int>? {
     guard !documentData.isEmpty, document.pageCount > 0 else { return nil }

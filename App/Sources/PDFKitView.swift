@@ -34,14 +34,10 @@ public extension EnvironmentValues {
 
 @MainActor
 private final class PDFPageOverlayBridge: NSObject, @preconcurrency PDFPageOverlayViewProvider {
-  let provider: any ReaderPageOverlayProviding
-
-  init(provider: any ReaderPageOverlayProviding) {
-    self.provider = provider
-  }
+  var provider: (any ReaderPageOverlayProviding)?
 
   func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
-    provider.overlayView(for: page, in: view)
+    provider?.overlayView(for: page, in: view)
   }
 }
 
@@ -64,8 +60,7 @@ struct PDFKitView: UIViewRepresentable {
     view.pageShadowsEnabled = true
     view.minScaleFactor = 0.25
     view.maxScaleFactor = 5
-    view.document = document
-    context.coordinator.attach(view, overlayProvider: overlayProvider)
+    context.coordinator.attach(view, document: document, overlayProvider: overlayProvider)
     reference.attach(view)
     context.coordinator.apply(readingState)
     return view
@@ -84,7 +79,9 @@ struct PDFKitView: UIViewRepresentable {
   @MainActor
   final class Coordinator: NSObject {
     private weak var pdfView: PDFView?
-    private var overlayBridge: PDFPageOverlayBridge?
+    // PDFKit only asks for overlay views while laying out pages, so the
+    // bridge must be installed before the document and then kept stable.
+    private let overlayBridge = PDFPageOverlayBridge()
     private var annotationController: ReaderAnnotationInteractionController?
     private let onStateChanged: (PDFView) -> Void
     private let annotationModel: ReaderAnnotationViewModel?
@@ -97,9 +94,15 @@ struct PDFKitView: UIViewRepresentable {
       self.annotationModel = annotationModel
     }
 
-    func attach(_ view: PDFView, overlayProvider: (any ReaderPageOverlayProviding)?) {
+    func attach(
+      _ view: PDFView,
+      document: PDFDocument,
+      overlayProvider: (any ReaderPageOverlayProviding)?
+    ) {
       pdfView = view
-      updateOverlayProvider(overlayProvider)
+      overlayBridge.provider = overlayProvider
+      view.pageOverlayViewProvider = overlayBridge
+      view.document = document
       if let annotationView = view as? ReaderAnnotationPDFView, let annotationModel {
         let controller = ReaderAnnotationInteractionController(model: annotationModel, pdfView: view)
         annotationController = controller
@@ -122,15 +125,7 @@ struct PDFKitView: UIViewRepresentable {
     }
 
     func updateOverlayProvider(_ provider: (any ReaderPageOverlayProviding)?) {
-      guard let view = pdfView else { return }
-      if let provider {
-        let bridge = PDFPageOverlayBridge(provider: provider)
-        overlayBridge = bridge
-        view.pageOverlayViewProvider = bridge
-      } else {
-        overlayBridge = nil
-        view.pageOverlayViewProvider = nil
-      }
+      overlayBridge.provider = provider
     }
 
     @objc private func handleViewChanged(_ notification: Notification) {

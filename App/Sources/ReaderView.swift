@@ -218,6 +218,13 @@ private struct ReaderDetail: View {
       onStateChanged: model.receivePDFViewState
     )
     .background(Color(uiColor: .secondarySystemBackground))
+    #if DEBUG
+    .overlay(alignment: .topLeading) {
+      if let coordinator = model.translationCoordinator, TranslationStatusProbe.isEnabled {
+        TranslationStatusProbe(coordinator: coordinator)
+      }
+    }
+    #endif
     .safeAreaInset(edge: .bottom, spacing: 0) {
       if !regular {
         PDFThumbnailRepresentable(reference: model.pdfViewReference, horizontal: true)
@@ -300,6 +307,7 @@ private struct ReaderDetail: View {
               : "character.book.closed"
           )
         }
+        .accessibilityIdentifier("reader.toggleTranslations")
 
         if regular {
           Button(action: onCompare) {
@@ -494,3 +502,22 @@ private struct GoToPageSheet: View {
     dismiss()
   }
 }
+
+#if DEBUG
+/// PDFKit replaces page accessibility children with its own text elements, so
+/// translation overlays are invisible to XCUITest. With `-PMRUITestProbe`, this
+/// exposes the first translated paragraph as an accessibility value instead.
+private struct TranslationStatusProbe: View {
+  static let isEnabled = ProcessInfo.processInfo.arguments.contains("-PMRUITestProbe")
+  @ObservedObject var coordinator: ReaderTranslationCoordinator
+
+  var body: some View {
+    let _ = coordinator.translationRevision
+    Color.clear
+      .frame(width: 1, height: 1)
+      .accessibilityElement()
+      .accessibilityIdentifier("debug.translationStatus")
+      .accessibilityValue(coordinator.debugFirstTranslation ?? "")
+  }
+}
+#endif

@@ -46,8 +46,8 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
 
   public init(
     uiLanguage: String = "system",
-    sourceLanguage: String = "en",
-    targetLanguage: String = "en",
+    sourceLanguage: String = "",
+    targetLanguage: String = "zh",
     engine: ReaderEngine = .ultraFast,
     translationService: ReaderTranslationService = .siliconFlowFree,
     openAIBaseURL: String = "https://api.openai.com/v1",
@@ -131,8 +131,8 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.init(
       uiLanguage: try container.decodeIfPresent(String.self, forKey: .uiLanguage) ?? "system",
-      sourceLanguage: try container.decodeIfPresent(String.self, forKey: .sourceLanguage) ?? "en",
-      targetLanguage: try container.decodeIfPresent(String.self, forKey: .targetLanguage) ?? "en",
+      sourceLanguage: try container.decodeIfPresent(String.self, forKey: .sourceLanguage) ?? "",
+      targetLanguage: try container.decodeIfPresent(String.self, forKey: .targetLanguage) ?? "zh",
       engine: try container.decodeIfPresent(ReaderEngine.self, forKey: .engine) ?? .ultraFast,
       translationService: try container.decodeIfPresent(ReaderTranslationService.self, forKey: .translationService) ?? .siliconFlowFree,
       openAIBaseURL: try container.decodeIfPresent(String.self, forKey: .openAIBaseURL) ?? "https://api.openai.com/v1",
