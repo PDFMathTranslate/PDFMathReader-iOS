@@ -96,15 +96,19 @@ struct ReaderTranslationMenu: View {
 
   var body: some View {
     Section {
-      Picker(L10n.string("settings.sourceLanguage"), selection: preference(\.sourceLanguage)) {
+      Picker(selection: preference(\.sourceLanguage)) {
         Text(L10n.string("settings.automaticDetection")).tag("")
         languageChoices(direction: "source", current: library.preferences.sourceLanguage)
+      } label: {
+        Label(L10n.string("settings.sourceLanguage"), systemImage: "arrow.left")
       }
       .pickerStyle(.menu)
       .accessibilityIdentifier("reader.sourceLanguage")
 
-      Picker(L10n.string("menu.extra.messages.Target Language"), selection: preference(\.targetLanguage)) {
+      Picker(selection: preference(\.targetLanguage)) {
         languageChoices(direction: "target", current: library.preferences.targetLanguage)
+      } label: {
+        Label(L10n.string("menu.extra.messages.Target Language"), systemImage: "arrow.right")
       }
       .pickerStyle(.menu)
       .accessibilityIdentifier("reader.targetLanguage")

@@ -528,7 +528,9 @@ private struct ReaderDetail: View {
       model.updateTranslationPreferences(model.library.preferences)
     }
     Section(L10n.string("ios.drawingTools")) {
-      Toggle(L10n.string("ios.drawWithFinger"), isOn: $drawings.usesFinger)
+      Toggle(isOn: $drawings.usesFinger) {
+        Label(L10n.string("ios.drawWithFinger"), systemImage: "applepencil")
+      }
         .accessibilityIdentifier("reader.drawWithFinger")
       Button(L10n.string("ios.undoDrawing"), systemImage: "arrow.uturn.backward") { drawings.undo() }
         .disabled(!drawings.isDrawing)
