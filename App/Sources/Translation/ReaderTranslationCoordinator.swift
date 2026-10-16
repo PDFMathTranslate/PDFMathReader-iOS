@@ -777,6 +777,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
         overlays[pageIndex]?.setRemotePageData(data)
         trimCache()
       } else {
+        overlays[pageIndex]?.clearRemotePageData()
         startUltraFast(for: pageIndex, schedulePage: true)
         await pageTasks[pageIndex]?.value
       }

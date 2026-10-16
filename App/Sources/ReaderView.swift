@@ -82,6 +82,9 @@ struct ReaderView: View {
               .simultaneousGesture(sidebarDismissGesture)
               .navigationTitle(L10n.string("ios.reader"))
               .navigationBarTitleDisplayMode(.inline)
+              // Both split-view columns can contribute a system toggle.
+              // Keep only the detail's custom tap/hold sidebar control.
+              .toolbar(removing: .sidebarToggle)
               .toolbar {
                 if let onClose {
                   ToolbarItem(placement: .topBarLeading) {
@@ -300,24 +303,7 @@ struct ReaderView: View {
     sidebarInteractionVersion += 1
     withAnimation {
       if horizontalSizeClass == .regular {
-        if let splitView = readerSplitViewController {
-          if visible {
-            // Use the system button's action so portrait gets the same
-            // overlay sidebar instead of forcing a beside-detail column.
-            if splitView.displayMode == .secondaryOnly {
-              let button = splitView.displayModeButtonItem
-              if let action = button.action {
-                UIApplication.shared.sendAction(action, to: button.target, from: button, for: nil)
-              } else {
-                splitView.show(.primary)
-              }
-            }
-          } else {
-            splitView.hide(.primary)
-          }
-        } else {
-          columnVisibility = visible ? .all : .detailOnly
-        }
+        columnVisibility = visible ? .all : .detailOnly
       } else {
         isCompactSidebarPresented = visible
       }
@@ -326,17 +312,6 @@ struct ReaderView: View {
     model.persistReadingState()
   }
 
-  private var readerSplitViewController: UISplitViewController? {
-    var responder: UIResponder? = model.pdfViewReference.view
-    while let current = responder {
-      if let controller = current as? UIViewController,
-         let splitView = controller.splitViewController {
-        return splitView
-      }
-      responder = current.next
-    }
-    return nil
-  }
 }
 
 private struct ReaderDetail: View {
@@ -997,18 +972,20 @@ private struct ReaderTranslationButton: View {
 
 /// Desktop-style progress ring on the translation toggle.
 private struct TranslationProgressRing: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let fraction: Double
 
   var body: some View {
     ZStack {
-      Circle().stroke(.secondary.opacity(0.3), lineWidth: 2.5)
+      Circle().stroke(Color.accentColor.opacity(0.18), lineWidth: 2.2)
       Circle()
-        .trim(from: 0, to: max(0.02, fraction))
-        .stroke(.tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+        .trim(from: 0, to: min(1, max(0, fraction)))
+        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
         .rotationEffect(.degrees(-90))
     }
-    .frame(width: 18, height: 18)
-    .animation(.easeOut(duration: 0.2), value: fraction)
+    .padding(3)
+    .frame(width: 22, height: 22)
+    .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: fraction)
   }
 }
 
@@ -1050,21 +1027,14 @@ private struct ReaderSidebarHoldStyle: PrimitiveButtonStyle {
         .scaleEffect(isPressing && !reduceMotion ? 0.95 : 1)
         .animation(.easeOut(duration: 0.12), value: isPressing)
         .contentShape(Rectangle())
-        .gesture(
+        .onTapGesture { configuration.trigger() }
+        .simultaneousGesture(
           LongPressGesture(minimumDuration: holdDuration, maximumDistance: 16)
             .updating($isPressing) { value, state, _ in state = value }
-            .exclusively(before: TapGesture())
-            .onEnded { result in
-              switch result {
-              case .first(true):
-                if let onClose {
-                  UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                  onClose()
-                }
-              case .second:
-                configuration.trigger()
-              default:
-                break
+            .onEnded { recognized in
+              if recognized, let onClose {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onClose()
               }
             }
         )

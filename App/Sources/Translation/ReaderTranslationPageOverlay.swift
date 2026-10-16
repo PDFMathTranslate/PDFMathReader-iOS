@@ -3,6 +3,88 @@ import CoreImage.CIFilterBuiltins
 import ReaderCore
 import UIKit
 
+/// Matches the desktop page-top strip, including its loading and queued states.
+@MainActor
+private final class ReaderPageProgressView: UIView {
+  enum Mode: Equatable {
+    case queued
+    case loading
+    case measured(Double)
+  }
+
+  private let fill = CALayer()
+  private var mode: Mode = .queued
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    isUserInteractionEnabled = false
+    clipsToBounds = true
+    backgroundColor = UIColor(red: 229 / 255, green: 229 / 255, blue: 234 / 255, alpha: 1)
+    layer.addSublayer(fill)
+  }
+
+  required init?(coder: NSCoder) { nil }
+
+  func update(_ mode: Mode, visible: Bool) {
+    self.mode = mode
+    isHidden = !visible
+    setNeedsLayout()
+  }
+
+  override func tintColorDidChange() {
+    super.tintColorDidChange()
+    setNeedsLayout()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let loading = mode == .loading
+    let width: CGFloat
+    switch mode {
+    case .queued: width = bounds.width * 0.12
+    case .loading: width = bounds.width * 0.35
+    case .measured(let fraction): width = bounds.width * min(1, max(0, fraction))
+    }
+    let oldWidth = fill.presentation()?.bounds.width ?? fill.bounds.width
+    let oldBarWidth = fill.bounds.width
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    fill.backgroundColor = (mode == .queued || loading ? UIColor.systemGray : tintColor ?? .systemBlue)
+      .resolvedColor(with: traitCollection).cgColor
+    fill.opacity = mode == .queued ? 0.55 : 1
+    fill.anchorPoint = .zero
+    fill.position = .zero
+    fill.bounds = CGRect(x: 0, y: 0, width: width, height: bounds.height)
+    CATransaction.commit()
+
+    if loading && !isHidden && !UIAccessibility.isReduceMotionEnabled {
+      // Do not restart the sweep for every pipeline update.
+      if fill.animation(forKey: "loading") == nil || oldBarWidth != width {
+        let sweep = CABasicAnimation(keyPath: "transform.translation.x")
+        sweep.fromValue = -width
+        sweep.toValue = width * 3.86
+        sweep.duration = 1.6
+        sweep.repeatCount = .infinity
+        sweep.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        fill.add(sweep, forKey: "loading")
+      }
+    } else {
+      fill.removeAnimation(forKey: "loading")
+      fill.transform = CATransform3DMakeTranslation(loading ? width * 0.9 : 0, 0, 0)
+    }
+    if case .measured = mode, !isHidden, !UIAccessibility.isReduceMotionEnabled, oldWidth != width {
+      let change = CABasicAnimation(keyPath: "bounds.size.width")
+      change.fromValue = oldWidth
+      change.toValue = width
+      change.duration = 0.2
+      change.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      fill.add(change, forKey: "progress")
+    } else {
+      fill.removeAnimation(forKey: "progress")
+    }
+  }
+}
+
 @MainActor
 final class ReaderTranslationLabel: UILabel {
   var textInsets = UIEdgeInsets(top: 3, left: 4, bottom: 3, right: 4)
@@ -122,7 +204,8 @@ final class ReaderTranslationPageOverlay: UIView {
   private var remotePageData: Data?
   private var remotePDFView: ReaderTiledPDFView?
   private var remoteFontRenderer: ReaderRemoteTranslationFont?
-  private let progressView = UIProgressView(progressViewStyle: .bar)
+  private let progressView = ReaderPageProgressView()
+  private var remoteProgress: Double?
   private let markupView = ReaderTranslationMarkupView()
   private var refocusView: UIView?
   private var refocusBounds: CGRect = .zero
@@ -136,9 +219,7 @@ final class ReaderTranslationPageOverlay: UIView {
     backgroundColor = .clear
     isOpaque = false
     clipsToBounds = false
-    progressView.trackTintColor = UIColor.secondaryLabel.withAlphaComponent(0.15)
-    progressView.progressTintColor = UIColor.secondaryLabel.withAlphaComponent(0.65)
-    progressView.alpha = 0
+    progressView.isHidden = true
     addSubview(progressView)
     addSubview(markupView)
     isAccessibilityElement = false
@@ -277,14 +358,15 @@ final class ReaderTranslationPageOverlay: UIView {
       remotePDFView = pdfContent
       updateRemotePDF()
     }
-    progressView.progress = 1
-    progressView.alpha = 0
+    remoteProgress = nil
+    updateProgress()
     setNeedsLayout()
   }
 
   func clearRemotePageData() {
     cancelRefocus()
     remotePageData = nil
+    remoteProgress = nil
     remoteFontRenderer = nil
     remotePDFView?.removeFromSuperview()
     remotePDFView = nil
@@ -294,8 +376,8 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   func setRemoteProgress(_ progress: Double) {
-    progressView.progress = Float(min(1, max(0, progress)))
-    progressView.alpha = showTranslations && progress < 1 ? 1 : 0
+    remoteProgress = min(1, max(0, progress))
+    updateProgress()
   }
 
   func beginRemoteTranslation() {
@@ -304,18 +386,18 @@ final class ReaderTranslationPageOverlay: UIView {
     remoteFontRenderer = nil
     remotePDFView?.removeFromSuperview()
     remotePDFView = nil
-    progressView.progress = 0
-    progressView.alpha = showTranslations ? 1 : 0
+    remoteProgress = 0
+    updateProgress()
   }
 
   override func layoutSubviews() {
     super.layoutSubviews()
     if refocusView != nil, refocusBounds != bounds { cancelRefocus() }
     progressView.frame = CGRect(
-      x: 8,
-      y: 4,
-      width: max(1, min(120, bounds.width - 16)),
-      height: 2
+      x: 0,
+      y: 0,
+      width: bounds.width,
+      height: 4
     )
     remotePDFView?.frame = bounds
     markupView.frame = bounds
@@ -668,9 +750,14 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   private func updateProgress() {
-    progressView.progress = Float(state.progress)
+    if let remoteProgress {
+      progressView.update(.measured(remoteProgress), visible: showTranslations && remoteProgress < 1)
+      return
+    }
     let active = state.status == .queued || state.status == .extracting || state.status == .translating
-    progressView.alpha = active && showTranslations ? 1 : 0
+    let mode: ReaderPageProgressView.Mode = state.status == .queued ? .queued
+      : state.status == .extracting || state.paragraphs.isEmpty ? .loading : .measured(state.progress)
+    progressView.update(mode, visible: active && showTranslations && remotePageData == nil)
   }
 
   /// Covers match the page under them, which dark appearance inverts.

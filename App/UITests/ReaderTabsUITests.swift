@@ -2,6 +2,31 @@ import XCTest
 
 final class ReaderTabsUITests: XCTestCase {
   @MainActor
+  func testSingleSidebarButtonInBothOrientations() throws {
+    try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad split sidebar")
+    continueAfterFailure = false
+    defer { XCUIDevice.shared.orientation = .portrait }
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
+    app.launch()
+    let toggle = app.buttons.matching(identifier: "reader.toggleSidebar")
+    XCTAssertTrue(toggle.firstMatch.waitForExistence(timeout: 30))
+    for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+      XCUIDevice.shared.orientation = orientation
+      // Allow the split view's orientation visibility task to settle.
+      Thread.sleep(forTimeInterval: 1)
+      XCTAssertEqual(toggle.allElementsBoundByIndex.filter(\.isHittable).count, 1)
+      XCTAssertTrue(app.buttons.matching(identifier: "ToggleSidebar")
+        .allElementsBoundByIndex.filter(\.isHittable).isEmpty,
+        "The system toggle duplicates the custom sidebar button")
+      let attachment = XCTAttachment(screenshot: app.screenshot())
+      attachment.name = orientation == .portrait ? "sidebar-portrait" : "sidebar-landscape"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+  }
+
+  @MainActor
   func testSidebarHoldClosesOnlyAfterFullDuration() throws {
     try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad sidebar interaction")
     XCUIDevice.shared.orientation = .portrait
@@ -15,6 +40,9 @@ final class ReaderTabsUITests: XCTestCase {
     sidebar.press(forDuration: 0.65)
     XCTAssertTrue(sidebar.exists)
     let close = app.buttons["reader.closeDocument"].firstMatch
+    // A short press can also be recognized as a tap. Normalize to closed
+    // before checking a full open/close cycle.
+    if close.exists && close.isHittable { sidebar.tap() }
     sidebar.tap()
     let visible = NSPredicate(format: "exists == true AND isHittable == true")
     XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: visible, object: close)], timeout: 5), .completed)
