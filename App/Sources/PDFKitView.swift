@@ -5,6 +5,25 @@ import SwiftUI
 @preconcurrency import UIKit
 
 @MainActor
+func readerPDFScrollView(in view: UIView) -> UIScrollView? {
+  for subview in view.subviews {
+    if let scrollView = subview as? UIScrollView { return scrollView }
+    if let nested = readerPDFScrollView(in: subview) { return nested }
+  }
+  return nil
+}
+
+/// Include a quiet interval after the final offset/scale change, so a result
+/// arriving between finger-up and deceleration cannot replace the active tiles.
+@MainActor
+func readerPDFInteractionIsActive(_ view: PDFView) -> Bool {
+  if let scroll = readerPDFScrollView(in: view),
+     scroll.isTracking || scroll.isDragging || scroll.isDecelerating
+       || scroll.isZooming || scroll.isZoomBouncing { return true }
+  return ((view as? ReaderAnnotationPDFView)?.translationRenderResumeTime ?? 0) > CACurrentMediaTime()
+}
+
+@MainActor
 final class PDFViewReference: ObservableObject {
   @Published private(set) var version = 0
   private(set) weak var view: PDFView?
@@ -19,6 +38,11 @@ final class PDFViewReference: ObservableObject {
 @MainActor
 public protocol ReaderPageOverlayProviding: AnyObject, Sendable {
   func overlayView(for page: PDFPage, in pdfView: PDFView) -> UIView?
+  func didEndDisplayingOverlay(_ overlay: UIView, for page: PDFPage, in pdfView: PDFView)
+}
+
+public extension ReaderPageOverlayProviding {
+  func didEndDisplayingOverlay(_ overlay: UIView, for page: PDFPage, in pdfView: PDFView) {}
 }
 
 private struct ReaderPageOverlayProviderKey: EnvironmentKey {
@@ -51,6 +75,7 @@ private final class PDFPageOverlayBridge: NSObject, @preconcurrency PDFPageOverl
   }
 
   func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
+    provider?.didEndDisplayingOverlay(overlayView, for: page, in: pdfView)
     if let overlay = overlayView as? ReaderDrawingPageOverlay,
        overlay.canvas.superview === overlay {
       drawingModel?.release(overlay.canvas)
@@ -68,6 +93,8 @@ struct PDFKitView: UIViewRepresentable {
   var drawingModel: ReaderDrawingModel? = nil
   let onStateChanged: (PDFView) -> Void
   var onScroll: (() -> Void)?
+  /// Positive follows the reading axis (down/right); negative goes back.
+  var onUserScroll: ((CGFloat) -> Void)? = nil
 
   func makeCoordinator() -> Coordinator {
     Coordinator(onStateChanged: onStateChanged, annotationModel: annotationModel)
@@ -81,18 +108,22 @@ struct PDFKitView: UIViewRepresentable {
     view.maxScaleFactor = 5
     context.coordinator.setDrawingModel(drawingModel)
     // The view has no window yet, so take the appearance from SwiftUI.
-    (document as? ReaderPDFDocument)?.pageCrop = readingState.pageCrop ?? PageCrop()
+    // Keep search, outlines and translation requests on the source document;
+    // the view owns temporary compacted pages independently.
+    let displayDocument = document.documentURL.flatMap { ReaderPDFDocument(url: $0) }
+      ?? document.dataRepresentation().flatMap { ReaderPDFDocument(data: $0) }
+      ?? document
+    (displayDocument as? ReaderPDFDocument)?.pageCrop = readingState.pageCrop ?? PageCrop()
     view.displayBox = .artBox
-    (document as? ReaderPDFDocument)?.invertsPages = context.environment.colorScheme == .dark
-    context.coordinator.attach(view, document: document, overlayProvider: overlayProvider)
+    (displayDocument as? ReaderPDFDocument)?.invertsPages = context.environment.colorScheme == .dark
+    context.coordinator.attach(view, document: displayDocument, overlayProvider: overlayProvider)
     reference.attach(view)
     context.coordinator.apply(readingState)
     return view
   }
 
   func updateUIView(_ view: PDFView, context: Context) {
-    // Annotation actions replace the PDFDocument instance after writing its
-    // managed markup. Keep that live document during SwiftUI updates.
+    // Keep the live display document and its in-place annotation edits.
     if view.document == nil || view.document?.pageCount != document.pageCount {
       (document as? ReaderPDFDocument)?.invertsPages = context.environment.colorScheme == .dark
       view.document = document
@@ -101,6 +132,7 @@ struct PDFKitView: UIViewRepresentable {
     context.coordinator.updateOverlayProvider(overlayProvider)
     context.coordinator.setDrawingModel(drawingModel)
     context.coordinator.onScroll = onScroll
+    context.coordinator.onUserScroll = onUserScroll
     context.coordinator.observeScrolling()
     context.coordinator.apply(readingState)
   }
@@ -115,6 +147,9 @@ struct PDFKitView: UIViewRepresentable {
     private let onStateChanged: (PDFView) -> Void
     private let annotationModel: ReaderAnnotationViewModel?
     var onScroll: (() -> Void)?
+    var onUserScroll: ((CGFloat) -> Void)?
+    private var lastPanTranslation: CGFloat = 0
+    private var pendingPanDistance: CGFloat = 0
     private var scrollObservation: NSKeyValueObservation?
     private weak var observedScrollView: UIScrollView?
     private var isReloadingAppearance = false
@@ -123,6 +158,15 @@ struct PDFKitView: UIViewRepresentable {
     private let fingerPress = UILongPressGestureRecognizer()
     private lazy var editMenu = UIEditMenuInteraction(delegate: self)
     private var defaultPanTouchTypes: [NSNumber]?
+    private struct ScaleRequest: Equatable {
+      let mode: ReaderScaleMode
+      let zoom: Double
+      let displayMode: ReaderDisplayMode
+      let direction: ReaderScrollDirection
+      let size: CGSize
+    }
+    private var appliedScaleRequest: ScaleRequest?
+    private weak var scaleDocument: PDFDocument?
 
     init(
       onStateChanged: @escaping (PDFView) -> Void,
@@ -179,19 +223,63 @@ struct PDFKitView: UIViewRepresentable {
     func observeScrolling() {
       guard let view = pdfView, let scrollView = Self.scrollView(in: view),
             scrollView !== observedScrollView else { return }
+      observedScrollView?.panGestureRecognizer.removeTarget(self, action: #selector(handleReadingPan(_:)))
+      observedScrollView?.pinchGestureRecognizer?.removeTarget(self, action: #selector(handleReadingPinch(_:)))
       observedScrollView = scrollView
-      scrollObservation = scrollView.observe(\.contentOffset, options: [.new, .old]) { [weak self] _, change in
+      scrollView.panGestureRecognizer.addTarget(self, action: #selector(handleReadingPan(_:)))
+      scrollView.pinchGestureRecognizer?.addTarget(self, action: #selector(handleReadingPinch(_:)))
+      scrollObservation = scrollView.observe(\.contentOffset, options: [.new, .old]) { [weak self] scrollView, change in
         guard change.newValue != change.oldValue else { return }
-        MainActor.assumeIsolated { self?.onScroll?() }
+        MainActor.assumeIsolated {
+          if let view = self?.pdfView, readerPDFInteractionIsActive(view) {
+            self?.deferTranslationRendering()
+          }
+          self?.onScroll?()
+        }
       }
     }
 
-    private static func scrollView(in view: UIView) -> UIScrollView? {
-      for subview in view.subviews {
-        if let scrollView = subview as? UIScrollView { return scrollView }
-        if let nested = scrollView(in: subview) { return nested }
+    private func deferTranslationRendering() {
+      (pdfView as? ReaderAnnotationPDFView)?.translationRenderResumeTime = CACurrentMediaTime() + 0.2
+    }
+
+    @objc private func handleReadingPinch(_ pinch: UIPinchGestureRecognizer) {
+      deferTranslationRendering()
+    }
+
+    /// Read the gesture rather than contentOffset: changing the header's safe
+    /// area, restoring a page, zooming and edge bounce must not flip the chrome.
+    @objc private func handleReadingPan(_ pan: UIPanGestureRecognizer) {
+      deferTranslationRendering()
+      guard let view = pdfView else { return }
+      let translation = pan.translation(in: view)
+      let position = view.displayDirection == .vertical ? translation.y : translation.x
+      if pan.state == .began {
+        lastPanTranslation = position
+        pendingPanDistance = 0
+        return
       }
-      return nil
+      guard pan.state == .changed else {
+        pendingPanDistance = 0
+        return
+      }
+      let delta = lastPanTranslation - position
+      lastPanTranslation = position
+      guard pan.numberOfTouches == 1 else {
+        pendingPanDistance = 0
+        return
+      }
+      if delta * pendingPanDistance < 0 { pendingPanDistance = 0 }
+      pendingPanDistance += delta
+      // Match desktop hysteresis: deliberate forward travel hides the bars,
+      // while a small reverse movement makes the controls available again.
+      guard pendingPanDistance >= 18 || pendingPanDistance <= -6 else { return }
+      onUserScroll?(pendingPanDistance)
+      pendingPanDistance = 0
+    }
+
+    private static func scrollView(in view: UIView) -> UIScrollView? {
+      readerPDFScrollView(in: view)
     }
 
     /// Dark appearance inverts pages by 0.75, like the desktop reader.
@@ -295,7 +383,8 @@ struct PDFKitView: UIViewRepresentable {
     }
 
     @objc private func handleViewChanged(_ notification: Notification) {
-      guard let view = pdfView, !isReloadingAppearance else { return }
+      guard let view = pdfView, !isReloadingAppearance,
+        (view as? ReaderAnnotationPDFView)?.isUpdatingPageGeometry != true else { return }
       observeScrolling()
       onStateChanged(view)
     }
@@ -308,6 +397,7 @@ struct PDFKitView: UIViewRepresentable {
         let destination = view.currentDestination
         let scale = view.scaleFactor
         document.pageCrop = crop
+        appliedScaleRequest = nil
         isReloadingAppearance = true
         view.document = nil
         view.document = document
@@ -331,24 +421,28 @@ struct PDFKitView: UIViewRepresentable {
 
       if view.displayMode != displayMode { view.displayMode = displayMode }
       if view.autoScales { view.autoScales = false }
-      let baseScale: CGFloat
-      switch state.scaleMode {
-      case .fitPage:
-        baseScale = view.scaleFactorForSizeToFit
-      case .fitWidth:
-        baseScale = view.scaleFactorForSizeToFit
-      case .actualSize:
-        baseScale = 1
-      case .custom:
-        baseScale = CGFloat(state.zoom)
-      }
-      let targetScale = state.displayMode == .fourPages
-        ? max(view.minScaleFactor, baseScale * 0.75)
-        : baseScale
-      // Translation progress causes frequent SwiftUI updates. Reapplying the
-      // same zoom needlessly invalidates PDFKit's high-resolution page tiles.
-      if targetScale.isFinite, targetScale > 0, abs(view.scaleFactor - targetScale) > 0.001 {
-        view.scaleFactor = targetScale
+      let request = ScaleRequest(
+        mode: state.scaleMode, zoom: state.scaleMode == .custom ? state.zoom : 0,
+        displayMode: state.displayMode, direction: state.scrollDirection, size: view.bounds.size
+      )
+      // A pinch can change PDFKit's live zoom while the saved mode is still
+      // fit-page. Translation/pager updates must not snap it back and discard
+      // sharp tiles. Apply zoom only for a new setting, document or viewport size.
+      if request != appliedScaleRequest || scaleDocument !== view.document {
+        appliedScaleRequest = request
+        scaleDocument = view.document
+        let baseScale: CGFloat
+        switch state.scaleMode {
+        case .fitPage, .fitWidth: baseScale = view.scaleFactorForSizeToFit
+        case .actualSize: baseScale = 1
+        case .custom: baseScale = CGFloat(state.zoom)
+        }
+        // Custom zoom is already the live PDFView scale, including four-up.
+        let targetScale = state.displayMode == .fourPages && state.scaleMode != .custom
+          ? max(view.minScaleFactor, baseScale * 0.75) : baseScale
+        if targetScale.isFinite, targetScale > 0, abs(view.scaleFactor - targetScale) > 0.001 {
+          view.scaleFactor = targetScale
+        }
       }
 
       let targetIndex = max(0, min((view.document?.pageCount ?? 1) - 1, state.page - 1))

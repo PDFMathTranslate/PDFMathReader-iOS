@@ -1,8 +1,13 @@
-# Bundled CJK serif fallback
+# Bundled CJK serif fonts
 
-Noto Serif CJK TC Regular and Bold, version 2.003, from the official
+Noto Serif CJK SC and TC Regular and Bold, version 2.003, from the official
 notofonts/noto-cjk Serif2.003 release:
+https://github.com/notofonts/noto-cjk/tree/Serif2.003/Serif/OTF/SimplifiedChinese
 https://github.com/notofonts/noto-cjk/tree/Serif2.003/Serif/OTF/TraditionalChinese
+
+Both families are registered with iOS and available in the translation font picker
+without downloading fonts. SC provides Simplified Chinese letterforms; TC provides
+Traditional Chinese letterforms and is also used as the automatic serif fallback.
 
 These full CJK fonts provide offline serif glyph fallback for translation fonts
 that lack Chinese glyphs, including Times New Roman. The primary selected font

@@ -43,15 +43,30 @@ extension View {
 struct AccentColorSettingsRow: View {
   @Binding var selection: String
 
+  // Native picker menus tint template symbols uniformly. Bake each swatch's
+  // color into an original image so the menu preserves the palette.
+  private static func swatch(for value: String) -> UIImage {
+    let side: CGFloat = 22
+    let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+      let circle = UIBezierPath(ovalIn: CGRect(x: 1, y: 1, width: side - 2, height: side - 2))
+      UIColor(hex: value).setFill()
+      circle.fill()
+      UIColor.black.withAlphaComponent(0.18).setStroke()
+      circle.lineWidth = 1
+      circle.stroke()
+    }
+    return image.withRenderingMode(.alwaysOriginal)
+  }
+
   var body: some View {
     Picker(L10n.string("appearance.accentColor"), selection: $selection) {
       ForEach(ReaderAccentColor.options) { option in
         Label {
           Text(L10n.string(option.name))
         } icon: {
-          if let color = option.color {
-            Image(systemName: "circle.fill")
-              .foregroundStyle(color)
+          if option.id != "system" {
+            Image(uiImage: Self.swatch(for: option.id))
+              .renderingMode(.original)
           } else {
             Image(systemName: "circle.lefthalf.filled")
           }
@@ -60,7 +75,13 @@ struct AccentColorSettingsRow: View {
       }
       // Preserve a custom desktop-compatible value if one was imported.
       if !ReaderAccentColor.options.contains(where: { $0.id == selection }) {
-        Text(L10n.string("appearance.custom")).tag(selection)
+        Label {
+          Text(L10n.string("appearance.custom"))
+        } icon: {
+          Image(uiImage: Self.swatch(for: selection))
+            .renderingMode(.original)
+        }
+        .tag(selection)
       }
     }
     .accessibilityIdentifier("settings.accentColor")

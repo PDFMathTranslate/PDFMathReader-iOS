@@ -181,47 +181,9 @@ public enum ReaderAnnotationPDF {
       guard let page = document.page(at: annotation.page - 1) else {
         throw ReaderAnnotationPDFError.missingPage(annotation.page)
       }
-      let geometry = PageGeometry(page: page)
-      let viewportRects = annotation.rects.compactMap { clamp($0, width: geometry.width, height: geometry.height) }
-      guard !viewportRects.isEmpty else {
-        throw ReaderAnnotationPDFError.annotationOutsidePage(annotation.id)
-      }
-      let pdfRects = viewportRects.map { pdfRect($0, geometry: geometry) }
-      let markerViewport = annotation.sourceRect.flatMap {
-        clamp($0, width: geometry.width, height: geometry.height)
-      } ?? viewportRects[0]
-      let markerRect = pdfRect(markerViewport, geometry: geometry)
-      let isText = annotation.kind == .comment ||
-        (annotation.origin == .translation && annotation.kind == .highlight)
-      let bounds = isText ? markerRect : union(pdfRects)
-
-      let subtype: PDFAnnotationSubtype = isText ? .text : .highlight
-      let pdfAnnotation = PDFAnnotation(bounds: bounds, forType: subtype, withProperties: nil)
-      pdfAnnotation.color = platformColor(annotation.color)
-      pdfAnnotation.contents = annotationContents(annotation)
-      pdfAnnotation.userName = annotation.author?.isEmpty == false
-        ? annotation.author
-        : "PDFMathReader"
-      if let date = date(from: annotation.modifiedAt ?? annotation.createdAt) {
-        pdfAnnotation.modificationDate = date
-      }
-      _ = pdfAnnotation.setValue(4, forAnnotationKey: .flags)
-      let managedName = managedPrefix + annotation.id
-      _ = pdfAnnotation.setValue(managedName, forAnnotationKey: rawKey("NM"))
-      let payload = try encodedJSON(annotation)
-      _ = pdfAnnotation.setValue(payload, forAnnotationKey: rawKey("PDFMathReader"))
-
-      if annotation.kind == .highlight && !isText {
-        pdfAnnotation.quadrilateralPoints = viewportRects.flatMap { rect in
-          let pdfRect = self.pdfRect(rect, geometry: geometry)
-          return quadPoints(pdfRect, bounds: bounds)
-        }
-      } else {
-        pdfAnnotation.iconType = .comment
-        _ = pdfAnnotation.setValue("Comment", forAnnotationKey: .iconName)
-        _ = pdfAnnotation.setBoolean(false, forAnnotationKey: .open)
-      }
+      let pdfAnnotation = try makeAnnotation(annotation, on: page)
       page.addAnnotation(pdfAnnotation)
+      let managedName = managedPrefix + annotation.id
       managedNames.append(managedName)
     }
 
@@ -229,6 +191,69 @@ public enum ReaderAnnotationPDF {
       throw ReaderAnnotationPDFError.couldNotSerialize
     }
     return restoreManagedNames(in: data, names: managedNames)
+  }
+
+  /// Updates one live page without serializing or replacing its document.
+  /// Supply every imported/managed highlight and comment for this page; other
+  /// annotation types (links, widgets, ink, and transfer markers) are preserved.
+  public static func replacePageAnnotations(
+    _ annotations: [ReaderAnnotation],
+    on page: PDFPage
+  ) throws {
+    let normalized = try ReaderAnnotationValidator.validate(annotations)
+    let replacements = try normalized.map { try makeAnnotation($0, on: page) }
+    for existing in page.annotations {
+      if managedAnnotation(from: existing) != nil ||
+        isManagedName(existing.value(forAnnotationKey: rawKey("NM"))) || isForeignMarkup(existing)
+      {
+        page.removeAnnotation(existing)
+      }
+    }
+    for replacement in replacements { page.addAnnotation(replacement) }
+  }
+
+  private static func makeAnnotation(_ annotation: ReaderAnnotation, on page: PDFPage) throws -> PDFAnnotation {
+    let geometry = PageGeometry(page: page)
+    let viewportRects = annotation.rects.compactMap { clamp($0, width: geometry.width, height: geometry.height) }
+    guard !viewportRects.isEmpty else {
+      throw ReaderAnnotationPDFError.annotationOutsidePage(annotation.id)
+    }
+    let pdfRects = viewportRects.map { pdfRect($0, geometry: geometry) }
+    let markerViewport = annotation.sourceRect.flatMap {
+      clamp($0, width: geometry.width, height: geometry.height)
+    } ?? viewportRects[0]
+    let markerRect = pdfRect(markerViewport, geometry: geometry)
+    let isText = annotation.kind == .comment ||
+      (annotation.origin == .translation && annotation.kind == .highlight)
+    let bounds = isText ? markerRect : union(pdfRects)
+
+    let subtype: PDFAnnotationSubtype = isText ? .text : .highlight
+    let pdfAnnotation = PDFAnnotation(bounds: bounds, forType: subtype, withProperties: nil)
+    pdfAnnotation.color = platformColor(annotation.color)
+    pdfAnnotation.contents = annotationContents(annotation)
+    pdfAnnotation.userName = annotation.author?.isEmpty == false
+      ? annotation.author
+      : "PDFMathReader"
+    if let date = date(from: annotation.modifiedAt ?? annotation.createdAt) {
+      pdfAnnotation.modificationDate = date
+    }
+    _ = pdfAnnotation.setValue(4, forAnnotationKey: .flags)
+    let managedName = managedPrefix + annotation.id
+    _ = pdfAnnotation.setValue(managedName, forAnnotationKey: rawKey("NM"))
+    let payload = try encodedJSON(annotation)
+    _ = pdfAnnotation.setValue(payload, forAnnotationKey: rawKey("PDFMathReader"))
+
+    if annotation.kind == .highlight && !isText {
+      pdfAnnotation.quadrilateralPoints = viewportRects.flatMap { rect in
+        let pdfRect = self.pdfRect(rect, geometry: geometry)
+        return quadPoints(pdfRect, bounds: bounds)
+      }
+    } else {
+      pdfAnnotation.iconType = .comment
+      _ = pdfAnnotation.setValue("Comment", forAnnotationKey: .iconName)
+      _ = pdfAnnotation.setBoolean(false, forAnnotationKey: .open)
+    }
+    return pdfAnnotation
   }
 
   public static func embedAnnotations(

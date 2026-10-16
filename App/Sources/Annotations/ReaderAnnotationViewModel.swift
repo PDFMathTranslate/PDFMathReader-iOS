@@ -20,9 +20,17 @@ final class ReaderAnnotationViewModel: ObservableObject {
   private var nativeRefs: [String] = []
   private var sourceData: Data?
 
-  /// The latest serialized annotation edits, independent of display visibility
-  /// and of the reader model's original PDFDocument instance.
+  /// Source bytes stay immutable; exports embed the current annotation snapshot.
   var exportSourceData: Data? { sourceData }
+  var exportNativeRefs: [String] { nativeRefs }
+
+  private var saveTask: Task<Void, Never>?
+  private var editRevision = 0
+
+  /// Waits for the latest edit, including edits coalesced during a running save.
+  func flushPendingSaves() async {
+    await saveTask?.value
+  }
 
   private struct PreparedStartup: Sendable {
     let sourceData: Data?
@@ -150,6 +158,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
       let pageIndex = pdfView.document?.index(for: page) ?? NSNotFound
       guard pageIndex != NSNotFound else { return nil }
       let rects = ReaderAnnotationPDF.viewportRects(for: selection, on: page)
+        .map { sourceRect($0, on: page) }
       guard !rects.isEmpty else { return nil }
       return ReaderAnnotation(
         id: UUID().uuidString,
@@ -167,8 +176,10 @@ final class ReaderAnnotationViewModel: ObservableObject {
     guard !newAnnotations.isEmpty else { return }
     annotations.append(contentsOf: newAnnotations)
     // A new highlight must not vanish into a hidden layer.
+    let wasHidden = !showsAnnotations
     showsAnnotations = true
-    commit(to: pdfView)
+    commit(to: pdfView, pages: Set(newAnnotations.map(\.page)))
+    if wasHidden { applyVisibility(in: pdfView) }
   }
 
   func setShowsAnnotations(_ visible: Bool, in pdfView: PDFView?) {
@@ -193,7 +204,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
   func delete(_ annotation: ReaderAnnotation, pdfView: PDFView?) {
     guard isPrepared else { return }
     annotations.removeAll { $0.id == annotation.id }
-    commit(to: pdfView)
+    commit(to: pdfView, pages: [annotation.page])
   }
 
   func updateComment(
@@ -207,7 +218,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
     annotations[index].kind = comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       ? .highlight : .comment
     annotations[index].modifiedAt = ISO8601DateFormatter().string(from: Date())
-    commit(to: pdfView)
+    commit(to: pdfView, pages: [annotation.page])
   }
 
   func updateColor(for annotation: ReaderAnnotation, color: String, pdfView: PDFView?) {
@@ -215,7 +226,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
     guard let index = annotations.firstIndex(where: { $0.id == annotation.id }) else { return }
     annotations[index].color = color
     annotations[index].modifiedAt = ISO8601DateFormatter().string(from: Date())
-    commit(to: pdfView)
+    commit(to: pdfView, pages: [annotation.page])
   }
 
   /// Hit-test the individual lines, rather than the enclosing multiline box.
@@ -230,10 +241,11 @@ final class ReaderAnnotationViewModel: ObservableObject {
     let hit = ReaderAnnotationPDF.viewportRect(
       for: CGRect(origin: pagePoint, size: CGSize(width: 1, height: 1)), on: page
     )
+    let sourceHit = sourceRect(hit, on: page)
     return annotations.reversed().first { annotation in
       annotation.page == pageIndex + 1 && annotation.rects.contains { rect in
         CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
-          .insetBy(dx: -2, dy: -2).contains(CGPoint(x: hit.x, y: hit.y))
+          .insetBy(dx: -2, dy: -2).contains(CGPoint(x: sourceHit.x, y: sourceHit.y))
       }
     }
   }
@@ -246,6 +258,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
     let pageIndex = document.index(for: page)
     guard pageIndex != NSNotFound else { return nil }
     let rects = ReaderAnnotationPDF.viewportRects(for: selection, on: page)
+      .map { sourceRect($0, on: page) }
     guard let first = rects.first else { return nil }
     let bounds = rects.dropFirst().reduce(
       CGRect(x: CGFloat(first.x), y: CGFloat(first.y), width: CGFloat(first.width), height: CGFloat(first.height))
@@ -314,41 +327,114 @@ final class ReaderAnnotationViewModel: ObservableObject {
     guard let document = pdfView?.document,
       let page = document.page(at: max(0, destination.page - 1))
     else { return }
-    let point = ReaderAnnotationPDF.pdfPoint(for: destination.box, on: page)
+    let point = ReaderAnnotationPDF.pdfPoint(
+      for: displayBox(destination.box, on: page), on: page
+    )
     pdfView?.go(to: PDFDestination(page: page, at: point))
   }
 
-  private func commit(to pdfView: PDFView?) {
+  private func commit(to pdfView: PDFView?, pages: Set<Int>) {
     do {
-      let destination = pdfView?.currentDestination
-      let pageIndex = destination?.page.flatMap { pdfView?.document?.index(for: $0) }
-      let scale = pdfView?.scaleFactor
-      let input = pdfView?.document?.dataRepresentation() ?? sourceData
-      let output = try ReaderAnnotationPDF.embedAnnotations(
-        annotations,
-        in: input ?? Data(),
-        nativeRefs: nativeRefs
-      )
-      sourceData = output
-      let updated = ReaderPDFDocument(data: output)
-      updated?.invertsPages = (pdfView?.document as? ReaderPDFDocument)?.invertsPages ?? false
-      pdfView?.document = updated
-      if let scale { pdfView?.scaleFactor = scale }
-      if let destination, let pageIndex, let page = updated?.page(at: pageIndex) {
-        pdfView?.go(to: PDFDestination(page: page, at: destination.point))
+      // Touch only edited pages. Keeping the document and page instances also
+      // preserves PDFKit tiles, selection, zoom, overlays and reading position.
+      for number in pages {
+        guard let page = pdfView?.document?.page(at: number - 1) else { continue }
+        let pageAnnotations = annotations.filter { $0.page == number }
+        if let compaction = (page as? ReaderPDFPage)?.compaction {
+          try ReaderAnnotationPDF.replacePageAnnotations(pageAnnotations, on: compaction.sourcePage)
+        }
+        let displayed = pageAnnotations.map { annotation in
+          var mapped = annotation
+          mapped.rects = annotation.rects.map { displayRect($0, on: page) }
+          mapped.sourceRect = annotation.sourceRect.map { displayRect($0, on: page) }
+          return mapped
+        }
+        try ReaderAnnotationPDF.replacePageAnnotations(displayed, on: page)
+        for mark in page.annotations {
+          switch mark.type?.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
+          case "Highlight", "Text": mark.shouldDisplay = showsAnnotations
+          default: continue
+          }
+        }
       }
-      if !showsAnnotations { applyVisibility(in: pdfView) }
-      _ = try store.save(
-        annotations,
-        nativeRefs: nativeRefs,
-        for: session.id,
-        sourceURL: session.url,
-        sourceData: output
-      )
-      lastError = nil
+      if let pdfView {
+        NotificationCenter.default.post(name: .readerAnnotationVisibilityChanged, object: pdfView)
+      }
+      editRevision += 1
+      scheduleSave()
     } catch {
       lastError = L10n.string("ios.annotationSaveFailed")
     }
+  }
+
+  private func scheduleSave() {
+    guard saveTask == nil else { return }
+    // A single writer coalesces rapid edits. Never pass the displayed PDFKit
+    // objects to the worker; it owns an independent document from source bytes.
+    saveTask = Task { [self] in
+      let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Save annotations")
+      defer {
+        if backgroundTask != .invalid { UIApplication.shared.endBackgroundTask(backgroundTask) }
+      }
+      while true {
+        let revision = editRevision
+        let snapshot = annotations
+        let references = nativeRefs
+        let input = sourceData
+        let annotationStore = store
+        let documentID = session.id
+        let sourceURL = session.url
+        let access = session.access
+        let succeeded = await Task.detached(priority: .utility) {
+          withExtendedLifetime(access) {
+            do {
+              _ = try annotationStore.save(
+                snapshot, nativeRefs: references, for: documentID,
+                sourceURL: sourceURL, sourceData: input
+              )
+              return true
+            } catch {
+              return false
+            }
+          }
+        }.value
+        if revision == editRevision {
+          lastError = succeeded ? nil : L10n.string("ios.annotationSaveFailed")
+          break
+        }
+      }
+      saveTask = nil
+    }
+  }
+
+  private func sourceRect(_ rect: ReaderAnnotationRect, on page: PDFPage) -> ReaderAnnotationRect {
+    guard let compaction = (page as? ReaderPDFPage)?.compaction else { return rect }
+    let mapped = compaction.sourceRect(
+      ReadingRectangle(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+    )
+    return ReaderAnnotationRect(
+      x: mapped.x, y: mapped.y, width: mapped.width, height: mapped.height
+    )
+  }
+
+  private func displayRect(_ rect: ReaderAnnotationRect, on page: PDFPage) -> ReaderAnnotationRect {
+    guard let compaction = (page as? ReaderPDFPage)?.compaction else { return rect }
+    let mapped = compaction.displayRect(
+      ReadingRectangle(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+    )
+    return ReaderAnnotationRect(
+      x: mapped.x, y: mapped.y, width: mapped.width, height: mapped.height
+    )
+  }
+
+  private func displayBox(_ box: ReaderQuickLinkBox, on page: PDFPage) -> ReaderQuickLinkBox {
+    let mapped = displayRect(
+      ReaderAnnotationRect(x: box.x, y: box.y, width: box.width, height: box.height),
+      on: page
+    )
+    return ReaderQuickLinkBox(
+      x: mapped.x, y: mapped.y, width: mapped.width, height: mapped.height
+    )
   }
 }
 
@@ -705,6 +791,9 @@ final class ReaderAnnotationInteractionController: NSObject, UIGestureRecognizer
 
 @MainActor
 final class ReaderAnnotationPDFView: PDFView {
+  // Updated by the PDFKit gesture/offset observer, without publishing view state.
+  var translationRenderResumeTime: TimeInterval = 0
+  var isUpdatingPageGeometry = false
   weak var annotationController: ReaderAnnotationInteractionController?
 
   override func buildMenu(with builder: UIMenuBuilder) {

@@ -5,16 +5,19 @@ import UIKit
 
 struct LibraryView: View {
   @EnvironmentObject private var library: LibraryModel
+  @Environment(\.openWindow) private var openWindow
+  @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
   @State private var isImporting = false
   @State private var isOpeningDocument = false
   @State private var isShowingComputerDocuments = false
   @State private var isShowingSettings = false
   @State private var isConfirmingClear = false
+  @State private var cacheClearDocument: RecentDocument?
 
   let onOpenDocument: (DocumentSession) -> Void
 
   private let columns = [
-    GridItem(.adaptive(minimum: 168, maximum: 260), spacing: 18, alignment: .top)
+    GridItem(.adaptive(minimum: 168, maximum: 260), spacing: 18, alignment: .topLeading)
   ]
 
   var body: some View {
@@ -30,21 +33,42 @@ struct LibraryView: View {
           LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
             ForEach(library.recents) { recent in
               RecentDocumentCard(document: recent, isRemote: library.isRemoteDocument(recent)) {
-                guard !isOpeningDocument else { return }
-                isOpeningDocument = true
-                Task {
-                  defer { isOpeningDocument = false }
-                  guard let session = await library.makeSession(for: recent) else { return }
-                  onOpenDocument(session)
+                open(recent)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .contextMenu {
+                Button { open(recent) } label: {
+                  Label(L10n.string("ios.recentOpen"), systemImage: "doc.text")
+                }
+                if supportsMultipleWindows {
+                  Button { open(recent, inNewWindow: true) } label: {
+                    Label(L10n.string("ios.recentOpenWindow"), systemImage: "macwindow.badge.plus")
+                  }
+                }
+                Button { library.togglePinned(recent) } label: {
+                  Label(L10n.string(recent.pinned ? "ios.recentUnpin" : "ios.recentPin"),
+                        systemImage: recent.pinned ? "pin.slash" : "pin")
+                }
+                if !library.isRemoteDocument(recent), !recent.bookmarkData.isEmpty {
+                  Button { library.copyLocation(for: recent) } label: {
+                    Label(L10n.string("ios.recentCopyLocation"), systemImage: "doc.on.doc")
+                  }
+                }
+                Divider()
+                Button { cacheClearDocument = recent } label: {
+                  Label(L10n.string("ios.clearTranslationCache"), systemImage: "arrow.trianglehead.2.clockwise")
+                }
+                Button(role: .destructive) { library.removeRecent(recent) } label: {
+                  Label(L10n.string("ios.recentRemove"), systemImage: "clock.badge.xmark")
                 }
               }
             }
           }
         }
       }
+      .frame(maxWidth: 1080, alignment: .leading)
       .padding(.horizontal, 20)
       .padding(.vertical, 24)
-      .frame(maxWidth: 1120, alignment: .leading)
       .frame(maxWidth: .infinity, alignment: .center)
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -106,6 +130,22 @@ struct LibraryView: View {
       }
     }
     .confirmationDialog(
+      L10n.string("ios.clearTranslationCache"),
+      isPresented: Binding(
+        get: { cacheClearDocument != nil },
+        set: { if !$0 { cacheClearDocument = nil } }
+      ),
+      titleVisibility: .visible,
+      presenting: cacheClearDocument
+    ) { recent in
+      Button(L10n.string("ios.clearTranslationCache"), role: .destructive) {
+        Task { await library.clearTranslationCache(for: recent) }
+      }
+      Button(L10n.string("ios.cancel"), role: .cancel) {}
+    } message: { _ in
+      Text(L10n.string("ios.recentClearCacheMessage"))
+    }
+    .confirmationDialog(
       L10n.string("ios.clearRecentPDFsTitle"),
       isPresented: $isConfirmingClear,
       titleVisibility: .visible
@@ -114,6 +154,20 @@ struct LibraryView: View {
       Button(L10n.string("ios.cancel"), role: .cancel) {}
     } message: {
       Text(L10n.string("ios.clearHistoryMessage"))
+    }
+  }
+
+  private func open(_ recent: RecentDocument, inNewWindow: Bool = false) {
+    guard !isOpeningDocument else { return }
+    isOpeningDocument = true
+    Task {
+      defer { isOpeningDocument = false }
+      guard let session = await library.makeSession(for: recent) else { return }
+      if inNewWindow {
+        openWindow(value: library.windowValue(for: session))
+      } else {
+        onOpenDocument(session)
+      }
     }
   }
 
@@ -194,6 +248,10 @@ private struct RecentDocumentCard: View {
 
         VStack(alignment: .leading, spacing: 3) {
           HStack(alignment: .firstTextBaseline, spacing: 5) {
+            if document.pinned {
+              Image(systemName: "pin.fill")
+                .foregroundStyle(.tint)
+            }
             if isRemote {
               Image(systemName: "desktopcomputer")
                 .foregroundStyle(.tint)
@@ -220,6 +278,7 @@ private struct RecentDocumentCard: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(document.title)
+    .accessibilityIdentifier("library.recent.\(document.id)")
     .accessibilityHint(L10n.string("ios.openPDF"))
   }
 }
@@ -235,20 +294,20 @@ private struct RecentThumbnail: View {
         Image(uiImage: colorScheme == .dark ? ReaderDarkPDF.inverted(image) : image)
           .resizable()
           .scaledToFit()
-          .padding(6)
       } else {
         Image(systemName: "doc.richtext")
           .font(.system(size: 46, weight: .light))
           .foregroundStyle(.tint)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .background(
+            LinearGradient(
+              colors: [Color(uiColor: .secondarySystemBackground), Color(uiColor: .tertiarySystemBackground)],
+              startPoint: .topLeading,
+              endPoint: .bottomTrailing
+            )
+          )
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(
-      LinearGradient(
-        colors: [Color(uiColor: .secondarySystemBackground), Color(uiColor: .tertiarySystemBackground)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-      )
-    )
   }
 }

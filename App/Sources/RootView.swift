@@ -43,12 +43,21 @@ struct ReaderWindow: View {
   let value: ReaderWindowValue
   @State private var session: DocumentSession?
   @State private var failure: String?
+  @State private var isExplicitHandoff: Bool? = nil
   @State private var sceneSession: UISceneSession?
 
   var body: some View {
     Group {
       if let session {
-        ReaderWorkspace(initialSession: session, onEmpty: closeDocument)
+        ReaderWorkspace(
+          initialSession: session,
+          onEmpty: closeDocument,
+          restoreSavedWorkspace: false
+        )
+      } else if isExplicitHandoff == false {
+        // Let ReaderWorkspace inspect its saved tab snapshot first. The value
+        // from UIKit is only a fallback when no saved workspace is available.
+        ReaderWorkspace(onEmpty: closeDocument, restorationFallback: value)
       } else if let failure {
         // The library window's alert may be hidden; report the failure here
         // instead of spinning forever.
@@ -66,6 +75,9 @@ struct ReaderWindow: View {
     .background(SceneSessionReader { sceneSession = $0 })
     .task {
       guard session == nil, failure == nil else { return }
+      let explicitHandoff = library.hasPendingWindowSession(for: value)
+      isExplicitHandoff = explicitHandoff
+      guard explicitHandoff else { return }
       session = await library.session(
         for: value,
         fallbackURL: Self.relocatedIntoCurrentContainer(value.url)

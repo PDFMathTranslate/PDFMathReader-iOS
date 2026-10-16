@@ -43,6 +43,7 @@ struct ReaderExportModifier: ViewModifier {
   let document: PDFDocument
   let originalName: String
   let sourceData: Data?
+  let nativeRefs: [String]
   let annotations: [ReaderAnnotation]
   let quickLinks: [ReaderQuickLink]
   let readingState: ReadingState
@@ -63,6 +64,7 @@ struct ReaderExportModifier: ViewModifier {
     document: PDFDocument,
     originalName: String,
     sourceData: Data? = nil,
+    nativeRefs: [String] = [],
     annotations: [ReaderAnnotation] = [],
     quickLinks: [ReaderQuickLink] = [],
     readingState: ReadingState = ReadingState(),
@@ -73,6 +75,7 @@ struct ReaderExportModifier: ViewModifier {
     self.document = document
     self.originalName = originalName
     self.sourceData = sourceData
+    self.nativeRefs = nativeRefs
     self.annotations = annotations
     self.quickLinks = quickLinks
     self.readingState = readingState
@@ -182,14 +185,15 @@ struct ReaderExportModifier: ViewModifier {
   }
 
   private func originalPDFData() throws -> Data {
-    guard let data = sourceData ?? document.dataRepresentation(), !data.isEmpty else {
+    guard let data = sourceData ?? (document as? ReaderPDFDocument)?.uncompactedData() ?? document.dataRepresentation(), !data.isEmpty else {
       throw ReaderExportError.invalidDocument
     }
     return try ReaderTransferPDF.export(
       sourceData: data,
       annotations: annotations,
       quickLinks: quickLinks,
-      readingState: readingState
+      readingState: readingState,
+      nativeRefs: nativeRefs
     )
   }
 
@@ -268,6 +272,7 @@ extension View {
     document: PDFDocument,
     originalName: String,
     sourceData: Data? = nil,
+    nativeRefs: [String] = [],
     annotations: [ReaderAnnotation] = [],
     quickLinks: [ReaderQuickLink] = [],
     readingState: ReadingState = ReadingState(),
@@ -280,6 +285,7 @@ extension View {
         document: document,
         originalName: originalName,
         sourceData: sourceData,
+        nativeRefs: nativeRefs,
         annotations: annotations,
         quickLinks: quickLinks,
         readingState: readingState,

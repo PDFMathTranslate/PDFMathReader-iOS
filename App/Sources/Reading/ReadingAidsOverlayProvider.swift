@@ -10,25 +10,25 @@ public protocol ReadingAidsConfigurationProviding: AnyObject {
   var readingAidsConfiguration: ReadingAidsConfiguration { get }
 }
 
-private struct ReadingAidsGlyph: Sendable {
+private struct ReadingAidsGlyph: Equatable, Sendable {
   var index: Int
   var text: String
   var bounds: CGRect
 }
 
-private struct ReadingAidsPageData: Sendable {
+private struct ReadingAidsPageData: Equatable, Sendable {
   var text: String
   var glyphs: [ReadingAidsGlyph]
   var paragraphs: [LayoutParagraph]
 }
 
-private struct ReadingAidsLink: Sendable {
+private struct ReadingAidsLink: Equatable, Sendable {
   var url: URL
   var label: String
   var range: ReadingRange
 }
 
-private struct ReadingAidsPageAnalysis: Sendable {
+private struct ReadingAidsPageAnalysis: Equatable, Sendable {
   var informationRanges: [InformationRange]
   var topicRanges: [ReadingRange]
   var tfidfRanges: [TfidfRange]
@@ -72,6 +72,11 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
   private var analysisGeneration = 0
   private var pendingAnalysisTasks: [Int: Task<Void, Never>] = [:]
   private var configurationObservers: [UUID: (ReadingAidsConfiguration) -> Void] = [:]
+  // PDFKit can keep one overlay per page alive after it scrolls off screen.
+  // Converted glyph rectangles are display-state geometry, so retain it only
+  // for the most recently requested pages.
+  private var geometryAccessOrder: [Int] = []
+  private let maximumCachedGeometryPages = 8
 
   public init(
     document: PDFDocument,
@@ -141,6 +146,7 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
       overlay = ReadingAidsPageOverlay(page: page, pdfView: pdfView, data: pageData[pageIndex] ?? .empty)
       overlays[pageIndex] = overlay
     }
+    touchGeometry(for: pageIndex)
     overlay.update(accentColor: readingAidsConfiguration.emphasisColor)
     overlay.update(data: pageData[pageIndex] ?? .empty)
     overlay.update(analysis: analyses[pageIndex] ?? .empty)
@@ -148,6 +154,26 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
       requestAnalysis(for: pageIndex)
     }
     return overlay
+  }
+
+  public func didEndDisplayingOverlay(_ root: UIView, for page: PDFPage, in pdfView: PDFView) {
+    let retired = overlays.compactMap { index, overlay in
+      overlay === root || overlay.isDescendant(of: root) ? index : nil
+    }
+    for index in retired { overlays.removeValue(forKey: index) }
+    geometryAccessOrder.removeAll { retired.contains($0) }
+  }
+
+  private func touchGeometry(for pageIndex: Int) {
+    geometryAccessOrder.removeAll { $0 == pageIndex }
+    geometryAccessOrder.append(pageIndex)
+    guard geometryAccessOrder.count > maximumCachedGeometryPages else { return }
+    let evictedPage = geometryAccessOrder.removeFirst()
+    if overlays[evictedPage]?.superview == nil {
+      overlays.removeValue(forKey: evictedPage)
+    } else {
+      overlays[evictedPage]?.discardGeometryCache()
+    }
   }
 
   private func requestAnalysis(for pageIndex: Int) {
@@ -385,6 +411,14 @@ public final class ReaderPageOverlayCompositeProvider: ReaderPageOverlayProvidin
 
     let pageIndex = pdfView.document?.index(for: page) ?? NSNotFound
     guard pageIndex != NSNotFound else { return views[0] }
+    if composites[pageIndex] == nil, composites.count >= 8 {
+      let detached = composites.filter { $0.value.superview == nil }
+      for (index, composite) in detached {
+        guard composites.count >= 8 else { break }
+        let retiredPage = pdfView.document?.page(at: index) ?? page
+        didEndDisplayingOverlay(composite, for: retiredPage, in: pdfView)
+      }
+    }
     let composite = composites[pageIndex] ?? {
       let value = ReadingAidsCompositePageOverlay()
       composites[pageIndex] = value
@@ -392,6 +426,14 @@ public final class ReaderPageOverlayCompositeProvider: ReaderPageOverlayProvidin
     }()
     composite.replace(views: views)
     return composite
+  }
+
+  public func didEndDisplayingOverlay(_ root: UIView, for page: PDFPage, in pdfView: PDFView) {
+    providers.forEach { $0.didEndDisplayingOverlay(root, for: page, in: pdfView) }
+    let retired = composites.compactMap { index, composite in
+      composite === root || composite.isDescendant(of: root) ? index : nil
+    }
+    for index in retired { composites.removeValue(forKey: index) }
   }
 
   private func configureTranslationOverlay(_ view: UIView?) {
@@ -454,6 +496,26 @@ private final class ReadingAidsLinkButton: UIButton {
   }
 }
 
+private struct ReadingAidsOverlayGeometryKey: Equatable {
+  let pageID: ObjectIdentifier
+  let pageBounds: CGRect
+  let overlayBounds: CGRect
+  let pageToOverlayOrigin: CGPoint
+  let pageToOverlayXAxis: CGPoint
+  let pageToOverlayYAxis: CGPoint
+  let pageRotation: Int
+  let scaleFactor: CGFloat
+  let displayBox: PDFDisplayBox
+}
+
+private struct ReadingAidsOverlayGeometry {
+  let key: ReadingAidsOverlayGeometryKey
+  let glyphRects: [CGRect]
+  let topicRects: [[CGRect]]
+  let informationRects: [[CGRect]]
+  let linkFrames: [CGRect]
+}
+
 @MainActor
 private final class ReadingAidsPageOverlay: UIView {
   private weak var pdfView: PDFView?
@@ -467,6 +529,10 @@ private final class ReadingAidsPageOverlay: UIView {
   )
   private var linkButtons: [ReadingAidsLinkButton] = []
   private var emphasisColor: UIColor = .systemBlue
+  private var geometry: ReadingAidsOverlayGeometry?
+  private var glyphBoldStrengths: [Double] = []
+  private var glyphBoldStrengthsDirty = true
+  private var linkFramesDirty = true
 
   init(page: PDFPage, pdfView: PDFView, data: ReadingAidsPageData) {
     self.page = page
@@ -487,22 +553,36 @@ private final class ReadingAidsPageOverlay: UIView {
     guard page !== self.page || pdfView !== self.pdfView else { return }
     self.page = page
     self.pdfView = pdfView
+    discardGeometryCache()
     setNeedsLayout()
+    setNeedsDisplay()
+  }
+
+  func discardGeometryCache() {
+    geometry = nil
+    linkFramesDirty = true
   }
 
   func update(accentColor: UIColor) {
+    guard accentColor != emphasisColor else { return }
     emphasisColor = accentColor
     setNeedsDisplay()
   }
 
   func update(data: ReadingAidsPageData) {
+    guard data != self.data else { return }
     self.data = data
+    discardGeometryCache()
+    glyphBoldStrengthsDirty = true
     setNeedsDisplay()
     setNeedsLayout()
   }
 
   func update(analysis: ReadingAidsPageAnalysis) {
+    guard analysis != self.analysis else { return }
     self.analysis = analysis
+    discardGeometryCache()
+    glyphBoldStrengthsDirty = true
     linkButtons.forEach { $0.removeFromSuperview() }
     linkButtons = analysis.links.map { link in
       let button = ReadingAidsLinkButton(url: link.url, label: link.label)
@@ -517,27 +597,32 @@ private final class ReadingAidsPageOverlay: UIView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    for (button, link) in zip(linkButtons, analysis.links) {
-      let rects = convertedRects(for: link.range)
-      button.frame = rects.reduce(into: CGRect.null) { $0 = $0.union($1) }.standardized
+    let geometryChanged = rebuildGeometryIfNeeded()
+    if geometryChanged || linkFramesDirty {
+      updateLinkButtonFrames()
     }
-    setNeedsDisplay()
+    if geometryChanged { setNeedsDisplay() }
   }
 
   override func draw(_ rect: CGRect) {
     super.draw(rect)
     guard let context = UIGraphicsGetCurrentContext() else { return }
+    let geometryChanged = rebuildGeometryIfNeeded()
+    if geometryChanged || linkFramesDirty {
+      updateLinkButtonFrames()
+    }
+    guard let geometry else { return }
 
-    for range in analysis.topicRanges {
+    for rects in geometry.topicRects {
       context.setFillColor(emphasisColor.withAlphaComponent(0.13).cgColor)
-      for glyphRect in convertedRects(for: range) {
+      for glyphRect in rects {
         context.fill(glyphRect.insetBy(dx: -0.3, dy: 0))
       }
     }
 
     context.setFillColor(emphasisColor.withAlphaComponent(0.9).cgColor)
-    for range in analysis.informationRanges {
-      for glyphRect in convertedRects(for: ReadingRange(start: range.start, end: range.end)) {
+    for rects in geometry.informationRects {
+      for glyphRect in rects {
         let thickness = max(1, glyphRect.height * 0.07)
         let line = CGRect(
           x: glyphRect.minX,
@@ -549,16 +634,14 @@ private final class ReadingAidsPageOverlay: UIView {
       }
     }
 
-    var boldStrength: [Int: Double] = [:]
-    for range in analysis.tfidfRanges {
-      for glyph in data.glyphs where glyph.index >= range.start && glyph.index < range.end {
-        boldStrength[glyph.index] = max(boldStrength[glyph.index] ?? 0, range.strength)
-      }
-    }
-    for glyph in data.glyphs {
-      guard let strength = boldStrength[glyph.index],
+    ensureGlyphBoldStrengths()
+    for index in data.glyphs.indices {
+      let glyph = data.glyphs[index]
+      let strength = glyphBoldStrengths[index]
+      let glyphRect = geometry.glyphRects[index]
+      guard strength > 0,
         !glyph.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-        let glyphRect = convertedRect(glyph.bounds)
+        !glyphRect.isNull, !glyphRect.isEmpty
       else { continue }
       let size = max(6, min(36, glyphRect.height * 0.88))
       let weight: UIFont.Weight = strength >= 0.9 ? .bold : strength >= 0.6 ? .semibold : .medium
@@ -582,19 +665,131 @@ private final class ReadingAidsPageOverlay: UIView {
     UIApplication.shared.open(sender.url, options: [:], completionHandler: nil)
   }
 
-  private func convertedRects(for range: ReadingRange) -> [CGRect] {
+  private func rebuildGeometryIfNeeded() -> Bool {
+    guard let page, let pdfView else {
+      let changed = geometry != nil
+      geometry = nil
+      return changed
+    }
+    let pageBounds = page.bounds(for: .cropBox)
+    let pageOrigin = CGPoint(x: pageBounds.minX, y: pageBounds.minY)
+    let pageXAxis = CGPoint(x: pageBounds.minX + 1, y: pageBounds.minY)
+    let pageYAxis = CGPoint(x: pageBounds.minX, y: pageBounds.minY + 1)
+    let key = ReadingAidsOverlayGeometryKey(
+      pageID: ObjectIdentifier(page),
+      pageBounds: pageBounds,
+      overlayBounds: bounds,
+      pageToOverlayOrigin: pagePointInOverlay(pageOrigin, page: page, pdfView: pdfView),
+      pageToOverlayXAxis: pagePointInOverlay(pageXAxis, page: page, pdfView: pdfView),
+      pageToOverlayYAxis: pagePointInOverlay(pageYAxis, page: page, pdfView: pdfView),
+      pageRotation: page.rotation,
+      scaleFactor: pdfView.scaleFactor,
+      displayBox: pdfView.displayBox
+    )
+    guard geometry?.key != key else { return false }
+
+    let glyphRects = data.glyphs.map { convertedRect($0.bounds) ?? .null }
+    let topicRects = analysis.topicRanges.map {
+      convertedRects(for: $0, glyphRects: glyphRects)
+    }
+    let informationRects = analysis.informationRanges.map {
+      convertedRects(
+        for: ReadingRange(start: $0.start, end: $0.end),
+        glyphRects: glyphRects
+      )
+    }
+    let linkFrames = analysis.links.map {
+      let rects = convertedRects(for: $0.range, glyphRects: glyphRects)
+      let frame = rects.reduce(into: CGRect.null) { $0 = $0.union($1) }
+      return frame.isNull ? .zero : frame.standardized
+    }
+    geometry = ReadingAidsOverlayGeometry(
+      key: key,
+      glyphRects: glyphRects,
+      topicRects: topicRects,
+      informationRects: informationRects,
+      linkFrames: linkFrames
+    )
+    return true
+  }
+
+  private func pagePointInOverlay(_ point: CGPoint, page: PDFPage, pdfView: PDFView) -> CGPoint {
+    convert(pdfView.convert(point, from: page), from: pdfView)
+  }
+
+  private func updateLinkButtonFrames() {
+    guard let geometry else {
+      linkButtons.forEach { $0.frame = .zero }
+      linkFramesDirty = false
+      return
+    }
+    for (button, frame) in zip(linkButtons, geometry.linkFrames) where button.frame != frame {
+      button.frame = frame
+    }
+    linkFramesDirty = false
+  }
+
+  private func ensureGlyphBoldStrengths() {
+    guard glyphBoldStrengthsDirty else { return }
+    glyphBoldStrengths = Array(repeating: 0, count: data.glyphs.count)
+    for range in analysis.tfidfRanges {
+      applyBoldStrength(max(0, range.strength), for: ReadingRange(start: range.start, end: range.end))
+    }
+    glyphBoldStrengthsDirty = false
+  }
+
+  private func applyBoldStrength(_ strength: Double, for range: ReadingRange) {
+    let start = lowerBound(for: range.start)
+    let end = lowerBound(for: range.end)
+    guard start < end else { return }
+    for index in start..<end {
+      glyphBoldStrengths[index] = max(glyphBoldStrengths[index], strength)
+    }
+  }
+
+  private func convertedRects(for range: ReadingRange, glyphRects: [CGRect]) -> [CGRect] {
+    let start = lowerBound(for: range.start)
+    let end = lowerBound(for: range.end)
+    guard start < end else { return [] }
     var rects: [CGRect] = []
-    for glyph in data.glyphs where glyph.index >= range.start && glyph.index < range.end {
-      if let rect = convertedRect(glyph.bounds) {
+    rects.reserveCapacity(end - start)
+    for index in start..<end {
+      let rect = glyphRects[index]
+      if !rect.isNull, !rect.isEmpty {
         rects.append(rect)
       }
     }
     return mergeRects(rects)
   }
 
+  private func lowerBound(for index: Int) -> Int {
+    var lower = 0
+    var upper = data.glyphs.count
+    while lower < upper {
+      let middle = (lower + upper) / 2
+      if data.glyphs[middle].index < index {
+        lower = middle + 1
+      } else {
+        upper = middle
+      }
+    }
+    return lower
+  }
+
   private func convertedRect(_ pageRect: CGRect) -> CGRect? {
     guard let pdfView, let page, bounds.width > 0, bounds.height > 0 else { return nil }
-    let viewRect = pdfView.convert(pageRect, from: page)
+    var displayRect = pageRect
+    if let compact = (page as? ReaderPDFPage)?.compaction {
+      let source = compact.sourcePage.bounds(for: .cropBox)
+      let mapped = compact.displayRect(ReadingRectangle(
+        x: pageRect.minX - source.minX, y: source.maxY - pageRect.maxY,
+        width: pageRect.width, height: pageRect.height
+      ))
+      let bounds = page.bounds(for: .cropBox)
+      displayRect = CGRect(x: bounds.minX + mapped.x, y: bounds.maxY - mapped.y - mapped.height,
+                           width: mapped.width, height: mapped.height)
+    }
+    let viewRect = pdfView.convert(displayRect, from: page)
     let rect = convert(viewRect, from: pdfView).standardized
     return rect.width > 0 && rect.height > 0 ? rect : nil
   }

@@ -142,6 +142,27 @@ final class ReaderPageCropTests: XCTestCase {
     XCTAssertEqual(canvas.contentSize, CGSize(width: 300, height: 500))
   }
 
+  func testCompactedReplacementRetainsVirtualCrop() throws {
+    let document = try compactionDocument()
+    document.pageCrop = PageCrop(x: 0.2, y: 0.1)
+    let source = try XCTUnwrap(document.page(at: 0))
+    let compact = try XCTUnwrap(ReaderPageCompaction.make(page: source))
+    let replacement = try XCTUnwrap(compact.makePage())
+
+    document.removePage(at: 0)
+    document.insert(replacement, at: 0)
+
+    let page = try XCTUnwrap(document.page(at: 0) as? ReaderPDFPage)
+    let cropBox = page.bounds(for: .cropBox)
+    let expected = cropBox.insetBy(
+      dx: cropBox.width * 0.2 / 2,
+      dy: cropBox.height * 0.1 / 2
+    )
+    XCTAssertNotNil(page.compaction)
+    assertRect(page.bounds(for: .artBox), equals: expected)
+    assertRect(page.bounds(for: .cropBox), equals: cropBox)
+  }
+
   func testDefaultCropOnlyAppliesWithoutSavedDocumentCrop() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

@@ -36,6 +36,7 @@ public struct ReadingAidsSettingsSection: View {
         .disabled(!preferences.emphasizeInformation)
       Toggle(L10n.string("ios.tfidfEmphasis"), isOn: $preferences.tfidfWeightingEnabled)
       Toggle(L10n.string("settings.emphasizeTopicSentences"), isOn: $preferences.emphasizeTopicSentences)
+      Toggle(L10n.string("settings.optimizeParagraphGaps"), isOn: $preferences.paragraphGapOptimization)
       Toggle(L10n.string("ios.detectedLinks"), isOn: $preferences.readingLinksEnabled)
       Toggle(L10n.string("ios.generatedOutlineFallback"), isOn: $preferences.tocGenerationEnabled)
     }

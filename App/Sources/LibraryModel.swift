@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import PDFKit
 import ReaderCore
+import UIKit
 
 /// Holds a document-provider URL's security scope (iCloud Drive, Files,
 /// other apps) for as long as any session copy is alive.
@@ -135,6 +136,7 @@ final class LibraryModel: ObservableObject {
     let record = RecentDocument(
       id: id,
       title: title,
+      pinned: previous?.pinned ?? false,
       pageCount: previous?.pageCount,
       thumbnailCachePath: thumbnailPath,
       bookmarkData: bookmarkData
@@ -219,19 +221,42 @@ final class LibraryModel: ObservableObject {
     return ReaderWindowValue(documentID: session.id, url: session.url)
   }
 
+  /// Returns whether a reader window was just opened by this process. A live
+  /// handoff must take precedence over UIKit's restored scene value.
+  func hasPendingWindowSession(for value: ReaderWindowValue) -> Bool {
+    pendingWindowSessions[value.documentID] != nil
+  }
+
   #if DEBUG
-  private var launchArgumentConsumed = false
+  private var launchArgumentsConsumed = false
 
   /// UI tests pass `-PMROpenPDF <name-or-path>`; a bare name resolves against
   /// Documents. iPad may relaunch into restored reader windows only, so every
   /// scene asks and the first one opens it.
   func consumeLaunchArgumentPDF() -> URL? {
-    guard !launchArgumentConsumed else { return nil }
-    launchArgumentConsumed = true
+    consumeLaunchArgumentPDFs().first
+  }
+
+  /// Consumes all explicit PDF launch arguments once for the process so a
+  /// restored reader scene cannot open the same test documents twice.
+  func consumeLaunchArgumentPDFs() -> [URL] {
+    guard !launchArgumentsConsumed else { return [] }
+    launchArgumentsConsumed = true
     let arguments = ProcessInfo.processInfo.arguments
-    guard let flag = arguments.firstIndex(of: "-PMROpenPDF"), flag + 1 < arguments.count else { return nil }
-    let value = arguments[flag + 1]
-    return value.hasPrefix("/")
+    var urls: [URL] = []
+    if let flag = arguments.firstIndex(of: "-PMROpenPDF"), flag + 1 < arguments.count {
+      urls.append(Self.launchArgumentURL(arguments[flag + 1]))
+    }
+    if let flag = arguments.firstIndex(of: "-PMRTabPDFs") {
+      for path in arguments.dropFirst(flag + 1).prefix(while: { !$0.hasPrefix("-") }) {
+        urls.append(Self.launchArgumentURL(path))
+      }
+    }
+    return urls
+  }
+
+  private static func launchArgumentURL(_ value: String) -> URL {
+    value.hasPrefix("/")
       ? URL(fileURLWithPath: value)
       : URL.documentsDirectory.appendingPathComponent(value)
   }
@@ -254,6 +279,46 @@ final class LibraryModel: ObservableObject {
 
   func refreshRecents() {
     recents = recentsStore.list()
+  }
+
+  func removeRecent(_ recent: RecentDocument) {
+    do {
+      recents = try recentsStore.remove(id: recent.id)
+    } catch {
+      lastError = L10n.string("ios.recentRemoveFailed")
+    }
+  }
+
+  func togglePinned(_ recent: RecentDocument) {
+    do {
+      recents = try recentsStore.setPinned(!recent.pinned, for: recent.id)
+    } catch {
+      lastError = L10n.string("ios.recentPinFailed")
+    }
+  }
+
+  func copyLocation(for recent: RecentDocument) {
+    do {
+      let url = try recentsStore.resolveBookmarkData(recent.bookmarkData)
+      UIPasteboard.general.string = url.path
+    } catch {
+      lastError = L10n.string("ios.pdfUnavailableFromFiles")
+    }
+  }
+
+  func clearTranslationCache(for recent: RecentDocument) async {
+    do {
+      try await Task.detached(priority: .utility) {
+        try TranslationCacheManagement().clear(documentID: recent.id)
+      }.value
+      NotificationCenter.default.post(
+        name: .translationCacheDidClear,
+        object: nil,
+        userInfo: [TranslationCacheNotification.documentIDKey: recent.id]
+      )
+    } catch {
+      lastError = L10n.string("ios.cacheClearFailed", error.localizedDescription)
+    }
   }
 
   func clearHistory() {

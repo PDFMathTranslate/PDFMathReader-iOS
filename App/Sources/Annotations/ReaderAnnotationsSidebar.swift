@@ -148,6 +148,8 @@ struct ReaderAnnotationsSidebar: View {
             HStack(spacing: 8) {
               Button {
                 onJump(link.result.page)
+                // The model maps the stored source box into the compacted
+                // display page before applying the precise destination.
                 model.followQuickLink(link, side: .origin, in: pdfViewReference.view)
               } label: {
                 VStack(alignment: .leading, spacing: 3) {
@@ -168,6 +170,8 @@ struct ReaderAnnotationsSidebar: View {
 
               Button {
                 onJump(link.origin.page)
+                // The model maps the stored source box into the compacted
+                // display page before applying the precise destination.
                 model.followQuickLink(link, side: .result, in: pdfViewReference.view)
               } label: {
                 VStack(alignment: .leading, spacing: 3) {

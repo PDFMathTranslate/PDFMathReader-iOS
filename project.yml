@@ -50,6 +50,8 @@ targets:
       path: App/Info.plist
       properties:
         UIAppFonts:
+          - NotoSerifCJKsc-Regular.otf
+          - NotoSerifCJKsc-Bold.otf
           - NotoSerifCJKtc-Regular.otf
           - NotoSerifCJKtc-Bold.otf
         CFBundleDisplayName: PDFMathReader

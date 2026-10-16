@@ -13,6 +13,41 @@ final class ReaderSmokeUITests: XCTestCase {
   private let freeService = ["-PMRTranslationService", "siliconFlowFree"]
 
   @MainActor
+  func testRecentLongPressPinRemoveAndReopen() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-AppleLanguages", "(en)"]
+    app.launch()
+    XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30))
+    closeReaderToLibrary(app)
+
+    let card = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@",
+                                               "library.recent.", "sample.pdf")).firstMatch
+    XCTAssertTrue(card.waitForExistence(timeout: 10))
+    card.press(forDuration: 1)
+    XCTAssertTrue(menuEntry("Open", in: app).waitForExistence(timeout: 5))
+    XCTAssertTrue(menuEntry("Clear Translation Cache", in: app).exists)
+    XCTAssertTrue(menuEntry("Copy File Location", in: app).exists)
+    // The simulator may already have this fixture pinned from an earlier run.
+    let unpin = menuEntry("Unpin", in: app)
+    if unpin.exists {
+      unpin.tap()
+      card.press(forDuration: 1)
+    }
+    menuEntry("Pin", in: app).tap()
+    card.press(forDuration: 1)
+    XCTAssertTrue(menuEntry("Unpin", in: app).waitForExistence(timeout: 5))
+    menuEntry("Remove from Recents", in: app).tap()
+    XCTAssertTrue(card.waitForNonExistence(timeout: 5))
+
+    // Removing the history entry must leave the original PDF usable.
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30))
+    closeReaderToLibrary(app)
+    XCTAssertTrue(card.waitForExistence(timeout: 10))
+  }
+
+  @MainActor
   func testSwipeToToggleSidebar() throws {
     try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad split sidebar")
     XCUIDevice.shared.orientation = .portrait
@@ -131,7 +166,12 @@ final class ReaderSmokeUITests: XCTestCase {
       XCUIDevice.shared.orientation = .portrait
     }
     let app = XCUIApplication()
-    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe"] + freeService
+    // Use the repository fixture directly: test installation may replace the
+    // simulator container, including a manually copied Documents/sample.pdf.
+    let fixture = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+      .appendingPathComponent("Fixtures/pdfs/sample.pdf")
+    app.launchArguments = ["-PMROpenPDF", fixture.path, "-PMRUITestProbe"] + freeService
     app.launch()
     XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30), "Reader did not open")
     sleep(2)
@@ -561,7 +601,8 @@ final class ReaderSmokeUITests: XCTestCase {
     let close = app.buttons["reader.closeDocument"].firstMatch
     if !(close.exists && close.isHittable) {
       app.buttons.matching(
-        NSPredicate(format: "identifier == %@ OR label CONTAINS[c] %@", "ToggleSidebar", "Sidebar")
+        NSPredicate(format: "identifier == %@ OR identifier == %@ OR label CONTAINS[c] %@",
+                    "reader.toggleSidebar", "ToggleSidebar", "Sidebar")
       ).firstMatch.tap()
     }
     XCTAssertTrue(close.waitForExistence(timeout: 10), "No close button in the sidebar")
@@ -666,5 +707,71 @@ final class ReaderSmokeUITests: XCTestCase {
       counts[(red + green + blue) / 3] += 1
     }
     return counts.indices.max { counts[$0] < counts[$1] }
+  }
+}
+
+/// Opt-in physical-device benchmarks. Seed Documents/pmr-long-20.pdf before running.
+/// Uses an optimized build with DEBUG launch hooks; no polling UI probe is enabled.
+@available(iOS 26.0, *)
+final class LongPDFPerformanceUITests: XCTestCase {
+  @MainActor
+  private func openLongPDF() throws -> XCUIApplication {
+    try XCTSkipUnless(ProcessInfo.processInfo.environment["PMR_RUN_DEVICE_PERF"] == "1", "Opt-in device benchmark")
+    continueAfterFailure = false
+    XCUIDevice.shared.orientation = .portrait
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "pmr-long-20.pdf"]
+    app.launch()
+    XCTAssertTrue(app.buttons["reader.moreMenu"].firstMatch.waitForExistence(timeout: 40))
+    XCTAssertTrue(app.staticTexts["pmr-long-20.pdf"].firstMatch.waitForExistence(timeout: 10))
+    sleep(3)
+    return app
+  }
+
+  @MainActor
+  private func keepScreenshot(_ app: XCUIApplication, _ name: String) {
+    let attachment = XCTAttachment(screenshot: app.screenshot())
+    attachment.name = name
+    attachment.lifetime = .keepAlways
+    add(attachment)
+  }
+
+  @MainActor
+  func testLongPDFScrollingPerformance() throws {
+    let app = try openLongPDF()
+    keepScreenshot(app, "long-pdf-scroll-before")
+    let options = XCTMeasureOptions()
+    options.iterationCount = 3
+    measure(metrics: [XCTClockMetric(), XCTMemoryMetric(application: app),
+                      XCTCPUMetric(application: app), XCTHitchMetric(application: app),
+                      XCTOSSignpostMetric.scrollingAndDecelerationMetric], options: options) {
+      let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.86))
+      let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.2))
+      for _ in 0..<6 { bottom.press(forDuration: 0.05, thenDragTo: top) }
+      for _ in 0..<6 { top.press(forDuration: 0.05, thenDragTo: bottom) }
+    }
+    XCTAssertEqual(app.state, .runningForeground)
+    sleep(5)
+    keepScreenshot(app, "long-pdf-scroll-after-round-trips")
+  }
+
+  @MainActor
+  func testLongPDFZoomPerformance() throws {
+    let app = try openLongPDF()
+    keepScreenshot(app, "long-pdf-zoom-before")
+    let options = XCTMeasureOptions()
+    options.iterationCount = 3
+    measure(metrics: [XCTClockMetric(), XCTMemoryMetric(application: app), XCTCPUMetric(application: app),
+                      XCTHitchMetric(application: app)], options: options) {
+      // The reader fills this portion of the window; pinch acts on its PDF scroll view.
+      let target = app.windows.firstMatch
+      for _ in 0..<3 {
+        target.pinch(withScale: 1.8, velocity: 1.5)
+        target.pinch(withScale: 1.0 / 1.8, velocity: -1.5)
+      }
+    }
+    XCTAssertEqual(app.state, .runningForeground)
+    sleep(5)
+    keepScreenshot(app, "long-pdf-zoom-after-cycles")
   }
 }

@@ -7,6 +7,32 @@ import XCTest
 
 @MainActor
 final class ExternalPDFImportTests: XCTestCase {
+  func testRecentPinSurvivesReopeningAndRemovalPreservesReadingState() async throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let url = root.appendingPathComponent("Paper.pdf")
+    let data = try blankPDFData()
+    try data.write(to: url)
+    let libraryDirectory = root.appendingPathComponent("Library")
+    let library = LibraryModel(directory: libraryDirectory)
+    let opened = await library.makeSession(for: url)
+    let session = try XCTUnwrap(opened)
+    library.saveReadingState(ReadingState(page: 7), for: session)
+    library.togglePinned(try XCTUnwrap(library.recents.first))
+    let reopened = await library.makeSession(for: url)
+    XCTAssertNotNil(reopened)
+    XCTAssertEqual(library.recents.count, 1)
+    XCTAssertTrue(try XCTUnwrap(library.recents.first).pinned)
+    let restoredLibrary = LibraryModel(directory: libraryDirectory)
+    XCTAssertTrue(try XCTUnwrap(restoredLibrary.recents.first).pinned)
+    restoredLibrary.removeRecent(try XCTUnwrap(restoredLibrary.recents.first))
+    XCTAssertTrue(restoredLibrary.recents.isEmpty)
+    XCTAssertTrue(LibraryModel(directory: libraryDirectory).recents.isEmpty)
+    XCTAssertEqual(restoredLibrary.readingState(for: session).page, 7)
+    XCTAssertEqual(try Data(contentsOf: url), data)
+    XCTAssertNil(restoredLibrary.lastError)
+  }
+
   func testExternalPDFIsCopiedAndRecentsReopenAfterSourceDeletion() async throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }

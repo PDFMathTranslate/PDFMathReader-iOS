@@ -46,6 +46,178 @@ private func temporaryLibraryDirectory() throws -> URL {
   #expect(!FileManager.default.fileExists(atPath: thumbnail.path))
 }
 
+@Test func recentsRemovePersistsHistoryAndPreservesDocumentFilesAndReadingState() throws {
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+
+  let pdfURL = FileManager.default.temporaryDirectory
+    .appendingPathComponent("PDFMathReader-Original-\(UUID().uuidString).pdf")
+  let pdfData = Data("%PDF-1.7\noriginal document\n".utf8)
+  try pdfData.write(to: pdfURL)
+  defer { try? FileManager.default.removeItem(at: pdfURL) }
+
+  let store = RecentsStore(directory: directory)
+  let ownedThumbnail = store.thumbnailURL(for: "remove-me")
+  let sharedThumbnail = store.thumbnailURL(for: "shared")
+  let unownedThumbnail = FileManager.default.temporaryDirectory
+    .appendingPathComponent("PDFMathReader-Unowned-\(UUID().uuidString).png")
+  defer { try? FileManager.default.removeItem(at: unownedThumbnail) }
+  let importedPDFURL = directory
+    .appendingPathComponent("Imported", isDirectory: true)
+    .appendingPathComponent("Imported.pdf")
+  let importedPDFData = Data("%PDF-1.7\nimported document\n".utf8)
+  try FileManager.default.createDirectory(
+    at: importedPDFURL.deletingLastPathComponent(),
+    withIntermediateDirectories: true
+  )
+  try importedPDFData.write(to: importedPDFURL)
+  try FileManager.default.createDirectory(
+    at: ownedThumbnail.deletingLastPathComponent(),
+    withIntermediateDirectories: true
+  )
+  try Data("owned".utf8).write(to: ownedThumbnail)
+  try Data("shared".utf8).write(to: sharedThumbnail)
+  try Data("unowned".utf8).write(to: unownedThumbnail)
+
+  let readingStateStore = ReadingStateStore(directory: directory)
+  try readingStateStore.save(
+    ReadingState(page: 8, zoom: 1.25, scaleMode: .custom, displayMode: .twoPages),
+    for: "remove-me"
+  )
+  let savedState = readingStateStore.state(for: "remove-me")
+
+  let removed = RecentDocument(
+    id: "remove-me",
+    title: "Original.pdf",
+    lastOpened: Date(timeIntervalSince1970: 10),
+    pageCount: 4,
+    thumbnailCachePath: ownedThumbnail.path,
+    bookmarkData: Data([1, 2, 3])
+  )
+  let kept = RecentDocument(
+    id: "keep-me",
+    title: "Kept.pdf",
+    lastOpened: Date(timeIntervalSince1970: 20),
+    pageCount: 9,
+    thumbnailCachePath: unownedThumbnail.path,
+    bookmarkData: Data([4, 5, 6])
+  )
+  let sharedRemoved = RecentDocument(
+    id: "shared-removed",
+    title: "Shared removed.pdf",
+    lastOpened: Date(timeIntervalSince1970: 12),
+    thumbnailCachePath: sharedThumbnail.path,
+    bookmarkData: Data([7])
+  )
+  let sharedKept = RecentDocument(
+    id: "shared-kept",
+    title: "Shared kept.pdf",
+    lastOpened: Date(timeIntervalSince1970: 15),
+    thumbnailCachePath: sharedThumbnail.path,
+    bookmarkData: Data([8])
+  )
+  let importedPDF = RecentDocument(
+    id: "imported-pdf",
+    title: "Imported.pdf",
+    lastOpened: Date(timeIntervalSince1970: 5),
+    thumbnailCachePath: importedPDFURL.path,
+    bookmarkData: Data([9])
+  )
+  try store.upsert(removed)
+  try store.upsert(kept)
+  try store.upsert(sharedRemoved)
+  try store.upsert(sharedKept)
+  try store.upsert(importedPDF)
+
+  let afterImportedPDFRemoval = try store.remove(id: importedPDF.id)
+  #expect(afterImportedPDFRemoval == [kept, sharedKept, sharedRemoved, removed])
+  #expect(FileManager.default.fileExists(atPath: importedPDFURL.path))
+  #expect(try Data(contentsOf: importedPDFURL) == importedPDFData)
+
+  let afterSharedRemoval = try store.remove(id: sharedRemoved.id)
+  #expect(afterSharedRemoval == [kept, sharedKept, removed])
+  #expect(FileManager.default.fileExists(atPath: sharedThumbnail.path))
+
+  let updated = try store.remove(id: removed.id)
+  #expect(updated == [kept, sharedKept])
+  #expect(!FileManager.default.fileExists(atPath: ownedThumbnail.path))
+  #expect(FileManager.default.fileExists(atPath: unownedThumbnail.path))
+  #expect(FileManager.default.fileExists(atPath: sharedThumbnail.path))
+  #expect(FileManager.default.fileExists(atPath: pdfURL.path))
+  #expect(try Data(contentsOf: pdfURL) == pdfData)
+  #expect(readingStateStore.state(for: removed.id) == savedState)
+
+  let reopenedStore = RecentsStore(directory: directory)
+  #expect(reopenedStore.list() == [kept, sharedKept])
+  #expect(reopenedStore.document(id: removed.id) == nil)
+  #expect(reopenedStore.document(id: kept.id) == kept)
+
+  #expect(try reopenedStore.remove(id: sharedKept.id) == [kept])
+  #expect(!FileManager.default.fileExists(atPath: sharedThumbnail.path))
+}
+
+@Test func recentsPinningSortsPersistsAndDecodesLegacyEntries() throws {
+  let legacy = RecentDocument(
+    id: "legacy",
+    title: "Legacy.pdf",
+    bookmarkData: Data([7])
+  )
+  let encoded = try JSONEncoder().encode(legacy)
+  var legacyObject = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+  legacyObject.removeValue(forKey: "pinned")
+  let decoded = try JSONDecoder().decode(
+    RecentDocument.self,
+    from: try JSONSerialization.data(withJSONObject: legacyObject)
+  )
+  #expect(!decoded.pinned)
+
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+
+  let store = RecentsStore(directory: directory)
+  let oldPinned = RecentDocument(
+    id: "old-pinned",
+    title: "Old pinned.pdf",
+    pinned: true,
+    lastOpened: Date(timeIntervalSince1970: 10),
+    bookmarkData: Data([1])
+  )
+  let newest = RecentDocument(
+    id: "newest",
+    title: "Newest.pdf",
+    lastOpened: Date(timeIntervalSince1970: 30),
+    bookmarkData: Data([2])
+  )
+  let oldest = RecentDocument(
+    id: "oldest",
+    title: "Oldest.pdf",
+    lastOpened: Date(timeIntervalSince1970: 5),
+    bookmarkData: Data([3])
+  )
+  try store.upsert(oldPinned)
+  try store.upsert(newest)
+  try store.upsert(oldest)
+  #expect(store.list().map(\.id) == [oldPinned.id, newest.id, oldest.id])
+
+  let pinned = try store.setPinned(true, for: newest.id)
+  #expect(pinned.map(\.id) == [newest.id, oldPinned.id, oldest.id])
+  #expect(pinned.first?.pinned == true)
+
+  let reopenedStore = RecentsStore(directory: directory)
+  #expect(reopenedStore.list().map(\.id) == [newest.id, oldPinned.id, oldest.id])
+  #expect(reopenedStore.document(id: newest.id)?.pinned == true)
+
+  let replacement = RecentDocument(
+    id: newest.id,
+    title: "Newest renamed.pdf",
+    pinned: reopenedStore.document(id: newest.id)?.pinned ?? false,
+    lastOpened: Date(timeIntervalSince1970: 40),
+    bookmarkData: newest.bookmarkData
+  )
+  try reopenedStore.upsert(replacement)
+  #expect(reopenedStore.document(id: newest.id)?.pinned == true)
+}
+
 @Test func readingStateIsKeyedByDocumentIdentity() throws {
   let directory = try temporaryLibraryDirectory()
   defer { try? FileManager.default.removeItem(at: directory) }
@@ -120,6 +292,43 @@ private func temporaryLibraryDirectory() throws -> URL {
 
   let saved = try JSONEncoder().encode(ReaderPreferences(interactionMode: .comparison))
   #expect(try JSONDecoder().decode(ReaderPreferences.self, from: saved).interactionMode == .comparison)
+}
+
+@Test func documentOpeningPreferencesDefaultSafelyAndRoundTrip() throws {
+  let defaults = ReaderPreferences()
+  #expect(defaults.documentOpenMode == .original)
+  #expect(defaults.restoreDocumentsOnLaunch)
+  #expect(defaults.autoHideTitleBar)
+
+  let legacy = try JSONDecoder().decode(
+    ReaderPreferences.self,
+    from: Data(#"{"showTranslations":true}"#.utf8)
+  )
+  #expect(legacy.documentOpenMode == .original)
+  #expect(legacy.showTranslations)
+  #expect(legacy.restoreDocumentsOnLaunch)
+  #expect(legacy.autoHideTitleBar)
+
+  let unknown = try JSONDecoder().decode(
+    ReaderPreferences.self,
+    from: Data(#"{"documentOpenMode":"futureMode","showTranslations":true}"#.utf8)
+  )
+  #expect(unknown.documentOpenMode == .original)
+  #expect(unknown.showTranslations)
+
+  for mode in ReaderDocumentOpenMode.allCases {
+    let preferences = ReaderPreferences(
+      documentOpenMode: mode,
+      restoreDocumentsOnLaunch: false,
+      autoHideTitleBar: false
+    )
+    let encoded = try JSONEncoder().encode(preferences)
+    let persisted = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(persisted["documentOpenMode"] as? String == mode.rawValue)
+    #expect(persisted["restoreDocumentsOnLaunch"] as? Bool == false)
+    #expect(persisted["autoHideTitleBar"] as? Bool == false)
+    #expect(try JSONDecoder().decode(ReaderPreferences.self, from: encoded) == preferences)
+  }
 }
 
 @Test func translationModeMigratesLegacyBoolAndRoundTripsEveryMode() throws {

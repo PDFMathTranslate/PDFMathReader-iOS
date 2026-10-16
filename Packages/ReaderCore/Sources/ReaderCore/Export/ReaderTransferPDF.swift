@@ -73,7 +73,8 @@ public enum ReaderTransferPDF {
     sourceData: Data,
     annotations: [ReaderAnnotation],
     quickLinks: [ReaderQuickLink],
-    readingState: ReadingState
+    readingState: ReadingState,
+    nativeRefs: [String] = []
   ) throws -> Data {
     guard sourceData.count <= ReaderAnnotationLimits.maximumPDFBytes,
       let sourceDocument = PDFDocument(data: sourceData),
@@ -115,7 +116,7 @@ public enum ReaderTransferPDF {
     let preparedData = try ReaderAnnotationPDF.embedAnnotations(
       normalizedAnnotations,
       in: sourceData,
-      nativeRefs: normalizedAnnotations.compactMap(\.nativeRef)
+      nativeRefs: Array(Set(nativeRefs + normalizedAnnotations.compactMap(\.nativeRef)))
     )
     guard let preparedDocument = PDFDocument(data: preparedData) else {
       throw ReaderTransferPDFError.invalidPDF

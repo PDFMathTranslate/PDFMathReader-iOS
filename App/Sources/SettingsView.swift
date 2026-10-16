@@ -170,12 +170,22 @@ struct SettingsView: View {
           }
         }
 
-        Section(L10n.string("settings.reading")) {
-          Toggle(L10n.string("toolbar.showTranslatedText"), isOn: $draft.showTranslations)
+        Section(L10n.string("settings.interaction")) {
+          Picker(L10n.string("settings.documentOpenMode"), selection: $draft.documentOpenMode) {
+            Text(L10n.string("settings.openManual")).tag(ReaderDocumentOpenMode.original)
+            Text(L10n.string("settings.openOriginal")).tag(ReaderDocumentOpenMode.originalWithBackgroundTranslation)
+            Text(L10n.string("settings.openTranslation")).tag(ReaderDocumentOpenMode.translated)
+          }
+          .accessibilityIdentifier("settings.documentOpenMode")
           Picker(L10n.string("settings.interactionMode"), selection: $draft.interactionMode) {
             Text(L10n.string("settings.readingMode")).tag(ReaderInteractionMode.reading)
             Text(L10n.string("settings.comparisonMode")).tag(ReaderInteractionMode.comparison)
           }
+          .accessibilityIdentifier("settings.interactionMode")
+          Toggle(L10n.string("settings.restoreDocuments"), isOn: $draft.restoreDocumentsOnLaunch)
+            .accessibilityIdentifier("settings.restoreDocuments")
+          Toggle(L10n.string("settings.autoHideHeader"), isOn: $draft.autoHideTitleBar)
+            .accessibilityIdentifier("settings.autoHideHeader")
         }
 
         Section {

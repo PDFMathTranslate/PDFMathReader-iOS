@@ -118,6 +118,23 @@ final class ReaderTranslationLabel: UILabel {
     layer.backgroundColor = coverColor.resolvedColor(with: traitCollection).cgColor
   }
 
+  /// PDFKit scales overlays in page coordinates. UIKit otherwise stretches a
+  /// screen-scale text bitmap when the page is magnified.
+  func updateRenderingScale(in view: UIView) {
+    guard !bounds.isEmpty else { return }
+    let origin = convert(CGPoint.zero, to: view)
+    let x = convert(CGPoint(x: 1, y: 0), to: view)
+    let y = convert(CGPoint(x: 0, y: 1), to: view)
+    let zoom = max(hypot(x.x - origin.x, x.y - origin.y), hypot(y.x - origin.x, y.y - origin.y))
+    let desired = ceil(zoom * max(1, view.traitCollection.displayScale))
+    // Bound backing-store memory for unusually large paragraph covers.
+    let budgetScale = sqrt(4_000_000 / max(1, bounds.width * bounds.height))
+    let scale = max(1, min(8, desired, budgetScale))
+    guard abs(contentScaleFactor - scale) > 0.01 else { return }
+    contentScaleFactor = scale
+    setNeedsDisplay()
+  }
+
   override func drawText(in rect: CGRect) {
     if !marks.isEmpty, let context = UIGraphicsGetCurrentContext() {
       // Match PDFKit's highlights on the dimmed page in dark appearance.
@@ -204,6 +221,25 @@ final class ReaderTranslationPageOverlay: UIView {
   private var remotePageData: Data?
   private var remotePDFView: ReaderTiledPDFView?
   private var remoteFontRenderer: ReaderRemoteTranslationFont?
+  private struct RemoteFontRequest: Equatable {
+    let name: String
+    let serif: Bool
+    let language: String
+  }
+  private var cachedRemoteFontPDF: (request: RemoteFontRequest, data: Data)?
+  private struct RemoteSourceGeometry: Equatable {
+    let bounds: CGRect
+    let rotation: Int
+    let cuts: [CompactCut]
+  }
+
+  private func remoteSourceGeometry(_ page: PDFPage?) -> RemoteSourceGeometry? {
+    guard let page else { return nil }
+    return RemoteSourceGeometry(
+      bounds: page.bounds(for: .cropBox), rotation: page.rotation,
+      cuts: (page as? ReaderPDFPage)?.compaction?.cuts ?? []
+    )
+  }
   private let progressView = ReaderPageProgressView()
   private var remoteProgress: Double?
   private let markupView = ReaderTranslationMarkupView()
@@ -241,6 +277,12 @@ final class ReaderTranslationPageOverlay: UIView {
       name: .readerAnnotationVisibilityChanged,
       object: nil
     )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(scaleChanged(_:)),
+      name: .PDFViewScaleChanged,
+      object: nil
+    )
   }
 
   required init?(coder: NSCoder) {
@@ -251,11 +293,13 @@ final class ReaderTranslationPageOverlay: UIView {
     state: PageTranslationState,
     showTranslations: Bool
   ) {
+    guard self.state != state || self.showTranslations != showTranslations else { return }
     cancelRefocus()
+    let previous = self.state
     self.state = state
     self.showTranslations = showTranslations
     if remotePageData == nil {
-      rebuildLabels()
+      rebuildLabels(previousParagraphs: previous.paragraphs)
     } else {
       remotePDFView?.isHidden = !showTranslations
     }
@@ -277,8 +321,13 @@ final class ReaderTranslationPageOverlay: UIView {
   func rebind(page: PDFPage, pdfView: PDFView) {
     guard page !== self.page || pdfView !== self.pdfView else { return }
     cancelRefocus()
+    if remoteSourceGeometry(page) != remoteSourceGeometry(self.page) {
+      remoteFontRenderer = nil
+      cachedRemoteFontPDF = nil
+    }
     self.page = page
     self.pdfView = pdfView
+    if remotePageData != nil { updateRemotePDF() }
     setNeedsLayout()
   }
 
@@ -332,6 +381,7 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   func updateReadingAids(_ configuration: ReadingAidsConfiguration) {
+    guard configuration != readingAidsConfiguration else { return }
     readingAidsConfiguration = configuration
     guard remotePageData == nil else { return }
     for item in state.paragraphs {
@@ -342,8 +392,10 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   func setRemotePageData(_ data: Data) {
+    guard data != remotePageData else { return }
     cancelRefocus()
     remotePageData = data
+    cachedRemoteFontPDF = nil
     labels.values.forEach { $0.removeFromSuperview() }
     labels.removeAll()
     remotePDFView?.removeFromSuperview()
@@ -364,8 +416,10 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   func clearRemotePageData() {
+    guard remotePageData != nil || remoteProgress != nil else { return }
     cancelRefocus()
     remotePageData = nil
+    cachedRemoteFontPDF = nil
     remoteProgress = nil
     remoteFontRenderer = nil
     remotePDFView?.removeFromSuperview()
@@ -383,6 +437,7 @@ final class ReaderTranslationPageOverlay: UIView {
   func beginRemoteTranslation() {
     cancelRefocus()
     remotePageData = nil
+    cachedRemoteFontPDF = nil
     remoteFontRenderer = nil
     remotePDFView?.removeFromSuperview()
     remotePDFView = nil
@@ -424,6 +479,11 @@ final class ReaderTranslationPageOverlay: UIView {
   @objc private func selectionChanged(_ notification: Notification) {
     guard let pdfView, notification.object as? PDFView === pdfView else { return }
     updateMarkup()
+  }
+
+  @objc private func scaleChanged(_ notification: Notification) {
+    guard let pdfView, notification.object as? PDFView === pdfView else { return }
+    labels.values.forEach { $0.updateRenderingScale(in: pdfView) }
   }
 
   private func updateMarkup() {
@@ -501,12 +561,21 @@ final class ReaderTranslationPageOverlay: UIView {
       .translatedBy(x: -bounds.minX, y: -bounds.minY)
   }
 
-  private func rebuildLabels() {
-    labels.values.forEach { $0.removeFromSuperview() }
-    labels.removeAll()
-    guard showTranslations else { return }
+  private func rebuildLabels(previousParagraphs: [PageTranslationParagraph] = []) {
+    let visibleIDs = Set(showTranslations ? state.paragraphs.filter {
+      $0.translation?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }.map { $0.paragraph.id } : [])
+    for id in Array(labels.keys) where !visibleIDs.contains(id) {
+      labels.removeValue(forKey: id)?.removeFromSuperview()
+    }
+    let previous = Dictionary(previousParagraphs.map { ($0.paragraph.id, $0) }, uniquingKeysWith: { _, new in new })
     for item in state.paragraphs {
-      guard item.translation?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+      guard visibleIDs.contains(item.paragraph.id) else { continue }
+      if let label = labels[item.paragraph.id] {
+        if previous[item.paragraph.id] != item {
+          label.textAlignment = textAlignment(for: item.paragraph.textAlign)
+          updateLabel(label, item: item)
+        }
         continue
       }
       let label = ReaderTranslationLabel()
@@ -539,12 +608,15 @@ final class ReaderTranslationPageOverlay: UIView {
     let scale = pdfArea > 0 ? sqrt(max(0, box.width * box.height) / pdfArea) : 1
     let cover = max(3, CGFloat(paragraph.fontSize) * 0.28) * scale
     label.frame = pixelAligned(box.insetBy(dx: -cover, dy: -cover))
+    if let pdfView { label.updateRenderingScale(in: pdfView) }
     // Let lines use half of the vertical cover so text keeps its source size.
     label.textInsets = UIEdgeInsets(top: cover / 2, left: cover, bottom: cover / 2, right: cover)
 
     let useOriginal = originalOverrides.contains(paragraph.id)
     let text = useOriginal ? paragraph.text : (item.translation ?? "")
-    let size = label.bounds.size
+    // Window pixel alignment shifts as the page scrolls. Fit against stable
+    // page geometry so subpixel movement does not repeatedly measure the text.
+    let size = box.insetBy(dx: -cover, dy: -cover).size
     guard forceFit ||
       text != label.fittedText ||
       abs(size.width - label.fittedSize.width) > 0.5 ||
@@ -703,11 +775,15 @@ final class ReaderTranslationPageOverlay: UIView {
     guard let pdfView, let page else { return .zero }
     let bounds = page.bounds(for: .cropBox)
     let height = boxHeight(for: paragraph)
+    let compact = (page as? ReaderPDFPage)?.compaction
+    let sourceRect = ReadingRectangle(x: paragraph.x, y: paragraph.y,
+                                      width: paragraph.width, height: Double(height))
+    let mapped = compact?.displayRect(sourceRect) ?? sourceRect
     let pdfRect = CGRect(
-      x: bounds.minX + CGFloat(paragraph.x),
-      y: bounds.minY + bounds.height - CGFloat(paragraph.y) - height,
-      width: CGFloat(paragraph.width),
-      height: height
+      x: bounds.minX + CGFloat(mapped.x),
+      y: bounds.maxY - CGFloat(mapped.y) - CGFloat(mapped.height),
+      width: CGFloat(mapped.width),
+      height: CGFloat(mapped.height)
     )
     let viewRect = pdfView.convert(pdfRect, from: page)
     return convert(viewRect, from: pdfView).standardized
@@ -779,14 +855,31 @@ final class ReaderTranslationPageOverlay: UIView {
        let document = PDFDocument(data: remotePageData), let translated = document.page(at: 0) {
       remoteFontRenderer = ReaderRemoteTranslationFont(page: translated, original: page)
     }
-    let data = customFont
-      ? (try? remoteFontRenderer?.pdfData(
-          name: translationFontName,
-          serif: translationSerif,
-          language: translationLanguage
-        )) ?? remotePageData
-      : remotePageData
-    remotePDFView.setPDFData(data)
+    let request = RemoteFontRequest(
+      name: translationFontName, serif: translationSerif, language: translationLanguage
+    )
+    let data: Data
+    if !customFont {
+      data = remotePageData
+    } else if let cached = cachedRemoteFontPDF, cached.request == request {
+      data = cached.data
+    } else if let rendered = try? remoteFontRenderer?.pdfData(
+      name: request.name, serif: request.serif, language: request.language
+    ) {
+      // Annotation edits rebind the source page. The remote text/font output
+      // remains identical; retain only the most recent generated variant.
+      cachedRemoteFontPDF = (request, rendered)
+      data = rendered
+    } else {
+      data = remotePageData
+    }
+    var displayData = data
+    if let compact = (page as? ReaderPDFPage)?.compaction,
+       let translatedDocument = PDFDocument(data: data), let translated = translatedDocument.page(at: 0),
+       let compactData = compact.pdfData(for: translated) {
+      displayData = compactData
+    }
+    remotePDFView.setPDFData(displayData)
     remotePDFView.setInverted(traitCollection.userInterfaceStyle == .dark)
   }
 }

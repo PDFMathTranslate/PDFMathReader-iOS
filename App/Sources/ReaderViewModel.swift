@@ -33,6 +33,7 @@ final class ReaderViewModel: ObservableObject {
   // Generated TOC extracts every page, so compute it once per document.
   @Published private var cachedGeneratedTOC: [OutlineEntry]?
   private var cancellables = Set<AnyCancellable>()
+  private var readingStateSaveTask: Task<Void, Never>?
 
   init(session: DocumentSession, library: LibraryModel) {
     self.session = session
@@ -147,7 +148,14 @@ final class ReaderViewModel: ObservableObject {
     }
     if next != readingState {
       readingState = next
-      persistReadingState()
+      // Page and pinch notifications arrive on the rendering path. Coalesce
+      // their JSON writes until the viewport has stopped changing.
+      readingStateSaveTask?.cancel()
+      readingStateSaveTask = Task { @MainActor [weak self] in
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled else { return }
+        self?.persistReadingState()
+      }
     }
   }
 
@@ -243,13 +251,11 @@ final class ReaderViewModel: ObservableObject {
 
   func toggleTranslations() {
     translationCoordinator?.toggleTranslations()
-    guard let visible = translationCoordinator?.showTranslations else { return }
-    var preferences = library.preferences
-    preferences.showTranslations = visible
-    library.savePreferences(preferences)
   }
 
   func persistReadingState() {
+    readingStateSaveTask?.cancel()
+    readingStateSaveTask = nil
     library.saveReadingState(readingState, for: session)
   }
 

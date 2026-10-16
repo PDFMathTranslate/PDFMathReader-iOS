@@ -7,30 +7,47 @@ import SwiftUI
 final class ReaderPagerVisibility: ObservableObject {
   @Published private(set) var isVisible = false
   private var isHeld = false
+  private static let clock = ContinuousClock()
+  private var hideDeadline: ContinuousClock.Instant?
   private var hideTask: Task<Void, Never>?
 
   func show() {
     if !isVisible { isVisible = true }
-    hideLater()
+    guard !isHeld else { return }
+    hideDeadline = Self.clock.now.advanced(by: .seconds(1))
+    startHideTaskIfNeeded()
   }
 
   func hold() {
     isHeld = true
-    hideTask?.cancel()
+    hideDeadline = nil
   }
 
   func release() {
     isHeld = false
-    hideLater()
+    hideDeadline = Self.clock.now.advanced(by: .seconds(1))
+    startHideTaskIfNeeded()
   }
 
-  private func hideLater() {
-    hideTask?.cancel()
-    guard !isHeld else { return }
-    hideTask = Task { [weak self] in
-      try? await Task.sleep(for: .seconds(1))
-      guard let self, !Task.isCancelled, !isHeld else { return }
-      isVisible = false
+  private func startHideTaskIfNeeded() {
+    guard !isHeld, hideTask == nil else { return }
+    hideTask = Task { @MainActor [weak self] in
+      while !Task.isCancelled {
+        guard let deadline = self?.hideDeadline else { break }
+        do {
+          try await Self.clock.sleep(until: deadline)
+        } catch {
+          break
+        }
+        guard !Task.isCancelled, let self, !self.isHeld,
+          let latestDeadline = self.hideDeadline
+        else { break }
+        if latestDeadline > Self.clock.now { continue }
+        self.isVisible = false
+        self.hideDeadline = nil
+        break
+      }
+      self?.hideTask = nil
     }
   }
 }

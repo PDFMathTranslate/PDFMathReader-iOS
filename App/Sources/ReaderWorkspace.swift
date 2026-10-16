@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct ReaderWorkspaceSnapshot: Codable {
+  let tabs: [ReaderWindowValue]
+  let selectedID: String?
+}
+
+@MainActor
+private final class ReaderWorkspaceLaunchState {
+  var resolved = false
+  var explicitOpenReceived = false
+}
+
 private struct OpenReaderTabKey: EnvironmentKey {
   static let defaultValue: (@MainActor (DocumentSession) -> Void)? = nil
 }
@@ -26,15 +37,27 @@ struct ReaderWorkspace: View {
   @EnvironmentObject private var library: LibraryModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @StateObject private var tabs = ReaderTabsModel()
+  @State private var launchState = ReaderWorkspaceLaunchState()
+  @State private var isRestoringWorkspace = false
+  @SceneStorage("readerWorkspace.snapshot") private var storedWorkspaceData: Data?
   @State private var showingLibrary = false
   @State private var isClosingComputerDocument = false
   @Environment(\.scenePhase) private var scenePhase
   let initialSession: DocumentSession?
   let onEmpty: (() -> Void)?
+  let restoreSavedWorkspace: Bool
+  let restorationFallback: ReaderWindowValue?
 
-  init(initialSession: DocumentSession? = nil, onEmpty: (() -> Void)? = nil) {
+  init(
+    initialSession: DocumentSession? = nil,
+    onEmpty: (() -> Void)? = nil,
+    restoreSavedWorkspace: Bool = true,
+    restorationFallback: ReaderWindowValue? = nil
+  ) {
     self.initialSession = initialSession
     self.onEmpty = onEmpty
+    self.restoreSavedWorkspace = restoreSavedWorkspace
+    self.restorationFallback = restorationFallback
   }
 
   var body: some View {
@@ -45,11 +68,11 @@ struct ReaderWorkspace: View {
             documentID: selected.id, retry: { close(selected.id) }))
       } else {
         NavigationStack {
-          LibraryView { open($0) }
+          LibraryView { openExplicitly($0) }
         }
       }
     }
-    .environment(\.openReaderTab, { session in open(session) })
+    .environment(\.openReaderTab, { session in openExplicitly(session) })
     .environment(\.readerTabStrip, {
       AnyView(Group {
         if tabs.tabs.count > 1 { tabStrip }
@@ -85,7 +108,7 @@ struct ReaderWorkspace: View {
     .sheet(isPresented: $showingLibrary) {
       NavigationStack {
         LibraryView { session in
-          open(session)
+          openExplicitly(session)
           showingLibrary = false
         }
         .toolbar {
@@ -96,6 +119,8 @@ struct ReaderWorkspace: View {
       }
     }
     .onOpenURL { url in
+      launchState.explicitOpenReceived = true
+      launchState.resolved = true
       Task {
         guard let session = await library.receiveExternalPDF(at: url) else { return }
         showingLibrary = false
@@ -103,22 +128,10 @@ struct ReaderWorkspace: View {
       }
     }
     .task {
-      if tabs.tabs.isEmpty, let initialSession { open(initialSession) }
-      #if DEBUG
-      if let url = library.consumeLaunchArgumentPDF(), let session = await library.makeSession(for: url) {
-        open(session)
-      }
-      let arguments = ProcessInfo.processInfo.arguments
-      if let flag = arguments.firstIndex(of: "-PMRTabPDFs") {
-        for path in arguments.dropFirst(flag + 1).prefix(while: { !$0.hasPrefix("-") }) {
-          let url = path.hasPrefix("/")
-            ? URL(fileURLWithPath: path)
-            : URL.documentsDirectory.appendingPathComponent(path)
-          if let session = await library.makeSession(for: url) { open(session) }
-        }
-      }
-      #endif
+      await resolveLaunch()
     }
+    .onChange(of: tabs.tabs.map(\.id)) { _, _ in persistWorkspace() }
+    .onChange(of: tabs.selectedID) { _, _ in persistWorkspace() }
     .alert("PDFMathReader", isPresented: Binding(
       get: { library.lastError != nil },
       set: { if !$0 { library.lastError = nil } }
@@ -206,8 +219,15 @@ struct ReaderWorkspace: View {
     .overlay(alignment: .bottom) { Divider() }
   }
 
+  private func openExplicitly(_ session: DocumentSession) {
+    launchState.explicitOpenReceived = true
+    launchState.resolved = true
+    open(session)
+  }
+
   private func open(_ session: DocumentSession) {
     tabs.open(session, library: library)
+    persistWorkspace()
   }
 
   private func close(_ id: String) {
@@ -219,12 +239,146 @@ struct ReaderWorkspace: View {
         defer { isClosingComputerDocument = false }
         guard await library.computerDocuments.sync(tab, release: true) else { return }
         tabs.close(id)
+        persistWorkspace()
         if tabs.tabs.isEmpty { onEmpty?() }
       }
     } else {
       tabs.close(id)
+      persistWorkspace()
       if tabs.tabs.isEmpty { onEmpty?() }
     }
+  }
+
+  private func resolveLaunch() async {
+    guard !launchState.resolved else { return }
+
+    // A reader window's live handoff is an explicit open and must win over
+    // scene restoration. It also remains available when restoration is off.
+    if let initialSession, !restoreSavedWorkspace {
+      launchState.resolved = true
+      open(initialSession)
+      return
+    }
+
+    // Give an open URL delivered during scene construction a chance to mark
+    // this launch explicit before looking at saved workspace state.
+    await Task.yield()
+    guard !launchState.explicitOpenReceived else {
+      launchState.resolved = true
+      return
+    }
+
+    #if DEBUG
+    let launchURLs = library.consumeLaunchArgumentPDFs()
+    if !launchURLs.isEmpty {
+      launchState.resolved = true
+      for url in launchURLs {
+        guard !launchState.explicitOpenReceived else { return }
+        if let session = await library.makeSession(for: url) {
+          guard !launchState.explicitOpenReceived else { return }
+          open(session)
+        }
+      }
+      return
+    }
+    #endif
+
+    launchState.resolved = true
+    guard library.preferences.restoreDocumentsOnLaunch,
+          !launchState.explicitOpenReceived
+    else { return }
+    guard let data = storedWorkspaceData, !data.isEmpty else {
+      await openFallbackSessionIfNeeded()
+      return
+    }
+
+    let snapshot: ReaderWorkspaceSnapshot
+    do {
+      snapshot = try JSONDecoder().decode(ReaderWorkspaceSnapshot.self, from: data)
+    } catch {
+      storedWorkspaceData = nil
+      await openFallbackSessionIfNeeded()
+      return
+    }
+    guard !snapshot.tabs.isEmpty else {
+      storedWorkspaceData = nil
+      await openFallbackSessionIfNeeded()
+      return
+    }
+
+    isRestoringWorkspace = true
+    defer {
+      isRestoringWorkspace = false
+      if launchState.explicitOpenReceived { persistWorkspace() }
+    }
+    var sessions: [DocumentSession] = []
+    for value in snapshot.tabs {
+      guard !Task.isCancelled, !launchState.explicitOpenReceived else {
+        isRestoringWorkspace = false
+        return
+      }
+      let fallbackURL = ReaderWindow.relocatedIntoCurrentContainer(value.url)
+      if let session = await library.session(for: value, fallbackURL: fallbackURL) {
+        sessions.append(session)
+      }
+    }
+    guard !Task.isCancelled, !launchState.explicitOpenReceived else {
+      isRestoringWorkspace = false
+      return
+    }
+
+    guard !sessions.isEmpty else {
+      isRestoringWorkspace = false
+      await openFallbackSessionIfNeeded()
+      return
+    }
+
+    // A missing tab can leave the library's last error populated even though
+    // the remaining tabs restored successfully. Keep that stale error from
+    // presenting an alert over a usable workspace.
+    library.lastError = nil
+    for session in sessions {
+      guard !launchState.explicitOpenReceived else {
+        isRestoringWorkspace = false
+        return
+      }
+      tabs.open(session, library: library)
+    }
+    if let selectedID = snapshot.selectedID,
+       let selected = sessions.first(where: { $0.id == selectedID }) {
+      tabs.select(selected.id)
+    }
+    isRestoringWorkspace = false
+    persistWorkspace()
+  }
+
+  private func openFallbackSessionIfNeeded() async {
+    guard !launchState.explicitOpenReceived else { return }
+    if let initialSession {
+      library.lastError = nil
+      open(initialSession)
+      return
+    }
+    guard let restorationFallback else { return }
+    let fallbackURL = ReaderWindow.relocatedIntoCurrentContainer(restorationFallback.url)
+    guard let session = await library.session(for: restorationFallback, fallbackURL: fallbackURL) else {
+      return
+    }
+    guard !launchState.explicitOpenReceived else { return }
+    open(session)
+  }
+
+  private func persistWorkspace() {
+    guard !isRestoringWorkspace else { return }
+    guard !tabs.tabs.isEmpty else {
+      storedWorkspaceData = nil
+      return
+    }
+    let snapshot = ReaderWorkspaceSnapshot(
+      tabs: tabs.tabs.map { ReaderWindowValue(documentID: $0.session.id, url: $0.session.url) },
+      selectedID: tabs.selectedID
+    )
+    storedWorkspaceData = try? JSONEncoder().encode(snapshot)
   }
 }
 

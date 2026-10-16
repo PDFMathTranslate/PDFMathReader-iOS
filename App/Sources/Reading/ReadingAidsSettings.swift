@@ -10,6 +10,7 @@ public struct ReadingAidsConfiguration: Equatable, Sendable {
   public var informationCategories: [String: Bool]
   public var emphasizeTopicSentences: Bool
   public var tfidfWeightingEnabled: Bool
+  public var paragraphGapOptimization: Bool
   public var readingLinksEnabled: Bool
 
   public init(
@@ -24,6 +25,7 @@ public struct ReadingAidsConfiguration: Equatable, Sendable {
     ],
     emphasizeTopicSentences: Bool = false,
     tfidfWeightingEnabled: Bool = false,
+    paragraphGapOptimization: Bool = true,
     readingLinksEnabled: Bool = true,
     accentColor: String = "system"
   ) {
@@ -34,6 +36,7 @@ public struct ReadingAidsConfiguration: Equatable, Sendable {
     self.informationCategories = informationCategories
     self.emphasizeTopicSentences = emphasizeTopicSentences
     self.tfidfWeightingEnabled = tfidfWeightingEnabled
+    self.paragraphGapOptimization = paragraphGapOptimization
     self.readingLinksEnabled = readingLinksEnabled
   }
 
@@ -53,6 +56,7 @@ public struct ReadingAidsConfiguration: Equatable, Sendable {
       ],
       emphasizeTopicSentences: preferences.emphasizeTopicSentences,
       tfidfWeightingEnabled: preferences.tfidfWeightingEnabled,
+      paragraphGapOptimization: preferences.paragraphGapOptimization,
       readingLinksEnabled: preferences.readingLinksEnabled,
       accentColor: preferences.accentColor
     )

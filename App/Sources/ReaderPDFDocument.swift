@@ -126,7 +126,6 @@ private enum ReaderPDFSerialization {
 
 final class ReaderPDFDocument: PDFDocument {
   private let invertsLock = OSAllocatedUnfairLock(initialState: false)
-
   private let cropLock = OSAllocatedUnfairLock(initialState: PageCrop())
   private struct BionicPageRegions: @unchecked Sendable {
     weak var page: PDFPage?
@@ -180,7 +179,6 @@ final class ReaderPDFDocument: PDFDocument {
     }
   }
 
-
   /// A virtual display box: the PDF's stored boxes and export data stay intact.
   var pageCrop: PageCrop {
     get { cropLock.withLock { $0 } }
@@ -203,11 +201,129 @@ final class ReaderPDFDocument: PDFDocument {
     ReaderPDFSerialization.withOriginalBoxes { super.dataRepresentation(options: options) }
   }
 
+  /// Display compaction never becomes the source of annotation saves or exports.
+  @MainActor
+  func uncompactedData() -> Data? {
+    guard (0..<pageCount).contains(where: { (page(at: $0) as? ReaderPDFPage)?.compaction != nil })
+    else { return dataRepresentation() }
+    let output = PDFDocument()
+    output.documentAttributes = documentAttributes
+    for index in 0..<pageCount {
+      guard let page = page(at: index) else { return nil }
+      let source = (page as? ReaderPDFPage)?.compaction?.sourcePage ?? page
+      guard let copy = source.copy() as? PDFPage else { return nil }
+      output.insert(copy, at: index)
+    }
+    return output.dataRepresentation()
+  }
+}
+
+private nonisolated(unsafe) var compactedTextKey: UInt8 = 0
+
+private final class CompactedTextIndices: NSObject {
+  let indices: IndexSet
+  init(_ indices: IndexSet) { self.indices = indices }
 }
 
 final class ReaderPDFPage: PDFPage {
+  @MainActor var compaction: ReaderPageCompaction?
   override var dataRepresentation: Data? {
     ReaderPDFSerialization.withOriginalBoxes { super.dataRepresentation }
+  }
+  // PDFKit creates page subclasses through Objective-C; Swift stored-property
+  // initializers are not guaranteed to run on that path.
+  private var visibleText: IndexSet? {
+    (objc_getAssociatedObject(self, &compactedTextKey) as? CompactedTextIndices)?.indices
+  }
+
+  /// PDFKit extracts even text hidden by a PDF clipping path. Match extracted
+  /// characters to their actual displayed source positions before selecting.
+  func configureCompactedText(source: PDFPage, mapPoint: (CGPoint) -> CGPoint) {
+    var centers: [Int: [CGPoint]] = [:]
+    for index in 0..<source.numberOfCharacters {
+      let rect = source.characterBounds(at: index)
+      guard !rect.isEmpty, !rect.isNull else { continue }
+      let point = mapPoint(CGPoint(x: rect.midX, y: rect.midY))
+      centers[Int(point.y.rounded()), default: []].append(point)
+    }
+    var indices = IndexSet()
+    for index in 0..<numberOfCharacters {
+      let rect = characterBounds(at: index)
+      guard !rect.isEmpty, !rect.isNull else { continue }
+      let row = Int(rect.midY.rounded())
+      if (row - 1...row + 1).contains(where: { key in
+        centers[key, default: []].contains {
+          abs($0.x - rect.midX) < 0.75 && abs($0.y - rect.midY) < 0.75
+        }
+      }) { indices.insert(index) }
+    }
+    // Spaces and line separators often have no character rectangle. Retain
+    // them between visible characters so selection does not split every word.
+    var cursor = 0
+    while cursor < numberOfCharacters {
+      let rect = characterBounds(at: cursor)
+      guard rect.isEmpty || rect.isNull else { cursor += 1; continue }
+      let start = cursor
+      repeat { cursor += 1 } while cursor < numberOfCharacters
+        && (characterBounds(at: cursor).isEmpty || characterBounds(at: cursor).isNull)
+      if start > 0, indices.contains(start - 1), indices.contains(cursor) {
+        indices.insert(integersIn: start..<cursor)
+      }
+    }
+    // PDFKit's character geometry omits inserted line separators, while
+    // selection ranges index the string including those separators.
+    var selectionIndices = IndexSet()
+    var glyph = 0
+    for (offset, unit) in (string ?? "").utf16.enumerated() {
+      if unit == 10 || unit == 13 {
+        if glyph > 0, indices.contains(glyph - 1), indices.contains(glyph) {
+          selectionIndices.insert(offset)
+        }
+      } else {
+        if indices.contains(glyph) { selectionIndices.insert(offset) }
+        glyph += 1
+      }
+    }
+    objc_setAssociatedObject(self, &compactedTextKey, CompactedTextIndices(selectionIndices), .OBJC_ASSOCIATION_RETAIN)
+  }
+
+  private func visibleSelection(_ selection: PDFSelection?) -> PDFSelection? {
+    guard let selection, let indices = visibleText,
+      let document else { return selection }
+    let result = PDFSelection(document: document)
+    var added = false
+    for index in 0..<selection.numberOfTextRanges(on: self) {
+      let range = selection.range(at: index, on: self)
+      guard range.location != NSNotFound else { continue }
+      let selected = indices.intersection(IndexSet(integersIn: range.location..<NSMaxRange(range)))
+      for run in selected.rangeView {
+        if let part = super.selection(for: NSRange(run)) {
+          result.add(part)
+          added = true
+        }
+      }
+    }
+    return added ? result : nil
+  }
+
+  override func selection(for rect: CGRect) -> PDFSelection? {
+    visibleSelection(super.selection(for: rect))
+  }
+
+  override func selection(for range: NSRange) -> PDFSelection? {
+    visibleSelection(super.selection(for: range))
+  }
+
+  override func selectionForWord(at point: CGPoint) -> PDFSelection? {
+    visibleSelection(super.selectionForWord(at: point))
+  }
+
+  override func selectionForLine(at point: CGPoint) -> PDFSelection? {
+    visibleSelection(super.selectionForLine(at: point))
+  }
+
+  override func selection(from startPoint: CGPoint, to endPoint: CGPoint) -> PDFSelection? {
+    visibleSelection(super.selection(from: startPoint, to: endPoint))
   }
   override func bounds(for box: PDFDisplayBox) -> CGRect {
     guard box == .artBox, !ReaderPDFSerialization.usesOriginalBoxes,
@@ -372,6 +488,7 @@ final class ReaderPDFTileLayer: CATiledLayer {
 final class ReaderTiledPDFView: UIView {
   override class var layerClass: AnyClass { ReaderPDFTileLayer.self }
   private var document: CGPDFDocument?
+  private var pdfData: Data?
   private var inverted = false
 
   override init(frame: CGRect) {
@@ -387,8 +504,10 @@ final class ReaderTiledPDFView: UIView {
   required init?(coder: NSCoder) { nil }
 
   func setPDFData(_ data: Data) {
+    guard data != pdfData else { return }
     guard let provider = CGDataProvider(data: data as CFData),
       let document = CGPDFDocument(provider) else { return }
+    pdfData = data
     self.document = document
     updateContent()
   }

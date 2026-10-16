@@ -78,7 +78,7 @@ struct ReaderView: View {
         if horizontalSizeClass == .regular {
           NavigationSplitView(columnVisibility: $columnVisibility) {
             ReaderSidebar(model: model, annotations: annotationModel, drawings: drawingModel, mode: $sidebarMode)
-              .navigationSplitViewColumnWidth(204.8)
+              .navigationSplitViewColumnWidth(143.36)
               .simultaneousGesture(sidebarDismissGesture)
               .navigationTitle(L10n.string("ios.reader"))
               .navigationBarTitleDisplayMode(.inline)
@@ -174,7 +174,10 @@ struct ReaderView: View {
       model.persistReadingState()
     }
     .onChange(of: scenePhase) { _, phase in
-      if phase != .active { drawingModel.flush() }
+      if phase != .active {
+        drawingModel.flush()
+        model.persistReadingState()
+      }
     }
     .alert(L10n.string("ios.drawingSaveFailed"), isPresented: Binding(
       get: { drawingModel.lastError != nil },
@@ -257,6 +260,7 @@ struct ReaderView: View {
       document: document,
       originalName: model.session.title,
       sourceData: annotationModel.exportSourceData,
+      nativeRefs: annotationModel.exportNativeRefs,
       annotations: annotationModel.annotations,
       quickLinks: annotationModel.quickLinks,
       readingState: model.readingState,
@@ -323,8 +327,10 @@ private struct ReaderDetail: View {
   @Environment(\.openWindow) private var openWindow
   @Environment(\.openReaderTab) private var openReaderTab
   @Environment(\.readerTabStrip) private var readerTabStrip
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var isImporting = false
   @State private var importError: String?
+  @State private var titleBarHidden = false
   @StateObject private var pagerVisibility = ReaderPagerVisibility()
   @StateObject private var translateAll: TranslateAllPagesJob
   @StateObject private var kernelAvailability = ReaderKernelMenuAvailability()
@@ -374,8 +380,15 @@ private struct ReaderDetail: View {
       annotationModel: annotations,
       drawingModel: drawings,
       onStateChanged: model.receivePDFViewState,
-      onScroll: pagerVisibility.show
+      onScroll: pagerVisibility.show,
+      onUserScroll: { distance in
+        guard model.library.preferences.autoHideTitleBar, !drawings.isDrawing else { return }
+        titleBarHidden = distance > 0
+      }
     )
+    .onChange(of: drawings.isDrawing || !drawings.isPrepared || !drawings.drawings.isEmpty, initial: true) { _, suspended in
+      model.translationCoordinator?.setCompactionSuspended(suspended)
+    }
     .background(Color(uiColor: .secondarySystemBackground))
     .background {
       if let coordinator = model.translationCoordinator {
@@ -404,79 +417,44 @@ private struct ReaderDetail: View {
           .accessibilityValue(drawings.isDrawing ? "on" : "off")
       }
     }
-    #endif
-    .safeAreaInset(edge: .top, spacing: 0) {
-      if let readerTabStrip { readerTabStrip() }
-    }
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      if !regular {
-        PDFThumbnailRepresentable(reference: model.pdfViewReference, horizontal: true)
-          .frame(height: 92)
-          .background(.bar)
+    .overlay(alignment: .bottomLeading) {
+      if TranslationStatusProbe.isEnabled {
+        ReaderViewportProbe(reference: model.pdfViewReference)
       }
+    }
+    #endif
+    // Chrome overlays a stable viewport. Its visibility never changes the
+    // PDFView's bounds, fit scale, safe-area insets or reading destination.
+    .overlay(alignment: .top) {
+      VStack(spacing: 0) {
+        readerHeader
+        if let readerTabStrip { readerTabStrip() }
+      }
+      .background(.bar)
+      .opacity(titleBarHidden ? 0 : 1)
+      .offset(y: titleBarHidden && !reduceMotion ? -12 : 0)
+      .allowsHitTesting(!titleBarHidden)
+      .accessibilityHidden(titleBarHidden)
+      .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.2), value: titleBarHidden)
     }
     .onReceive(NotificationCenter.default.publisher(for: .translationCacheDidClear)) { notification in
       if let id = notification.userInfo?["documentID"] as? String,
         id != model.translationCoordinator?.translationDocumentID { return }
       translateAll.resetForCurrentConfiguration()
     }
+    .toolbar(.hidden, for: .navigationBar)
+    .onChange(of: model.library.preferences.autoHideTitleBar) { _, _ in
+      titleBarHidden = false
+    }
+    .onChange(of: drawings.isDrawing) { _, drawing in
+      if drawing { titleBarHidden = false }
+    }
+    .onChange(of: model.readingState.scrollDirection) { _, _ in
+      titleBarHidden = false
+    }
     .navigationTitle(model.session.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar(removing: .sidebarToggle)
-    .toolbar {
-      ToolbarItemGroup(placement: .topBarLeading) {
-        Button(action: onToggleSidebar) {
-          Label(L10n.string("sidebar.thumbnails"), systemImage: "sidebar.left")
-        }
-        .labelStyle(.iconOnly)
-        .buttonStyle(ReaderSidebarHoldStyle(onClose: onClose))
-        .accessibilityIdentifier("reader.toggleSidebar")
-
-        // iPad can relaunch straight into reader windows with no library
-        // scene, so readers need their own way to open another PDF.
-        if regular {
-          Button {
-            isImporting = true
-          } label: {
-            Label(L10n.string("ios.importPDF"), systemImage: "doc.badge.plus")
-          }
-          .labelStyle(.iconOnly)
-        }
-      }
-
-      // Keep drawing, translation, and search directly accessible;
-      // additional reader controls live in the menu.
-      ToolbarItemGroup(placement: .topBarTrailing) {
-        Button {
-          drawings.isDrawing.toggle()
-        } label: {
-          Label(L10n.string("ios.drawingTools"), systemImage: drawings.isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
-        }
-        .tint(drawings.isDrawing ? .accentColor : .primary)
-        .disabled(!drawings.isPrepared)
-        .accessibilityIdentifier("reader.drawingTools")
-        .accessibilityValue(drawings.isDrawing ? L10n.string("ios.drawingActive") : L10n.string("ios.drawingInactive"))
-
-        if let coordinator = model.translationCoordinator {
-          ReaderTranslationButton(
-            coordinator: coordinator,
-            translateAll: translateAll,
-            action: model.toggleTranslations
-          )
-        }
-
-        Button(action: onSearch) {
-          Label(L10n.string("toolbar.searchDocument"), systemImage: "magnifyingglass")
-        }
-
-        Menu {
-          moreMenu
-        } label: {
-          Label(L10n.string("parallel.more"), systemImage: "ellipsis")
-        }
-        .accessibilityIdentifier("reader.moreMenu")
-      }
-    }
     .fileImporter(
       isPresented: $isImporting,
       allowedContentTypes: [.pdf],
@@ -510,6 +488,70 @@ private struct ReaderDetail: View {
     } message: {
       Text(importError ?? "")
     }
+  }
+
+  private var readerHeader: some View {
+    HStack(spacing: 12) {
+      HStack(spacing: 4) {
+        Button(action: onToggleSidebar) {
+          Label(L10n.string("sidebar.thumbnails"), systemImage: "sidebar.left")
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(ReaderSidebarHoldStyle(onClose: onClose))
+        .accessibilityIdentifier("reader.toggleSidebar")
+
+        // iPad can relaunch straight into reader windows with no library
+        // scene, so readers need their own way to open another PDF.
+        if regular {
+          Button {
+            isImporting = true
+          } label: {
+            Label(L10n.string("ios.importPDF"), systemImage: "doc.badge.plus")
+          }
+          .labelStyle(.iconOnly)
+        }
+      }
+      Text(model.session.title)
+        .font(.headline)
+        .lineLimit(1)
+        .frame(maxWidth: .infinity)
+        .accessibilityAddTraits(.isHeader)
+      HStack(spacing: 4) {
+        Button {
+          drawings.isDrawing.toggle()
+        } label: {
+          Label(L10n.string("ios.drawingTools"), systemImage: drawings.isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+        }
+        .tint(drawings.isDrawing ? .accentColor : .primary)
+        .disabled(!drawings.isPrepared)
+        .accessibilityIdentifier("reader.drawingTools")
+        .accessibilityValue(drawings.isDrawing ? L10n.string("ios.drawingActive") : L10n.string("ios.drawingInactive"))
+
+        if let coordinator = model.translationCoordinator {
+          ReaderTranslationButton(
+            coordinator: coordinator,
+            translateAll: translateAll,
+            action: model.toggleTranslations
+          )
+        }
+
+        Button(action: onSearch) {
+          Label(L10n.string("toolbar.searchDocument"), systemImage: "magnifyingglass")
+        }
+
+        Menu {
+          moreMenu
+        } label: {
+          Label(L10n.string("parallel.more"), systemImage: "ellipsis")
+        }
+        .accessibilityIdentifier("reader.moreMenu")
+      }
+    }
+    .labelStyle(.iconOnly)
+    .buttonStyle(ReaderHeaderButtonStyle())
+    .padding(.horizontal, 8)
+    .frame(minHeight: 52)
+    .background(.bar)
   }
 
   @ViewBuilder
@@ -805,11 +847,24 @@ private struct ReaderSidebar: View {
 private struct ReaderThumbnailList: View {
   @ObservedObject var model: ReaderViewModel
 
+  private var columnCount: Int {
+    UIDevice.current.userInterfaceIdiom == .phone ? 2 : 1
+  }
+
   var body: some View {
     GeometryReader { geometry in
+      let spacing: CGFloat = 12
+      let horizontalPadding: CGFloat = 16
+      let thumbnailWidth = max(0,
+        (geometry.size.width - horizontalPadding * 2 - spacing * CGFloat(columnCount - 1))
+          / CGFloat(columnCount)) * 0.8
       ScrollViewReader { proxy in
         ScrollView {
-          LazyVStack(spacing: 16) {
+          LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: spacing, alignment: .top), count: columnCount),
+            alignment: .center,
+            spacing: 16
+          ) {
             ForEach(0..<model.pageCount, id: \.self) { index in
               if let page = model.document?.page(at: index) {
                 Button {
@@ -819,7 +874,7 @@ private struct ReaderThumbnailList: View {
                     page: page,
                     session: model.session,
                     number: index + 1,
-                    width: geometry.size.width * 0.9 * 0.6,
+                    width: thumbnailWidth,
                     isSelected: model.readingState.page == index + 1
                   )
                 }
@@ -832,6 +887,7 @@ private struct ReaderThumbnailList: View {
             }
           }
           .frame(maxWidth: .infinity)
+          .padding(.horizontal, horizontalPadding)
           .padding(.vertical, 16)
         }
         .task { proxy.scrollTo(model.readingState.page, anchor: .center) }
@@ -843,17 +899,305 @@ private struct ReaderThumbnailList: View {
   }
 }
 
+/// The file revision is part of a thumbnail's identity. A document can keep
+/// the same URL while annotations or a companion sync replace its contents.
+internal struct ReaderThumbnailFileRevision: Hashable, Sendable {
+  let fileIdentifier: UInt64?
+  let modificationTime: Int64?
+  let fileSize: Int64?
+
+  static func current(for url: URL) -> Self {
+    let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+    let fileIdentifier = (attributes?[.systemFileNumber] as? NSNumber)?.uint64Value
+    let fileSize = (attributes?[.size] as? NSNumber)?.int64Value
+    let modificationTime: Int64?
+    if let date = attributes?[.modificationDate] as? Date {
+      let nanoseconds = date.timeIntervalSince1970 * 1_000_000_000
+      modificationTime = nanoseconds.isFinite ? Int64(nanoseconds.rounded()) : nil
+    } else {
+      modificationTime = nil
+    }
+    return Self(
+      fileIdentifier: fileIdentifier,
+      modificationTime: modificationTime,
+      fileSize: fileSize
+    )
+  }
+}
+
+internal struct ReaderThumbnailRenderSize: Hashable, Sendable {
+  let width: Int
+  let height: Int
+
+  init(_ size: CGSize) {
+    width = Self.dimension(size.width)
+    height = Self.dimension(size.height)
+  }
+
+  var cgSize: CGSize {
+    CGSize(width: width, height: height)
+  }
+
+  private static func dimension(_ value: CGFloat) -> Int {
+    guard value.isFinite else { return 1 }
+    return max(1, Int(value.rounded(.up)))
+  }
+}
+
+internal struct ReaderThumbnailCacheKey: Hashable, Sendable {
+  let sourceURL: URL
+  let revision: ReaderThumbnailFileRevision
+  let pageIndex: Int
+  let size: ReaderThumbnailRenderSize
+}
+
+private struct ReaderThumbnailDocumentKey: Hashable, Sendable {
+  let sourceURL: URL
+  let revision: ReaderThumbnailFileRevision
+}
+
+/// UIKit images are immutable after rendering. The wrapper makes that
+/// ownership explicit when a rendered pair crosses the thumbnail actor.
+internal struct ReaderThumbnailImagePair: @unchecked Sendable {
+  let light: UIImage
+  let dark: UIImage
+
+  var estimatedByteCount: Int {
+    let lightCost = Self.estimatedByteCount(of: light)
+    let darkCost = Self.estimatedByteCount(of: dark)
+    if lightCost > Int.max - darkCost { return Int.max }
+    return lightCost + darkCost
+  }
+
+  private static func estimatedByteCount(of image: UIImage) -> Int {
+    let width = image.cgImage?.width ?? max(1, Int((image.size.width * image.scale).rounded()))
+    let height = image.cgImage?.height ?? max(1, Int((image.size.height * image.scale).rounded()))
+    if width > Int.max / max(1, height) / 4 { return Int.max }
+    return max(1, width * height * 4)
+  }
+}
+
+internal struct ReaderThumbnailCacheStatistics: Sendable {
+  let imageCount: Int
+  let imageBytes: Int
+  let documentCount: Int
+  let documentOpenCount: Int
+  let renderCount: Int
+}
+
+/// Renders thumbnails on a serial actor so each document has one independent
+/// PDFDocument, separate from the live PDFView document. The actor also owns
+/// the LRU image cache and in-flight tasks.
+internal actor ReaderThumbnailCache {
+  static let shared = ReaderThumbnailCache()
+  static let defaultImageByteBudget = 24 * 1024 * 1024
+  static let defaultDocumentLimit = 3
+
+  private struct DocumentEntry {
+    let document: PDFDocument
+    let access: SecurityScopedAccess
+    var lastUsed: UInt64
+  }
+
+  private struct ImageEntry {
+    let images: ReaderThumbnailImagePair
+    let byteCount: Int
+    var lastUsed: UInt64
+  }
+
+  private let imageByteBudget: Int
+  private let documentLimit: Int
+  private var images: [ReaderThumbnailCacheKey: ImageEntry] = [:]
+  private var imageBytes = 0
+  private var documents: [ReaderThumbnailDocumentKey: DocumentEntry] = [:]
+  private var inFlight: [ReaderThumbnailCacheKey: Task<ReaderThumbnailImagePair?, Never>] = [:]
+  private var useCounter: UInt64 = 0
+  private(set) var documentOpenCount = 0
+  private(set) var renderCount = 0
+
+  init(
+    imageByteBudget: Int = ReaderThumbnailCache.defaultImageByteBudget,
+    documentLimit: Int = ReaderThumbnailCache.defaultDocumentLimit
+  ) {
+    self.imageByteBudget = max(1, imageByteBudget)
+    self.documentLimit = max(1, documentLimit)
+  }
+
+  func image(
+    url: URL,
+    access: SecurityScopedAccess,
+    pageIndex: Int,
+    fitting size: CGSize
+  ) async -> ReaderThumbnailImagePair? {
+    guard pageIndex >= 0 else { return nil }
+    let sourceURL = url.standardizedFileURL
+    let key = ReaderThumbnailCacheKey(
+      sourceURL: sourceURL,
+      revision: ReaderThumbnailFileRevision.current(for: sourceURL),
+      pageIndex: pageIndex,
+      size: ReaderThumbnailRenderSize(size)
+    )
+    purgeStaleEntries(for: key)
+
+    if let entry = images[key] {
+      touchImage(key)
+      return Task.isCancelled ? nil : entry.images
+    }
+
+    if let task = inFlight[key] {
+      let result = await task.value
+      return Task.isCancelled ? nil : result
+    }
+
+    // This task is owned by the cache rather than the requesting view. A
+    // cancelled row task can stop awaiting it, but cannot cancel shared work.
+    let task = Task { [self] in
+      render(key: key, access: access)
+    }
+    inFlight[key] = task
+    let result = await task.value
+    inFlight[key] = nil
+
+    if let result,
+       ReaderThumbnailFileRevision.current(for: key.sourceURL) == key.revision {
+      insert(result, for: key)
+    }
+    return Task.isCancelled ? nil : result
+  }
+
+  func statistics() -> ReaderThumbnailCacheStatistics {
+    ReaderThumbnailCacheStatistics(
+      imageCount: images.count,
+      imageBytes: imageBytes,
+      documentCount: documents.count,
+      documentOpenCount: documentOpenCount,
+      renderCount: renderCount
+    )
+  }
+
+  func clear() {
+    images.removeAll(keepingCapacity: false)
+    imageBytes = 0
+    documents.removeAll(keepingCapacity: false)
+  }
+
+  private func render(
+    key: ReaderThumbnailCacheKey,
+    access: SecurityScopedAccess
+  ) -> ReaderThumbnailImagePair? {
+    withExtendedLifetime(access) {
+      guard ReaderThumbnailFileRevision.current(for: key.sourceURL) == key.revision else {
+        return nil
+      }
+
+      let documentKey = ReaderThumbnailDocumentKey(sourceURL: key.sourceURL, revision: key.revision)
+      let document: PDFDocument
+      if var entry = documents[documentKey] {
+        useCounter &+= 1
+        entry.lastUsed = useCounter
+        documents[documentKey] = entry
+        document = entry.document
+      } else {
+        guard let opened = PDFDocument(url: key.sourceURL) else { return nil }
+        useCounter &+= 1
+        documents[documentKey] = DocumentEntry(
+          document: opened,
+          access: access,
+          lastUsed: useCounter
+        )
+        documentOpenCount += 1
+        trimDocuments()
+        document = opened
+      }
+
+      guard let page = document.page(at: key.pageIndex) else { return nil }
+      renderCount += 1
+      let light = ReaderDarkPDF.thumbnail(
+        of: page,
+        fitting: key.size.cgSize,
+        box: .cropBox,
+        inverted: false
+      )
+      let dark = ReaderDarkPDF.inverted(light)
+      guard ReaderThumbnailFileRevision.current(for: key.sourceURL) == key.revision else {
+        return nil
+      }
+      return ReaderThumbnailImagePair(light: light, dark: dark)
+    }
+  }
+
+  private func insert(_ result: ReaderThumbnailImagePair, for key: ReaderThumbnailCacheKey) {
+    let byteCount = result.estimatedByteCount
+    guard byteCount <= imageByteBudget else { return }
+    if let previous = images.removeValue(forKey: key) {
+      imageBytes -= previous.byteCount
+    }
+    while imageBytes > imageByteBudget - byteCount {
+      guard let oldest = images.min(by: { $0.value.lastUsed < $1.value.lastUsed })?.key else { break }
+      if let removed = images.removeValue(forKey: oldest) {
+        imageBytes -= removed.byteCount
+      }
+    }
+    useCounter &+= 1
+    images[key] = ImageEntry(images: result, byteCount: byteCount, lastUsed: useCounter)
+    imageBytes += byteCount
+  }
+
+  private func touchImage(_ key: ReaderThumbnailCacheKey) {
+    guard var entry = images[key] else { return }
+    useCounter &+= 1
+    entry.lastUsed = useCounter
+    images[key] = entry
+  }
+
+  private func trimDocuments() {
+    while documents.count > documentLimit {
+      guard let oldest = documents.min(by: { $0.value.lastUsed < $1.value.lastUsed })?.key else { break }
+      documents.removeValue(forKey: oldest)
+    }
+  }
+
+  private func purgeStaleEntries(for key: ReaderThumbnailCacheKey) {
+    let staleImages = images.keys.filter {
+      $0.sourceURL == key.sourceURL && $0.revision != key.revision
+    }
+    for staleKey in staleImages {
+      if let removed = images.removeValue(forKey: staleKey) {
+        imageBytes -= removed.byteCount
+      }
+    }
+    let staleDocuments = documents.keys.filter {
+      $0.sourceURL == key.sourceURL && $0.revision != key.revision
+    }
+    for staleKey in staleDocuments {
+      documents.removeValue(forKey: staleKey)
+    }
+  }
+}
+
 private struct ReaderThumbnail: View {
   let page: PDFPage
   let session: DocumentSession
   let number: Int
   let width: CGFloat
   let isSelected: Bool
-  @State private var image: UIImage?
+  @State private var images: ReaderThumbnailImagePair?
   @ScaledMetric(relativeTo: .caption) private var labelHeight = 20
 
+  private static let renderSize = CGSize(width: 280, height: 376)
+
+  private var requestKey: ReaderThumbnailCacheKey {
+    let url = session.url.standardizedFileURL
+    return ReaderThumbnailCacheKey(
+      sourceURL: url,
+      revision: ReaderThumbnailFileRevision.current(for: url),
+      pageIndex: number - 1,
+      size: ReaderThumbnailRenderSize(Self.renderSize)
+    )
+  }
+
   private var thumbnailAspectRatio: CGFloat {
-    if let image, image.size.width > 0, image.size.height > 0 {
+    if let image = images?.light, image.size.width > 0, image.size.height > 0 {
       return image.size.width / image.size.height
     }
     let bounds = page.bounds(for: .cropBox)
@@ -866,8 +1210,8 @@ private struct ReaderThumbnail: View {
   var body: some View {
     VStack(spacing: 8) {
       Group {
-        if let image {
-          ReaderAppearanceImage(image: image)
+        if let images {
+          ReaderAppearanceImage(images: images)
         } else {
           Rectangle().fill(.quaternary)
         }
@@ -889,34 +1233,47 @@ private struct ReaderThumbnail: View {
     }
     .contentShape(Rectangle())
     .accessibilityElement(children: .ignore)
-    .task(id: ObjectIdentifier(page)) {
-      let session = session
-      let pageIndex = number - 1
-      let data = await Task.detached(priority: .utility) {
-        withExtendedLifetime(session.access) {
-          guard let document = PDFDocument(url: session.url),
-            let page = document.page(at: pageIndex) else { return Data?.none }
-          return withExtendedLifetime(document) {
-            ReaderDarkPDF.thumbnail(
-              of: page, fitting: CGSize(width: 280, height: 376), box: .cropBox, inverted: false
-            ).pngData()
-          }
-        }
-      }.value
-      guard !Task.isCancelled, let data, let thumbnail = UIImage(data: data) else { return }
-      image = ReaderDarkPDF.appearanceImage(thumbnail)
+    .task(id: requestKey) {
+      images = nil
+      let rendered = await ReaderThumbnailCache.shared.image(
+        url: session.url,
+        access: session.access,
+        pageIndex: number - 1,
+        fitting: Self.renderSize
+      )
+      guard !Task.isCancelled, let rendered else { return }
+      images = rendered
     }
   }
 }
 
-/// Shows an appearance-dependent image through UIKit. The split view keeps a
-/// second sidebar whose SwiftUI `colorScheme` can stay stale after a live
-/// appearance switch; `UIImageView` resolves the asset from its own traits.
-private struct ReaderAppearanceImage: UIViewRepresentable {
-  let image: UIImage
+/// Resolve the cached pair from UIKit traits. A shared UIImage must not be
+/// registered into multiple per-row UIImageAssets, which changes its asset.
+internal final class ReaderThumbnailImageView: UIImageView {
+  var images: ReaderThumbnailImagePair? {
+    didSet { refreshAppearance() }
+  }
 
-  func makeUIView(context: Context) -> UIImageView {
-    let view = UIImageView()
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+      (view: ReaderThumbnailImageView, _: UITraitCollection) in
+      view.refreshAppearance()
+    }
+  }
+
+  required init?(coder: NSCoder) { nil }
+
+  private func refreshAppearance() {
+    image = traitCollection.userInterfaceStyle == .dark ? images?.dark : images?.light
+  }
+}
+
+private struct ReaderAppearanceImage: UIViewRepresentable {
+  let images: ReaderThumbnailImagePair
+
+  func makeUIView(context: Context) -> ReaderThumbnailImageView {
+    let view = ReaderThumbnailImageView(frame: .zero)
     view.contentMode = .scaleAspectFit
     view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
@@ -925,8 +1282,8 @@ private struct ReaderAppearanceImage: UIViewRepresentable {
     return view
   }
 
-  func updateUIView(_ view: UIImageView, context: Context) {
-    if view.image !== image { view.image = image }
+  func updateUIView(_ view: ReaderThumbnailImageView, context: Context) {
+    view.images = images
   }
 }
 
@@ -1019,6 +1376,33 @@ private struct SearchSheet: View {
 }
 
 #if DEBUG
+/// A test-only snapshot of the live UIKit viewport, independent of SwiftUI's
+/// chrome state. It catches layout, zoom and destination jumps on reveal.
+private struct ReaderViewportProbe: View {
+  @ObservedObject var reference: PDFViewReference
+  @State private var snapshot = ""
+
+  var body: some View {
+    Color.clear
+      .frame(width: 1, height: 1)
+      .accessibilityElement()
+      .accessibilityIdentifier("debug.pdfViewport")
+      .accessibilityValue(snapshot)
+      .task {
+        while !Task.isCancelled {
+          if let view = reference.view, let scroll = readerPDFScrollView(in: view) {
+            let frame = view.convert(view.bounds, to: view.window)
+            let nextSnapshot = [frame.minX, frame.minY, frame.width, frame.height,
+                        view.scaleFactor, scroll.contentOffset.x, scroll.contentOffset.y]
+              .map { String(format: "%.3f", Double($0)) }.joined(separator: ",")
+            if snapshot != nextSnapshot { snapshot = nextSnapshot }
+          }
+          do { try await Task.sleep(for: .milliseconds(100)) } catch { break }
+        }
+      }
+  }
+}
+
 /// PDFKit replaces page accessibility children with its own text elements, so
 /// translation overlays are invisible to XCUITest. With `-PMRUITestProbe`, this
 /// exposes the first translated paragraph as an accessibility value instead.
@@ -1097,6 +1481,15 @@ private struct TranslationProgressRing: View {
   }
 }
 
+
+private struct ReaderHeaderButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .frame(minWidth: 44, minHeight: 44)
+      .contentShape(Rectangle())
+      .opacity(configuration.isPressed ? 0.55 : 1)
+  }
+}
 
 /// An exclusive gesture prevents a completed hold from also toggling the sidebar.
 private struct ReaderSidebarHoldStyle: PrimitiveButtonStyle {

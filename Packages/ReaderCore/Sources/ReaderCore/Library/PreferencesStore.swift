@@ -26,6 +26,12 @@ public enum ReaderInteractionMode: String, Codable, CaseIterable, Sendable {
   case comparison
 }
 
+public enum ReaderDocumentOpenMode: String, Codable, CaseIterable, Sendable {
+  case original
+  case originalWithBackgroundTranslation
+  case translated
+}
+
 public struct ReaderPreferences: Codable, Hashable, Sendable {
   public var uiLanguage: String
   public var sourceLanguage: String
@@ -42,6 +48,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
   /// Service configured on the paired computer; credentials stay on that computer.
   public var companionService: String
   public var showTranslations: Bool
+  public var documentOpenMode: ReaderDocumentOpenMode
+  public var restoreDocumentsOnLaunch: Bool
+  public var autoHideTitleBar: Bool
   public var defaultPageCropEnabled: Bool
   public var defaultPageCropX: Double
   public var defaultPageCropY: Double
@@ -71,6 +80,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
   public var emphasizeLogicalConnectives: Bool
   public var tfidfWeightingEnabled: Bool
   public var emphasizeTopicSentences: Bool
+  public var paragraphGapOptimization: Bool
   public var readingLinksEnabled: Bool
   public var tocGenerationEnabled: Bool
 
@@ -88,6 +98,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     companionURL: String = "",
     companionService: String = "auto",
     showTranslations: Bool = true,
+    documentOpenMode: ReaderDocumentOpenMode = .original,
+    restoreDocumentsOnLaunch: Bool = true,
+    autoHideTitleBar: Bool = true,
     defaultPageCropEnabled: Bool = false,
     defaultPageCropX: Double = 0,
     defaultPageCropY: Double = 0,
@@ -110,6 +123,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     emphasizeLogicalConnectives: Bool = true,
     tfidfWeightingEnabled: Bool = false,
     emphasizeTopicSentences: Bool = false,
+    paragraphGapOptimization: Bool = true,
     readingLinksEnabled: Bool = true,
     tocGenerationEnabled: Bool = false,
     translationMode: TranslationMode = .readingAhead
@@ -127,6 +141,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     self.companionURL = companionURL
     self.companionService = companionService
     self.showTranslations = showTranslations
+    self.documentOpenMode = documentOpenMode
+    self.restoreDocumentsOnLaunch = restoreDocumentsOnLaunch
+    self.autoHideTitleBar = autoHideTitleBar
     self.defaultPageCropEnabled = defaultPageCropEnabled
     self.defaultPageCropX = Self.normalizedDefaultPageCrop(defaultPageCropX)
     self.defaultPageCropY = Self.normalizedDefaultPageCrop(defaultPageCropY)
@@ -153,6 +170,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     self.emphasizeLogicalConnectives = emphasizeLogicalConnectives
     self.tfidfWeightingEnabled = tfidfWeightingEnabled
     self.emphasizeTopicSentences = emphasizeTopicSentences
+    self.paragraphGapOptimization = paragraphGapOptimization
     self.readingLinksEnabled = readingLinksEnabled
     self.tocGenerationEnabled = tocGenerationEnabled
   }
@@ -183,6 +201,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     case companionURL
     case companionService
     case showTranslations
+    case documentOpenMode
+    case restoreDocumentsOnLaunch
+    case autoHideTitleBar
     case defaultPageCropEnabled
     case defaultPageCropX
     case defaultPageCropY
@@ -205,6 +226,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     case emphasizeLogicalConnectives
     case tfidfWeightingEnabled
     case emphasizeTopicSentences
+    case paragraphGapOptimization
     case readingLinksEnabled
     case tocGenerationEnabled
   }
@@ -243,6 +265,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
       companionURL: try container.decodeIfPresent(String.self, forKey: .companionURL) ?? "",
       companionService: try container.decodeIfPresent(String.self, forKey: .companionService) ?? "auto",
       showTranslations: try container.decodeIfPresent(Bool.self, forKey: .showTranslations) ?? true,
+      documentOpenMode: (try? container.decodeIfPresent(ReaderDocumentOpenMode.self, forKey: .documentOpenMode)) ?? .original,
+      restoreDocumentsOnLaunch: try container.decodeIfPresent(Bool.self, forKey: .restoreDocumentsOnLaunch) ?? true,
+      autoHideTitleBar: try container.decodeIfPresent(Bool.self, forKey: .autoHideTitleBar) ?? true,
       defaultPageCropEnabled: try container.decodeIfPresent(Bool.self, forKey: .defaultPageCropEnabled) ?? false,
       defaultPageCropX: (try? container.decodeIfPresent(Double.self, forKey: .defaultPageCropX)) ?? 0,
       defaultPageCropY: (try? container.decodeIfPresent(Double.self, forKey: .defaultPageCropY)) ?? 0,
@@ -264,6 +289,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
       emphasizeLogicalConnectives: try container.decodeIfPresent(Bool.self, forKey: .emphasizeLogicalConnectives) ?? true,
       tfidfWeightingEnabled: try container.decodeIfPresent(Bool.self, forKey: .tfidfWeightingEnabled) ?? false,
       emphasizeTopicSentences: try container.decodeIfPresent(Bool.self, forKey: .emphasizeTopicSentences) ?? false,
+      paragraphGapOptimization: try container.decodeIfPresent(Bool.self, forKey: .paragraphGapOptimization) ?? true,
       readingLinksEnabled: try container.decodeIfPresent(Bool.self, forKey: .readingLinksEnabled) ?? true,
       tocGenerationEnabled: try container.decodeIfPresent(Bool.self, forKey: .tocGenerationEnabled) ?? false,
       translationMode: translationMode
