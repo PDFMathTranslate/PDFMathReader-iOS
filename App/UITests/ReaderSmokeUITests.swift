@@ -351,7 +351,7 @@ final class ReaderSmokeUITests: XCTestCase {
     app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
     app.launch()
 
-    let thumbnails = app.buttons["Thumbnails"].firstMatch
+    let thumbnails = app.buttons["reader.closeDocument"].firstMatch
     let shown = NSPredicate(format: "exists == true AND isHittable == true")
     let hidden = NSPredicate(format: "exists == false OR isHittable == false")
     func expectSidebar(_ predicate: NSPredicate, _ name: String) {
@@ -372,6 +372,53 @@ final class ReaderSmokeUITests: XCTestCase {
     expectSidebar(shown, "landscape-sidebar-shown")
     XCUIDevice.shared.orientation = .portrait
     expectSidebar(hidden, "portrait-again-sidebar-hidden")
+  }
+
+  /// Explicit sidebar choices survive leaving and returning to the app.
+  @MainActor
+  func testSidebarVisibilityPersistsAcrossBackgroundActivation() throws {
+    try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad only")
+    XCUIDevice.shared.orientation = .portrait
+
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
+    app.launch()
+
+    let close = app.buttons["reader.closeDocument"].firstMatch
+    let toggle = app.buttons["reader.toggleSidebar"].firstMatch
+    let visible = NSPredicate(format: "exists == true AND isHittable == true")
+    let hidden = NSPredicate(format: "exists == false OR isHittable == false")
+    func waitForSidebar(_ predicate: NSPredicate, _ message: String) {
+      XCTAssertEqual(
+        XCTWaiter().wait(
+          for: [XCTNSPredicateExpectation(predicate: predicate, object: close)],
+          timeout: 10
+        ),
+        .completed,
+        message
+      )
+    }
+    func reactivate() {
+      XCUIDevice.shared.press(.home)
+      app.activate()
+      XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+      XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 10))
+      // Let delayed layout work settle before checking the user's choice.
+      sleep(1)
+    }
+
+    XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30), "Reader did not open")
+    XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Reader sidebar toggle missing")
+    waitForSidebar(hidden, "Portrait sidebar did not start hidden")
+    toggle.tap()
+    waitForSidebar(visible, "Sidebar did not open")
+    reactivate()
+    waitForSidebar(visible, "Visible sidebar disappeared after activation")
+
+    toggle.tap()
+    waitForSidebar(hidden, "Sidebar did not hide")
+    reactivate()
+    waitForSidebar(hidden, "Hidden sidebar reappeared after activation")
   }
 
   /// Desktop parity: the pager sits in the bottom-right corner, appears when

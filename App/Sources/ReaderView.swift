@@ -33,6 +33,7 @@ struct ReaderView: View {
   @StateObject private var drawingModel: ReaderDrawingModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var isLandscape: Bool?
+  @State private var appliedSidebarOrientation: Bool?
   @State private var sidebarMode: ReaderSidebarMode = .thumbnails
   @State private var isCompactSidebarPresented = false
   @State private var sidebarInteractionVersion = 0
@@ -149,7 +150,11 @@ struct ReaderView: View {
     // Applied from a task: the split view ignores visibility set during its
     // first layout pass.
     .task(id: isLandscape) {
+      // SwiftUI can restart this task when returning from another app.
+      // Keep an explicit user choice unless the orientation actually changed.
       guard let isLandscape else { return }
+      guard appliedSidebarOrientation != isLandscape else { return }
+      appliedSidebarOrientation = isLandscape
       let target = Self.defaultColumnVisibility(landscape: isLandscape)
       let interactionVersion = sidebarInteractionVersion
       columnVisibility = target
