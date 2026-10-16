@@ -5,6 +5,30 @@ import UIKit
 @MainActor
 final class ReaderTranslationLabel: UILabel {
   var textInsets = UIEdgeInsets(top: 3, left: 4, bottom: 3, right: 4)
+  /// Label size and text the current font was fitted for.
+  var fittedSize: CGSize = .zero
+  var fittedText = ""
+  /// Painted on the layer, not via `backgroundColor`: an opaque UILabel
+  /// background makes its text bitmap opaque, and the partly covered last
+  /// pixel column of that bitmap shows as a dark seam on the scaled page.
+  var coverColor: UIColor = .white {
+    didSet { applyCoverColor() }
+  }
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (label: Self, _) in
+      label.applyCoverColor()
+    }
+  }
+
+  required init?(coder: NSCoder) {
+    nil
+  }
+
+  private func applyCoverColor() {
+    layer.backgroundColor = coverColor.resolvedColor(with: traitCollection).cgColor
+  }
 
   override func drawText(in rect: CGRect) {
     super.drawText(in: rect.inset(by: textInsets))
@@ -129,9 +153,9 @@ final class ReaderTranslationPageOverlay: UIView {
     }
     bringSubviewToFront(progressView)
     guard remotePageData == nil else { return }
-    for paragraph in state.paragraphs {
-      guard let label = labels[paragraph.paragraph.id] else { continue }
-      label.frame = overlayRect(for: paragraph.paragraph)
+    for item in state.paragraphs {
+      guard let label = labels[item.paragraph.id] else { continue }
+      layoutLabel(label, item: item, forceFit: false)
     }
   }
 
@@ -148,10 +172,8 @@ final class ReaderTranslationPageOverlay: UIView {
       label.numberOfLines = 0
       label.lineBreakMode = .byWordWrapping
       label.textColor = .label
-      label.backgroundColor = paperColor
-      label.isOpaque = true
-      label.layer.cornerRadius = 2
-      label.layer.masksToBounds = true
+      // Square cover, like the desktop box-shadow.
+      label.coverColor = paperColor
       label.isUserInteractionEnabled = true
       label.textAlignment = textAlignment(for: item.paragraph.textAlign)
       label.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleParagraph(_:))))
@@ -162,16 +184,38 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   private func updateLabel(_ label: ReaderTranslationLabel, item: PageTranslationParagraph) {
-    let useOriginal = originalOverrides.contains(item.paragraph.id)
-    let text = useOriginal ? item.paragraph.text : (item.translation ?? "")
-    label.text = text
-    let baseSize = max(6, min(36, CGFloat(item.paragraph.fontSize)))
-    let rect = overlayRect(for: item.paragraph)
+    layoutLabel(label, item: item, forceFit: true)
+  }
+
+  /// Desktop parity: the box is at least 1.1 x the font size tall, and a
+  /// paper-colored margin of max(3, 0.28 x font size) around it hides the
+  /// source ascenders and descenders. Sizes scale with the current zoom.
+  private func layoutLabel(_ label: ReaderTranslationLabel, item: PageTranslationParagraph, forceFit: Bool) {
+    let paragraph = item.paragraph
+    let box = overlayRect(for: paragraph)
+    let pdfArea = CGFloat(paragraph.width) * boxHeight(for: paragraph)
+    let scale = pdfArea > 0 ? sqrt(max(0, box.width * box.height) / pdfArea) : 1
+    let cover = max(3, CGFloat(paragraph.fontSize) * 0.28) * scale
+    label.frame = pixelAligned(box.insetBy(dx: -cover, dy: -cover))
+    // Let lines use half of the vertical cover so text keeps its source size.
+    label.textInsets = UIEdgeInsets(top: cover / 2, left: cover, bottom: cover / 2, right: cover)
+
+    let useOriginal = originalOverrides.contains(paragraph.id)
+    let text = useOriginal ? paragraph.text : (item.translation ?? "")
+    let size = label.bounds.size
+    guard forceFit ||
+      text != label.fittedText ||
+      abs(size.width - label.fittedSize.width) > 0.5 ||
+      abs(size.height - label.fittedSize.height) > 0.5
+    else { return }
+    label.fittedSize = size
+    label.fittedText = text
     let font = fittingFont(
       text: text,
-      baseSize: baseSize,
-      rect: rect,
-      bold: item.paragraph.bold
+      baseSize: max(6, min(36, CGFloat(paragraph.fontSize))) * scale,
+      minimumSize: 6 * scale,
+      available: CGSize(width: box.width, height: box.height + cover),
+      bold: paragraph.bold
     )
     label.font = font
     label.attributedText = readingAidsAttributedString(
@@ -180,6 +224,22 @@ final class ReaderTranslationPageOverlay: UIView {
       configuration: readingAidsConfiguration,
       isOriginal: useOriginal
     )
+  }
+
+  /// Fractional edges leave a dark antialiased seam against the page.
+  private func pixelAligned(_ rect: CGRect) -> CGRect {
+    guard let window, rect.width > 0, rect.height > 0 else { return rect }
+    let scale = max(1, traitCollection.displayScale)
+    let inWindow = convert(rect, to: window)
+    let minX = (inWindow.minX * scale).rounded(.down) / scale
+    let minY = (inWindow.minY * scale).rounded(.down) / scale
+    let maxX = (inWindow.maxX * scale).rounded(.up) / scale
+    let maxY = (inWindow.maxY * scale).rounded(.up) / scale
+    return convert(CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY), from: window)
+  }
+
+  private func boxHeight(for paragraph: LayoutParagraph) -> CGFloat {
+    max(CGFloat(paragraph.height), CGFloat(paragraph.fontSize) * 1.1)
   }
 
   @objc private func toggleParagraph(_ recognizer: UITapGestureRecognizer) {
@@ -196,37 +256,42 @@ final class ReaderTranslationPageOverlay: UIView {
   private func overlayRect(for paragraph: LayoutParagraph) -> CGRect {
     guard let pdfView, let page else { return .zero }
     let bounds = page.bounds(for: .cropBox)
+    let height = boxHeight(for: paragraph)
     let pdfRect = CGRect(
       x: bounds.minX + CGFloat(paragraph.x),
-      y: bounds.minY + bounds.height - CGFloat(paragraph.y) - CGFloat(paragraph.height),
+      y: bounds.minY + bounds.height - CGFloat(paragraph.y) - height,
       width: CGFloat(paragraph.width),
-      height: CGFloat(paragraph.height)
+      height: height
     )
     let viewRect = pdfView.convert(pdfRect, from: page)
     return convert(viewRect, from: pdfView).standardized
   }
 
-  private func fittingFont(text: String, baseSize: CGFloat, rect: CGRect, bold: Bool) -> UIFont {
-    let padding = max(3, baseSize * 0.28)
-    let available = CGSize(
-      width: max(1, rect.width - padding * 2),
-      height: max(1, rect.height - padding * 2)
-    )
+  private func fittingFont(
+    text: String,
+    baseSize: CGFloat,
+    minimumSize: CGFloat,
+    available: CGSize,
+    bold: Bool
+  ) -> UIFont {
+    let weight: UIFont.Weight = bold ? .semibold : .regular
+    let available = CGSize(width: max(1, available.width), height: max(1, available.height))
+    let step = max(0.25, baseSize / 40)
     var size = baseSize
-    while size >= 6 {
-      let font = UIFont.systemFont(ofSize: size, weight: bold ? .semibold : .regular)
+    while size > minimumSize {
+      let font = UIFont.systemFont(ofSize: size, weight: weight)
       let measured = (text as NSString).boundingRect(
-        with: available,
+        with: CGSize(width: available.width, height: .greatestFiniteMagnitude),
         options: [.usesLineFragmentOrigin, .usesFontLeading],
         attributes: [.font: font],
         context: nil
       )
-      if measured.height <= max(available.height, size * 1.1) {
+      if measured.height <= available.height {
         return font
       }
-      size -= 0.5
+      size -= step
     }
-    return UIFont.systemFont(ofSize: 6, weight: bold ? .semibold : .regular)
+    return UIFont.systemFont(ofSize: max(1, minimumSize), weight: weight)
   }
 
   private func textAlignment(for value: String?) -> NSTextAlignment {
@@ -247,7 +312,7 @@ final class ReaderTranslationPageOverlay: UIView {
     UIColor { traits in
       traits.userInterfaceStyle == .dark
         ? UIColor(white: 0.14, alpha: 1)
-        : UIColor(white: 0.98, alpha: 1)
+        : .white
     }
   }
 }

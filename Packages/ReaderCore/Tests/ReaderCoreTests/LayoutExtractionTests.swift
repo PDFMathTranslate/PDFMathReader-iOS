@@ -50,6 +50,21 @@ func pdfKitExtractionHasCloseDesktopTextAndParagraphParity() throws {
   }
 }
 
+@Test
+func pdfKitExtractionKeepsGlyphBoundsAlignedAfterLineBreaks() throws {
+  // PDFKit inserts a line break with no glyph slot before the second line of
+  // sample.pdf; unaligned bounds put "R" at the next glyph and lose the final "s".
+  let url = try #require(LayoutTestSupport.fixtureURL("sample.pdf"))
+  let page = try #require(PDFDocument(url: url)?.page(at: 0))
+  let paragraphs = LayoutEngine.paragraphs(
+    items: PDFKitTextExtractor.extract(page: page),
+    pageHeight: 842
+  )
+  let attribution = try #require(paragraphs.first { $0.text.hasPrefix("Rabindranath") })
+  #expect(attribution.text == "Rabindranath Tagore, Stray Birds")
+  #expect(abs(attribution.x - 76.381) < 1)
+}
+
 private func normalizedText(_ items: [TextItem]) -> String {
   items
     .filter { $0.itemType != "Image" }

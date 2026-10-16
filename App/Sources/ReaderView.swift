@@ -517,7 +517,7 @@ private struct TranslationStatusProbe: View {
       .frame(width: 1, height: 1)
       .accessibilityElement()
       .accessibilityIdentifier("debug.translationStatus")
-      .accessibilityValue(coordinator.debugFirstTranslation ?? "")
+      .accessibilityValue(coordinator.debugTranslations)
   }
 }
 #endif

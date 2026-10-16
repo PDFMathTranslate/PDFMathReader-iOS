@@ -109,13 +109,13 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   }
 
   #if DEBUG
-  /// First translated paragraph in page order; read by the UI test probe.
-  var debugFirstTranslation: String? {
+  /// Translated paragraphs in page order, one per line; read by the UI test probe.
+  var debugTranslations: String {
     latestStates.sorted { $0.key < $1.key }
-      .lazy
       .flatMap(\.value.paragraphs)
       .compactMap(\.translation)
-      .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+      .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+      .joined(separator: "\n")
   }
   #endif
 

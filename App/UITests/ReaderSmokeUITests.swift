@@ -16,7 +16,8 @@ final class ReaderSmokeUITests: XCTestCase {
 
     let probe = app.descendants(matching: .any)["debug.translationStatus"]
     XCTAssertTrue(probe.waitForExistence(timeout: 30), "Reader did not open")
-    let translated = NSPredicate(format: "value != nil AND value != ''")
+    // The probe lists every translated paragraph; wait until one is Chinese.
+    let translated = NSPredicate(format: "value MATCHES %@", "(?s).*\\p{Han}.*")
     let expectation = XCTNSPredicateExpectation(predicate: translated, object: probe)
     if XCTWaiter().wait(for: [expectation], timeout: 120) != .completed {
       attachScreenshot(app, name: "translation-missing")

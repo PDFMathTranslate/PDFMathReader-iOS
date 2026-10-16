@@ -23,9 +23,16 @@ public struct PDFKitTextExtractor: Sendable {
     var characters: [CharacterRun] = []
     characters.reserveCapacity(page.numberOfCharacters)
     var index = 0
+    // Offset from a string index to its `characterBounds` slot. PDFKit can
+    // synthesize line breaks that have no glyph slot, shifting later bounds.
+    var boundsShift = 0
     while index < pageString.length {
       let text = pageString.substring(with: NSRange(location: index, length: 1))
-      let bounds = page.characterBounds(at: index)
+      if isLineBreak(text), index + 1 < pageString.length {
+        boundsShift = resolvedBoundsShift(page: page, index: index + 1, current: boundsShift)
+      }
+      let slot = index + boundsShift
+      let bounds = slot >= 0 && slot < pageString.length ? page.characterBounds(at: slot) : .zero
       let style = style(at: index, in: attributed)
       characters.append(
         CharacterRun(
@@ -65,6 +72,32 @@ public struct PDFKitTextExtractor: Sendable {
 
   public static func items(for page: PDFPage, pageNumber: Int = 1) -> [TextItem] {
     extract(page: page, pageNumber: pageNumber)
+  }
+
+  /// Picks the bounds slot for `index` by checking it against the selection
+  /// geometry, which stays aligned with the string. Only runs at line breaks.
+  private static func resolvedBoundsShift(page: PDFPage, index: Int, current: Int) -> Int {
+    guard let reference = page.selection(for: NSRange(location: index, length: 1))?.bounds(for: page),
+      reference.width > 0
+    else { return current }
+    var best = current
+    var bestDistance = CGFloat.greatestFiniteMagnitude
+    for candidate in [current, current - 1, current + 1] {
+      let slot = index + candidate
+      guard slot >= 0, slot < page.numberOfCharacters else { continue }
+      let bounds = page.characterBounds(at: slot)
+      guard bounds.width > 0, bounds.height > 0 else { continue }
+      let distance = abs(bounds.midX - reference.midX) + abs(bounds.midY - reference.midY)
+      if distance < bestDistance {
+        best = candidate
+        bestDistance = distance
+      }
+    }
+    return best
+  }
+
+  private static func isLineBreak(_ text: String) -> Bool {
+    text.unicodeScalars.allSatisfy { CharacterSet.newlines.contains($0) }
   }
 
   private static func appendRun(
