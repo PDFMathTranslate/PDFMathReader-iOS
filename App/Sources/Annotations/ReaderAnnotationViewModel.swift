@@ -13,6 +13,8 @@ final class ReaderAnnotationViewModel: ObservableObject {
   @Published private(set) var annotations: [ReaderAnnotation] = []
   @Published private(set) var quickLinks: [ReaderQuickLink] = []
   @Published var lastError: String?
+  /// Per window, like the desktop: every opened document starts visible.
+  @Published private(set) var showsAnnotations = true
 
   private var nativeRefs: [String] = []
   private var sourceData: Data?
@@ -77,7 +79,28 @@ final class ReaderAnnotationViewModel: ObservableObject {
     }
     guard !newAnnotations.isEmpty else { return }
     annotations.append(contentsOf: newAnnotations)
+    // A new highlight must not vanish into a hidden layer.
+    showsAnnotations = true
     commit(to: pdfView)
+  }
+
+  func setShowsAnnotations(_ visible: Bool, in pdfView: PDFView?) {
+    showsAnnotations = visible
+    applyVisibility(in: pdfView)
+  }
+
+  /// Hides highlights, comments, and other markup; links and form fields stay.
+  private func applyVisibility(in pdfView: PDFView?) {
+    guard let pdfView, let document = pdfView.document else { return }
+    for index in 0..<document.pageCount {
+      for annotation in document.page(at: index)?.annotations ?? [] {
+        switch annotation.type?.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
+        case "Link", "Widget": continue
+        default: annotation.shouldDisplay = showsAnnotations
+        }
+      }
+    }
+    NotificationCenter.default.post(name: .readerAnnotationVisibilityChanged, object: pdfView)
   }
 
   func delete(_ annotation: ReaderAnnotation, pdfView: PDFView?) {
@@ -184,6 +207,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
       )
       sourceData = output
       pdfView?.document = PDFDocument(data: output)
+      if !showsAnnotations { applyVisibility(in: pdfView) }
       _ = try store.save(
         annotations,
         nativeRefs: nativeRefs,
@@ -196,6 +220,13 @@ final class ReaderAnnotationViewModel: ObservableObject {
       lastError = L10n.string("ios.annotationSaveFailed")
     }
   }
+}
+
+extension Notification.Name {
+  /// Object: the PDFView whose markup annotations were shown or hidden.
+  static let readerAnnotationVisibilityChanged = Notification.Name(
+    "PDFMathReader.readerAnnotationVisibilityChanged"
+  )
 }
 
 enum ReaderQuickLinkSide {

@@ -135,6 +135,12 @@ final class ReaderTranslationPageOverlay: UIView {
       name: Notification.Name.PDFViewSelectionChanged,
       object: nil
     )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(selectionChanged(_:)),
+      name: .readerAnnotationVisibilityChanged,
+      object: nil
+    )
   }
 
   required init?(coder: NSCoder) {
@@ -307,6 +313,7 @@ final class ReaderTranslationPageOverlay: UIView {
     var highlights: [ReaderTranslationMarkupView.Highlight] = []
     var comments: [PDFAnnotation] = []
     for annotation in page.annotations {
+      guard annotation.shouldDisplay else { continue }
       switch annotation.type?.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
       case "Highlight":
         let color = annotation.color.withAlphaComponent(1)

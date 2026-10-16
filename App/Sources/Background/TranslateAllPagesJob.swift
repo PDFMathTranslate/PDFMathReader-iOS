@@ -346,50 +346,28 @@ final class TranslateAllPagesJob: ObservableObject {
   }
 }
 
-struct TranslateAllPagesButton: View {
-  @StateObject private var job: TranslateAllPagesJob
-
-  init(coordinator: ReaderTranslationCoordinator) {
-    _job = StateObject(wrappedValue: TranslateAllPagesJob(coordinator: coordinator))
-  }
-
-  var body: some View {
-    Button {
-      if job.isRunning {
-        job.cancel()
-      } else {
-        job.start()
-      }
-    } label: {
-      HStack(spacing: 6) {
-        if job.isRunning {
-          ProgressView(value: job.progress.fraction)
-            .frame(width: 56)
-        }
-        Label(labelTitle, systemImage: labelSymbol)
-      }
-    }
-    .disabled(job.isFinished && !job.isRunning)
-    .accessibilityValue(
-      L10n.string(
-        "ios.pagesProgress",
-        String(job.progress.processedPages),
-        String(job.progress.totalPages)
-      )
-    )
-  }
-
-  private var labelTitle: String {
-    if job.isRunning { return L10n.string("ios.cancelTranslation") }
-    if job.isFinished { return L10n.string("ios.allPagesTranslated") }
-    return job.progress.processedPages > 0
+extension TranslateAllPagesJob {
+  var menuTitle: String {
+    if isRunning { return L10n.string("ios.cancelTranslation") }
+    if isFinished { return L10n.string("ios.allPagesTranslated") }
+    return progress.processedPages > 0
       ? L10n.string("ios.resumeTranslation")
       : L10n.string("ios.translateAllPages")
   }
 
-  private var labelSymbol: String {
-    if job.isRunning { return "xmark.circle" }
-    if job.isFinished { return "checkmark.circle" }
+  /// Shown under the title while pages are still being translated.
+  var menuSubtitle: String? {
+    guard isRunning || (!isFinished && progress.processedPages > 0) else { return nil }
+    return L10n.string(
+      "ios.pagesProgress",
+      String(progress.processedPages),
+      String(progress.totalPages)
+    )
+  }
+
+  var menuSymbol: String {
+    if isRunning { return "xmark.circle" }
+    if isFinished { return "checkmark.circle" }
     return "text.badge.plus"
   }
 }

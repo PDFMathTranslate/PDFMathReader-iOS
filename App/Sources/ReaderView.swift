@@ -27,6 +27,7 @@ struct ReaderView: View {
   @State private var isCompactSidebarPresented = false
   @State private var isSearchPresented = false
   @State private var isComparePresented = false
+  @State private var exportRequest: ReaderExportKind?
   private let onClose: (() -> Void)?
 
   init(session: DocumentSession, library: LibraryModel, onClose: (() -> Void)? = nil) {
@@ -174,7 +175,8 @@ struct ReaderView: View {
       regular: regular,
       onToggleSidebar: toggleSidebar,
       onSearch: { isSearchPresented = true },
-      onCompare: { isComparePresented = true }
+      onCompare: { isComparePresented = true },
+      onExport: { exportRequest = $0 }
     )
     .readerReadingAids(
       document: document,
@@ -185,7 +187,8 @@ struct ReaderView: View {
       document: document,
       originalName: model.session.title,
       annotations: annotationModel.annotations,
-      coordinator: model.translationCoordinator
+      coordinator: model.translationCoordinator,
+      request: $exportRequest
     )
     .sheet(isPresented: $isComparePresented) {
       if let coordinator = model.translationCoordinator {
@@ -231,10 +234,33 @@ private struct ReaderDetail: View {
   @State private var isImporting = false
   @State private var importError: String?
   @StateObject private var pagerVisibility = ReaderPagerVisibility()
+  @StateObject private var translateAll: TranslateAllPagesJob
   let regular: Bool
   let onToggleSidebar: () -> Void
   let onSearch: () -> Void
   let onCompare: () -> Void
+  let onExport: (ReaderExportKind) -> Void
+
+  init(
+    model: ReaderViewModel,
+    annotations: ReaderAnnotationViewModel,
+    regular: Bool,
+    onToggleSidebar: @escaping () -> Void,
+    onSearch: @escaping () -> Void,
+    onCompare: @escaping () -> Void,
+    onExport: @escaping (ReaderExportKind) -> Void
+  ) {
+    self.model = model
+    self.annotations = annotations
+    self.regular = regular
+    self.onToggleSidebar = onToggleSidebar
+    self.onSearch = onSearch
+    self.onCompare = onCompare
+    self.onExport = onExport
+    // The detail only exists with a document, and every document gets a
+    // coordinator. The job lives here so menu rebuilds keep its progress.
+    _translateAll = StateObject(wrappedValue: TranslateAllPagesJob(coordinator: model.translationCoordinator!))
+  }
 
   var body: some View {
     // Reading aids come first so translation labels draw above glyph overlays.
@@ -293,68 +319,53 @@ private struct ReaderDetail: View {
         }
       }
 
+      // Desktop order: annotation visibility, translation, search, then
+      // everything else in one menu.
       ToolbarItemGroup(placement: .topBarTrailing) {
-        Menu {
-          Button(L10n.string("toolbar.zoomIn"), systemImage: "plus.magnifyingglass") { model.zoomIn() }
-          Button(L10n.string("toolbar.zoomOut"), systemImage: "minus.magnifyingglass") { model.zoomOut() }
-          Divider()
-          ForEach(ReaderScaleMode.allCases, id: \.self) { mode in
-            Button {
-              model.setScaleMode(mode)
-            } label: {
-              Label(scaleTitle(mode), systemImage: model.readingState.scaleMode == mode ? "checkmark" : "")
-            }
+        if !annotations.annotations.isEmpty {
+          Button {
+            annotations.setShowsAnnotations(!annotations.showsAnnotations, in: model.pdfViewReference.view)
+          } label: {
+            Label(
+              L10n.string(annotations.showsAnnotations ? "toolbar.hideAnnotations" : "toolbar.showAnnotations"),
+              systemImage: annotations.showsAnnotations ? "eye" : "eye.slash"
+            )
           }
-        } label: {
-          Label(L10n.string("toolbar.zoom"), systemImage: "plus.magnifyingglass")
-        }
-
-        Menu {
-          ForEach(ReaderDisplayMode.allCases, id: \.self) { mode in
-            Button {
-              model.setDisplayMode(mode)
-            } label: {
-              Label(displayTitle(mode), systemImage: model.readingState.displayMode == mode ? "checkmark" : "")
-            }
-          }
-          Divider()
-          ForEach(ReaderScrollDirection.allCases, id: \.self) { direction in
-            Button {
-              model.setScrollDirection(direction)
-            } label: {
-              Label(directionTitle(direction), systemImage: model.readingState.scrollDirection == direction ? "checkmark" : "")
-            }
-          }
-          if regular {
-            Divider()
-            Button(L10n.string("ios.compare"), systemImage: "rectangle.split.2x1", action: onCompare)
-              .disabled(model.translationCoordinator == nil)
-          }
-        } label: {
-          Label(L10n.string("menu.extra.messages.Layout"), systemImage: "rectangle.split.2x1")
-        }
-
-        Button(action: onSearch) {
-          Label(L10n.string("toolbar.searchDocument"), systemImage: "magnifyingglass")
+          .accessibilityIdentifier("reader.toggleAnnotations")
         }
 
         Button {
           model.toggleTranslations()
         } label: {
-          Label(
-            model.translationCoordinator?.showTranslations == true
-              ? L10n.string("toolbar.showOriginalText")
-              : L10n.string("toolbar.showTranslatedText"),
-            systemImage: model.translationCoordinator?.showTranslations == true
-              ? "text.page"
-              : "character.book.closed"
-          )
+          if translateAll.isRunning {
+            Label {
+              Text(L10n.string("toolbar.translating", String(Int(translateAll.progress.fraction * 100))))
+            } icon: {
+              TranslationProgressRing(fraction: translateAll.progress.fraction)
+            }
+          } else {
+            Label(
+              model.translationCoordinator?.showTranslations == true
+                ? L10n.string("toolbar.showOriginalText")
+                : L10n.string("toolbar.showTranslatedText"),
+              systemImage: model.translationCoordinator?.showTranslations == true
+                ? "text.page"
+                : "character.book.closed"
+            )
+          }
         }
         .accessibilityIdentifier("reader.toggleTranslations")
 
-        if let coordinator = model.translationCoordinator {
-          TranslateAllPagesButton(coordinator: coordinator)
+        Button(action: onSearch) {
+          Label(L10n.string("toolbar.searchDocument"), systemImage: "magnifyingglass")
         }
+
+        Menu {
+          moreMenu
+        } label: {
+          Label(L10n.string("parallel.more"), systemImage: "ellipsis")
+        }
+        .accessibilityIdentifier("reader.moreMenu")
       }
     }
     .fileImporter(
@@ -383,6 +394,74 @@ private struct ReaderDetail: View {
       Button(L10n.string("ios.ok")) { importError = nil }
     } message: {
       Text(importError ?? "")
+    }
+  }
+
+  @ViewBuilder
+  private var moreMenu: some View {
+    Section {
+      Button {
+        translateAll.isRunning ? translateAll.cancel() : translateAll.start()
+      } label: {
+        Label {
+          Text(translateAll.menuTitle)
+          if let subtitle = translateAll.menuSubtitle { Text(subtitle) }
+        } icon: {
+          Image(systemName: translateAll.menuSymbol)
+        }
+      }
+      .disabled(translateAll.isFinished && !translateAll.isRunning)
+      .accessibilityIdentifier("reader.translateAllPages")
+
+      if regular {
+        Button(L10n.string("ios.compare"), systemImage: "rectangle.split.2x1", action: onCompare)
+      }
+    }
+
+    Section {
+      Menu {
+        Button(L10n.string("toolbar.zoomIn"), systemImage: "plus.magnifyingglass") { model.zoomIn() }
+        Button(L10n.string("toolbar.zoomOut"), systemImage: "minus.magnifyingglass") { model.zoomOut() }
+        Divider()
+        ForEach(ReaderScaleMode.allCases, id: \.self) { mode in
+          Button {
+            model.setScaleMode(mode)
+          } label: {
+            Label(scaleTitle(mode), systemImage: model.readingState.scaleMode == mode ? "checkmark" : "")
+          }
+        }
+      } label: {
+        Label(L10n.string("toolbar.zoom"), systemImage: "plus.magnifyingglass")
+      }
+
+      Menu {
+        ForEach(ReaderDisplayMode.allCases, id: \.self) { mode in
+          Button {
+            model.setDisplayMode(mode)
+          } label: {
+            Label(displayTitle(mode), systemImage: model.readingState.displayMode == mode ? "checkmark" : "")
+          }
+        }
+        Divider()
+        ForEach(ReaderScrollDirection.allCases, id: \.self) { direction in
+          Button {
+            model.setScrollDirection(direction)
+          } label: {
+            Label(directionTitle(direction), systemImage: model.readingState.scrollDirection == direction ? "checkmark" : "")
+          }
+        }
+      } label: {
+        Label(L10n.string("menu.extra.messages.Layout"), systemImage: "rectangle.split.2x1")
+      }
+    }
+
+    Section {
+      Menu {
+        Button(ReaderExportKind.original.title, systemImage: "doc") { onExport(.original) }
+        Button(ReaderExportKind.translated.title, systemImage: "character.book.closed") { onExport(.translated) }
+      } label: {
+        Label(L10n.string("ios.export"), systemImage: "square.and.arrow.up")
+      }
     }
   }
 
@@ -559,3 +638,21 @@ private struct TranslationStatusProbe: View {
   }
 }
 #endif
+
+/// Desktop-style progress ring shown on the translation toggle while every
+/// page is being translated.
+private struct TranslationProgressRing: View {
+  let fraction: Double
+
+  var body: some View {
+    ZStack {
+      Circle().stroke(.secondary.opacity(0.3), lineWidth: 2.5)
+      Circle()
+        .trim(from: 0, to: max(0.02, fraction))
+        .stroke(.tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+        .rotationEffect(.degrees(-90))
+    }
+    .frame(width: 18, height: 18)
+    .animation(.easeOut(duration: 0.2), value: fraction)
+  }
+}

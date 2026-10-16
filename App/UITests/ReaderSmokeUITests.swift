@@ -221,6 +221,49 @@ final class ReaderSmokeUITests: XCTestCase {
     attachScreenshot(app, name: "pager-hidden")
   }
 
+  /// Top-right toolbar matches the desktop: annotation visibility,
+  /// translation, search, and one menu for everything else. Expects
+  /// `sample.pdf` to carry at least one highlight.
+  @MainActor
+  func testTrailingToolbarLayout() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
+    app.launch()
+    XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30), "Reader did not open")
+
+    let bar = app.navigationBars.firstMatch
+    let eye = bar.buttons["reader.toggleAnnotations"]
+    let translation = bar.buttons["reader.toggleTranslations"]
+    let search = bar.buttons["Search document"]
+    let more = bar.buttons["reader.moreMenu"]
+    for (button, name) in [(eye, "annotations"), (translation, "translation"), (search, "search"), (more, "menu")] {
+      XCTAssertTrue(button.waitForExistence(timeout: 5), "No \(name) button in the toolbar")
+      XCTAssertTrue(button.isHittable, "\(name) button is not directly in the toolbar")
+    }
+    XCTAssertLessThan(eye.frame.minX, translation.frame.minX)
+    XCTAssertLessThan(translation.frame.minX, search.frame.minX)
+    XCTAssertLessThan(search.frame.minX, more.frame.minX)
+    for moved in ["Zoom", "Layout", "Export PDF"] {
+      XCTAssertFalse(bar.buttons[moved].exists, "\(moved) should live in the menu")
+    }
+    attachScreenshot(app, name: "1-toolbar")
+
+    XCTAssertEqual(eye.label, "Hide highlights and comments")
+    eye.tap()
+    XCTAssertEqual(eye.label, "Show highlights and comments")
+    sleep(1)
+    attachScreenshot(app, name: "2-annotations-hidden")
+    eye.tap()
+    XCTAssertEqual(eye.label, "Hide highlights and comments")
+
+    more.tap()
+    for item in ["Zoom", "Layout", "Export"] {
+      XCTAssertTrue(app.buttons[item].firstMatch.waitForExistence(timeout: 3), "\(item) missing from the menu")
+    }
+    XCTAssertTrue(app.buttons["reader.translateAllPages"].firstMatch.exists, "Translate all pages missing from the menu")
+    attachScreenshot(app, name: "3-menu")
+  }
+
   /// iPad reader: the sidebar's close button closes the document window and
   /// returns to the library.
   @MainActor

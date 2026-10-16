@@ -4,7 +4,7 @@ import ReaderCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum ReaderExportKind {
+enum ReaderExportKind {
   case original
   case translated
 
@@ -40,6 +40,8 @@ struct ReaderExportModifier: ViewModifier {
   let originalName: String
   let annotations: [ReaderAnnotation]
   let coordinator: ReaderTranslationCoordinator?
+  /// Set by the reader's menu; consumed here.
+  @Binding var request: ReaderExportKind?
 
   @State private var isExporting = false
   @State private var progress = 0.0
@@ -53,35 +55,32 @@ struct ReaderExportModifier: ViewModifier {
     document: PDFDocument,
     originalName: String,
     annotations: [ReaderAnnotation] = [],
-    coordinator: ReaderTranslationCoordinator? = nil
+    coordinator: ReaderTranslationCoordinator? = nil,
+    request: Binding<ReaderExportKind?>
   ) {
     self.document = document
     self.originalName = originalName
     self.annotations = annotations
     self.coordinator = coordinator
+    _request = request
   }
 
   func body(content: Content) -> some View {
     content
-      .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          if isExporting {
-            ProgressView(value: progress)
-              .frame(width: 76)
-              .accessibilityLabel(L10n.string("ios.exportingPDF"))
-          } else {
-            Menu {
-              Button(ReaderExportKind.original.title, systemImage: "doc") {
-                beginExport(.original)
-              }
-              Button(ReaderExportKind.translated.title, systemImage: "character.book.closed") {
-                beginExport(.translated)
-              }
-            } label: {
-              Label(L10n.string("ios.export"), systemImage: "square.and.arrow.up")
-            }
-            .accessibilityLabel(L10n.string("ios.exportPDF"))
-          }
+      .onChange(of: request) { _, kind in
+        guard let kind else { return }
+        request = nil
+        beginExport(kind)
+      }
+      .overlay(alignment: .top) {
+        if isExporting {
+          ProgressView(value: progress)
+            .frame(width: 120)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.regularMaterial, in: Capsule())
+            .padding(.top, 8)
+            .accessibilityLabel(L10n.string("ios.exportingPDF"))
         }
       }
       .sheet(item: $preparedExport) { export in
@@ -239,14 +238,16 @@ extension View {
     document: PDFDocument,
     originalName: String,
     annotations: [ReaderAnnotation] = [],
-    coordinator: ReaderTranslationCoordinator? = nil
+    coordinator: ReaderTranslationCoordinator? = nil,
+    request: Binding<ReaderExportKind?>
   ) -> some View {
     modifier(
       ReaderExportModifier(
         document: document,
         originalName: originalName,
         annotations: annotations,
-        coordinator: coordinator
+        coordinator: coordinator,
+        request: request
       )
     )
   }
