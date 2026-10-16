@@ -12,6 +12,55 @@ final class ReaderSmokeUITests: XCTestCase {
   /// saved on the device; the app keeps the saved choice on disk.
   private let freeService = ["-PMRTranslationService", "siliconFlowFree"]
 
+  @MainActor
+  func testSwipeToToggleSidebar() throws {
+    try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad split sidebar")
+    XCUIDevice.shared.orientation = .portrait
+    defer { XCUIDevice.shared.orientation = .portrait }
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
+    app.launch()
+    XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30), "Reader did not open")
+
+    let close = app.buttons["reader.closeDocument"].firstMatch
+    let hidden = NSPredicate(format: "exists == false OR isHittable == false")
+    let visible = NSPredicate(format: "exists == true AND isHittable == true")
+    func waitForSidebar(_ predicate: NSPredicate) {
+      XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: close)], timeout: 5), .completed)
+    }
+    waitForSidebar(hidden)
+    let sidebarButton = app.buttons.matching(
+      NSPredicate(format: "identifier == %@ OR label CONTAINS[c] %@", "ToggleSidebar", "Sidebar")
+    ).firstMatch
+    XCTAssertTrue(sidebarButton.waitForExistence(timeout: 5))
+    sidebarButton.tap()
+    waitForSidebar(visible)
+    let thumbnail = app.buttons["reader.thumbnail.1"].firstMatch
+    XCTAssertTrue(thumbnail.waitForExistence(timeout: 5))
+    let buttonOpenedFrame = thumbnail.frame
+    let initialSidebar = close.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 180, dy: 350))
+    initialSidebar.press(forDuration: 0.05, thenDragTo: initialSidebar.withOffset(CGVector(dx: -140, dy: 0)))
+    waitForSidebar(hidden)
+    let window = app.windows.firstMatch
+    // Start inside the reader's 32-point leading edge, below its toolbar.
+    let edge = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+      .withOffset(CGVector(dx: 16, dy: 0))
+    edge.press(forDuration: 0.05, thenDragTo: edge.withOffset(CGVector(dx: 180, dy: 0)))
+    waitForSidebar(visible)
+    XCTAssertEqual(thumbnail.frame.minX, buttonOpenedFrame.minX, accuracy: 2)
+    XCTAssertEqual(thumbnail.frame.width, buttonOpenedFrame.width, accuracy: 2)
+    XCTAssertFalse(app.navigationBars["Reader tools"].exists, "Swipe opened a sheet instead of the system sidebar")
+
+    // A vertical thumbnail scroll must leave the sidebar open.
+    let sidebar = close.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 180, dy: 350))
+    sidebar.press(forDuration: 0.05, thenDragTo: sidebar.withOffset(CGVector(dx: 0, dy: -150)))
+    waitForSidebar(visible)
+    sidebar.press(forDuration: 0.05, thenDragTo: sidebar.withOffset(CGVector(dx: -140, dy: 0)))
+    waitForSidebar(hidden)
+  }
+
   /// Apple on-device translation either translates or names the missing
   /// language download, never the framework's bare "Unable to Translate".
   @MainActor

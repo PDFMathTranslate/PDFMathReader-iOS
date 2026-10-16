@@ -69,6 +69,7 @@ struct ReaderView: View {
         if horizontalSizeClass == .regular {
           NavigationSplitView(columnVisibility: $columnVisibility) {
             ReaderSidebar(model: model, annotations: annotationModel, mode: $sidebarMode)
+              .navigationSplitViewColumnWidth(256)
               .navigationTitle(L10n.string("ios.reader"))
               .navigationBarTitleDisplayMode(.inline)
               .toolbar {
@@ -596,35 +597,37 @@ private struct ReaderThumbnailList: View {
   @ObservedObject var model: ReaderViewModel
 
   var body: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        LazyVStack(spacing: 16) {
-          ForEach(0..<model.pageCount, id: \.self) { index in
-            if let page = model.document?.page(at: index) {
-              Button {
-                model.goToPage(index + 1)
-              } label: {
-                ReaderThumbnail(
-                  page: page,
-                  number: index + 1,
-                  isSelected: model.readingState.page == index + 1
-                )
+    GeometryReader { geometry in
+      ScrollViewReader { proxy in
+        ScrollView {
+          LazyVStack(spacing: 16) {
+            ForEach(0..<model.pageCount, id: \.self) { index in
+              if let page = model.document?.page(at: index) {
+                Button {
+                  model.goToPage(index + 1)
+                } label: {
+                  ReaderThumbnail(
+                    page: page,
+                    number: index + 1,
+                    width: geometry.size.width * 0.9,
+                    isSelected: model.readingState.page == index + 1
+                  )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.string("sidebar.page", String(index + 1)))
+                .accessibilityAddTraits(model.readingState.page == index + 1 ? .isSelected : [])
+                .accessibilityIdentifier("reader.thumbnail.\(index + 1)")
+                .id(index + 1)
               }
-              .buttonStyle(.plain)
-              .accessibilityLabel(L10n.string("sidebar.page", String(index + 1)))
-              .accessibilityAddTraits(model.readingState.page == index + 1 ? .isSelected : [])
-              .accessibilityIdentifier("reader.thumbnail.\(index + 1)")
-              .id(index + 1)
             }
           }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 16)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-      }
-      .task { proxy.scrollTo(model.readingState.page, anchor: .center) }
-      .onChange(of: model.readingState.page) { _, page in
-        proxy.scrollTo(page, anchor: .center)
+        .task { proxy.scrollTo(model.readingState.page, anchor: .center) }
+        .onChange(of: model.readingState.page) { _, page in
+          proxy.scrollTo(page, anchor: .center)
+        }
       }
     }
   }
@@ -633,6 +636,7 @@ private struct ReaderThumbnailList: View {
 private struct ReaderThumbnail: View {
   let page: PDFPage
   let number: Int
+  let width: CGFloat
   let isSelected: Bool
   @State private var image: UIImage?
   @ScaledMetric(relativeTo: .caption) private var labelHeight = 20
@@ -646,7 +650,7 @@ private struct ReaderThumbnail: View {
           Rectangle().fill(.quaternary)
         }
       }
-      .frame(width: 140, height: 188)
+      .frame(width: max(0, width - 12), height: max(0, width - 12) * 188 / 140)
       .padding(6)
       .background(isSelected ? Color.accentColor.opacity(0.12) : .clear,
                   in: RoundedRectangle(cornerRadius: 8))
