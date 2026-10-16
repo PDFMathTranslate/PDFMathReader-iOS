@@ -78,7 +78,7 @@ struct ReaderView: View {
         if horizontalSizeClass == .regular {
           NavigationSplitView(columnVisibility: $columnVisibility) {
             ReaderSidebar(model: model, annotations: annotationModel, drawings: drawingModel, mode: $sidebarMode)
-              .navigationSplitViewColumnWidth(256)
+              .navigationSplitViewColumnWidth(204.8)
               .simultaneousGesture(sidebarDismissGesture)
               .navigationTitle(L10n.string("ios.reader"))
               .navigationBarTitleDisplayMode(.inline)
@@ -756,7 +756,7 @@ private struct ReaderThumbnailList: View {
                     page: page,
                     session: model.session,
                     number: index + 1,
-                    width: geometry.size.width * 0.9,
+                    width: geometry.size.width * 0.9 * 0.6,
                     isSelected: model.readingState.page == index + 1
                   )
                 }
