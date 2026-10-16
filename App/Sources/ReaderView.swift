@@ -49,6 +49,14 @@ struct ReaderView: View {
     self.onClose = onClose
   }
 
+  init(tab: ReaderTab, onClose: @escaping () -> Void) {
+    _model = StateObject(wrappedValue: tab.model)
+    _annotationModel = StateObject(wrappedValue: tab.annotations)
+    _drawingModel = StateObject(wrappedValue: tab.drawings)
+    _columnVisibility = State(initialValue: Self.defaultColumnVisibility(landscape: Self.sceneIsLandscape()))
+    self.onClose = onClose
+  }
+
   private static func defaultColumnVisibility(landscape: Bool) -> NavigationSplitViewVisibility {
     landscape ? .all : .detailOnly
   }
@@ -320,6 +328,8 @@ private struct ReaderDetail: View {
   @ObservedObject var drawings: ReaderDrawingModel
   @Environment(\.readerPageOverlayProvider) private var environmentOverlayProvider
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.openReaderTab) private var openReaderTab
+  @Environment(\.readerTabStrip) private var readerTabStrip
   @State private var isImporting = false
   @State private var importError: String?
   @StateObject private var pagerVisibility = ReaderPagerVisibility()
@@ -399,6 +409,9 @@ private struct ReaderDetail: View {
       }
     }
     #endif
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if let readerTabStrip { readerTabStrip() }
+    }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       if !regular {
         PDFThumbnailRepresentable(reference: model.pdfViewReference, horizontal: true)
@@ -487,7 +500,11 @@ private struct ReaderDetail: View {
           model.library.lastError = nil
           return
         }
-        openWindow(value: model.library.windowValue(for: session))
+        if let openReaderTab {
+          openReaderTab(session)
+        } else {
+          openWindow(value: model.library.windowValue(for: session))
+        }
       case .failure:
         importError = L10n.string("ios.importPDFFailed")
       }

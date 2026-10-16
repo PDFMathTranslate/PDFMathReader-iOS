@@ -30,55 +30,9 @@ struct SceneSessionReader: UIViewRepresentable {
 }
 
 struct RootView: View {
-  @EnvironmentObject private var library: LibraryModel
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(\.openWindow) private var openWindow
-  @State private var compactSession: DocumentSession?
-
   var body: some View {
-    NavigationStack {
-      LibraryView { session in
-        open(session)
-      }
-      .navigationDestination(item: $compactSession) { session in
-        ReaderView(session: session, library: library) { compactSession = nil }
-      }
-    }
-    .background(SceneSessionReader { LibraryScene.session = $0 })
-    .preferredColorScheme(library.preferences.theme.colorScheme)
-    .onOpenURL { url in
-      guard let session = library.receiveExternalPDF(at: url) else { return }
-      open(session)
-    }
-    #if DEBUG
-    .task {
-      if let url = library.consumeLaunchArgumentPDF() { open(url: url) }
-    }
-    #endif
-    .alert(
-      "PDFMathReader",
-      isPresented: Binding(
-        get: { library.lastError != nil },
-        set: { if !$0 { library.lastError = nil } }
-      )
-    ) {
-      Button(L10n.string("ios.ok")) { library.lastError = nil }
-    } message: {
-      Text(library.lastError ?? "")
-    }
-  }
-
-  private func open(url: URL) {
-    guard let session = library.makeSession(for: url) else { return }
-    open(session)
-  }
-
-  private func open(_ session: DocumentSession) {
-    if horizontalSizeClass == .regular {
-      openWindow(value: library.windowValue(for: session))
-    } else {
-      compactSession = session
-    }
+    ReaderWorkspace()
+      .background(SceneSessionReader { LibraryScene.session = $0 })
   }
 }
 
@@ -90,12 +44,11 @@ struct ReaderWindow: View {
   @State private var session: DocumentSession?
   @State private var failure: String?
   @State private var sceneSession: UISceneSession?
-  @State private var incomingError: String?
 
   var body: some View {
     Group {
       if let session {
-        ReaderView(session: session, library: library) { closeDocument() }
+        ReaderWorkspace(initialSession: session, onEmpty: closeDocument)
       } else if let failure {
         // The library window's alert may be hidden; report the failure here
         // instead of spinning forever.
@@ -111,28 +64,7 @@ struct ReaderWindow: View {
       }
     }
     .background(SceneSessionReader { sceneSession = $0 })
-    .onOpenURL { url in
-      guard let received = library.receiveExternalPDF(at: url) else {
-        incomingError = library.lastError
-        library.lastError = nil
-        return
-      }
-      openWindow(value: library.windowValue(for: received))
-    }
-    .alert("PDFMathReader", isPresented: Binding(
-      get: { incomingError != nil },
-      set: { if !$0 { incomingError = nil } }
-    )) {
-      Button(L10n.string("ios.ok")) { incomingError = nil }
-    } message: {
-      Text(incomingError ?? "")
-    }
     .task {
-      #if DEBUG
-      if let url = library.consumeLaunchArgumentPDF(), let launched = library.makeSession(for: url) {
-        openWindow(value: library.windowValue(for: launched))
-      }
-      #endif
       guard session == nil, failure == nil else { return }
       session = library.session(
         for: value,
