@@ -8,10 +8,6 @@ import FoundationNetworking
 public enum CompanionKernel {
   public static let fast = "pdf_math_fast"
   public static let precise = "pdf_math_precise"
-
-  /// Translation services the computer may use for a page. `auto` lets the
-  /// computer choose; credentials never leave this device.
-  public static let services: Set<String> = ["auto", "siliconflow-free", "apple-local"]
 }
 
 /// Strips the separators people type between pairing-code groups, matching the
@@ -60,6 +56,64 @@ public struct CompanionComputer: Codable, Sendable, Equatable {
   }
 }
 
+/// Public configuration only. Provider credentials remain on the computer.
+public struct CompanionTranslationService: Codable, Sendable, Equatable, Identifiable {
+  public let id: String
+  public let name: String
+  public let sourceLanguages: [TranslationLanguageOption]?
+  public let targetLanguages: [TranslationLanguageOption]?
+  public let kernels: [CompanionTranslationKernel]?
+
+  public init(id: String, name: String, sourceLanguages: [TranslationLanguageOption]? = nil,
+              targetLanguages: [TranslationLanguageOption]? = nil, kernels: [CompanionTranslationKernel]? = nil) {
+    self.id = id
+    self.name = name
+    self.sourceLanguages = sourceLanguages
+    self.targetLanguages = targetLanguages
+    self.kernels = kernels
+  }
+}
+
+public struct CompanionTranslationKernel: Codable, Sendable, Equatable, Identifiable {
+  public let id: String
+  public let sourceLanguages: [TranslationLanguageOption]
+  public let targetLanguages: [TranslationLanguageOption]
+
+  public init(id: String, sourceLanguages: [TranslationLanguageOption], targetLanguages: [TranslationLanguageOption]) {
+    self.id = id
+    self.sourceLanguages = sourceLanguages
+    self.targetLanguages = targetLanguages
+  }
+}
+
+public struct CompanionTranslationOptions: Codable, Sendable, Equatable {
+  public let services: [CompanionTranslationService]
+  public let kernels: [CompanionTranslationKernel]
+
+  public init(services: [CompanionTranslationService], kernels: [CompanionTranslationKernel]) {
+    self.services = services
+    self.kernels = kernels
+  }
+
+  /// Both the kernel and selected service must support the language. A missing
+  /// service language list means that the kernel list is authoritative.
+  public func languages(engine: String, service: String, direction: String) -> [TranslationLanguageOption] {
+    guard let kernel = kernels.first(where: { $0.id == engine }),
+          let provider = services.first(where: { $0.id == service }) else { return [] }
+    let kernelLanguages = direction == "source" ? kernel.sourceLanguages : kernel.targetLanguages
+    if let serviceKernels = provider.kernels {
+      guard let supportedKernel = serviceKernels.first(where: { $0.id == engine }) else { return [] }
+      let supported = direction == "source" ? supportedKernel.sourceLanguages : supportedKernel.targetLanguages
+      let codes = Set(supported.map(\.code))
+      return kernelLanguages.filter { codes.contains($0.code) }
+    }
+    let serviceLanguages = direction == "source" ? provider.sourceLanguages : provider.targetLanguages
+    guard let serviceLanguages else { return kernelLanguages }
+    let codes = Set(serviceLanguages.map(\.code))
+    return kernelLanguages.filter { codes.contains($0.code) }
+  }
+}
+
 public struct CompanionHealth: Codable, Sendable, Equatable {
   /// The computer answered with a compatible protocol and accepted the code.
   public let ok: Bool
@@ -67,19 +121,22 @@ public struct CompanionHealth: Codable, Sendable, Equatable {
   public let reason: String
   public let kernels: [CompanionKernelStatus]
   public let computer: CompanionComputer?
+  public let translation: CompanionTranslationOptions?
 
   public init(
     ok: Bool,
     version: String = "",
     reason: String = "",
     kernels: [CompanionKernelStatus] = [],
-    computer: CompanionComputer? = nil
+    computer: CompanionComputer? = nil,
+    translation: CompanionTranslationOptions? = nil
   ) {
     self.ok = ok
     self.version = version
     self.reason = reason
     self.kernels = kernels
     self.computer = computer
+    self.translation = translation
   }
 
   public func isAvailable(_ engine: String) -> Bool {
@@ -186,6 +243,7 @@ public actor CompanionKernelClient {
     var version: String?
     var kernels: [CompanionKernelStatus]?
     var computer: CompanionComputer?
+    var translation: CompanionTranslationOptions?
   }
 
   private struct JobBody: Decodable {
@@ -258,7 +316,8 @@ public actor CompanionKernelClient {
           ok: true,
           version: body.version ?? "",
           kernels: body.kernels ?? [],
-          computer: body.computer
+          computer: body.computer,
+          translation: body.translation
         )
       }
     } catch is CancellationError {
@@ -309,7 +368,7 @@ public actor CompanionKernelClient {
         engine: engine,
         language: language,
         sourceLanguage: source?.isEmpty == false ? source : nil,
-        service: CompanionKernel.services.contains(service) ? service : "auto",
+        service: service.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "auto" : service,
         glossary: Array(terms.prefix(5000)),
         pdf: bytes.base64EncodedString()
       )

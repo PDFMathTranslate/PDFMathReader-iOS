@@ -55,6 +55,8 @@ struct SettingsView: View {
   @State private var draft = ReaderPreferences()
   @State private var apiKey = ""
   @State private var didLoadAPIKey = false
+  @StateObject private var availability = ReaderKernelMenuAvailability()
+  @State private var pairingRevision = 0
   private let credentialStore = KeychainCredentialStore()
 
   var body: some View {
@@ -80,12 +82,12 @@ struct SettingsView: View {
         Section {
           Picker(L10n.string("settings.sourceLanguage"), selection: $draft.sourceLanguage) {
             Text(L10n.string("settings.automaticDetection")).tag("")
-            ForEach(translationLanguageOptions) { option in
+            ForEach(availability.languages(draft, direction: "source")) { option in
               Text(translationLanguageLabel(option.name, locale: L10n.locale.identifier)).tag(option.code)
             }
           }
           Picker(L10n.string("settings.translationLanguage"), selection: $draft.targetLanguage) {
-            ForEach(translationLanguageOptions) { option in
+            ForEach(availability.languages(draft, direction: "target")) { option in
               Text(translationLanguageLabel(option.name, locale: L10n.locale.identifier)).tag(option.code)
             }
           }
@@ -118,16 +120,31 @@ struct SettingsView: View {
         }
 
         Section {
-          Picker(L10n.string("settings.translationService"), selection: $draft.translationService) {
-            ForEach(availableServices, id: \.self) { service in
-              Text(service.displayName).tag(service)
+          if availability.usesComputer(draft) {
+            if availability.services(draft).isEmpty {
+              LabeledContent(L10n.string("settings.translationService")) {
+                Text(draft.companionService == "auto" ? L10n.string("settings.translationServiceAuto") : draft.companionService)
+              }
+            } else {
+              Picker(L10n.string("settings.translationService"), selection: $draft.companionService) {
+                ForEach(availability.services(draft)) { service in
+                  Text(service.id == "auto" ? L10n.string("settings.translationServiceAuto") : service.name).tag(service.id)
+                }
+              }
+              .accessibilityIdentifier("settings.companionService")
             }
-          }
-          if draft.translationService == .appleOnDevice {
-            AppleTranslationLanguagesRow(
-              sourceLanguage: draft.sourceLanguage,
-              targetLanguage: draft.targetLanguage
-            )
+          } else {
+            Picker(L10n.string("settings.translationService"), selection: $draft.translationService) {
+              ForEach(availableServices, id: \.self) { service in
+                Text(service.displayName).tag(service)
+              }
+            }
+            if draft.translationService == .appleOnDevice {
+              AppleTranslationLanguagesRow(
+                sourceLanguage: draft.sourceLanguage,
+                targetLanguage: draft.targetLanguage
+              )
+            }
           }
         } header: {
           Text(L10n.string("settings.translationService"))
@@ -135,7 +152,7 @@ struct SettingsView: View {
           Text(translationDataDisclosure)
         }
 
-        if draft.translationService == .openAICompatible {
+        if draft.engine == .ultraFast && draft.translationService == .openAICompatible {
           Section {
             TextField(L10n.string("ios.baseURL"), text: $draft.openAIBaseURL)
               .textInputAutocapitalization(.never)
@@ -218,6 +235,19 @@ struct SettingsView: View {
         didLoadAPIKey = true
       }
     }
+    .task(id: [draft.companionURL, draft.remoteKernelURL, String(draft.remoteKernelEnabled), String(pairingRevision)]) {
+      availability.reset()
+      while !Task.isCancelled {
+        await availability.refresh(draft)
+        availability.normalizeSelection(&draft)
+        do { try await Task.sleep(for: .seconds(15)) } catch { return }
+      }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .companionPairingCodeDidChange)) { _ in
+      pairingRevision &+= 1
+    }
+    .onChange(of: draft.engine) { _, _ in availability.normalizeSelection(&draft) }
+    .onChange(of: draft.companionService) { _, _ in availability.normalizeSelection(&draft) }
     .onChange(of: draft.uiLanguage) { _, language in
       // Apply immediately while preserving the rest of the in-progress form.
       var preferences = library.preferences
@@ -274,6 +304,7 @@ struct SettingsView: View {
   }
 
   private var translationDataDisclosure: String {
+    if draft.engine != .ultraFast { return L10n.string("ios.disclosureRemoteKernel") }
     var lines: [String] = []
     switch draft.translationService {
     case .siliconFlowFree: lines.append(L10n.string("ios.disclosureFreeProxy"))

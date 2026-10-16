@@ -11,11 +11,69 @@ final class ReaderKernelMenuAvailability: ObservableObject {
   @Published private(set) var appleLanguages: Set<String> = []
   private let companion: CompanionKernelClient
   private let remote: RemoteKernelClient
-  private var computerHealth: CompanionHealth?
+  private let readPairingCode: @Sendable () async -> String?
+  @Published private(set) var computerHealth: CompanionHealth?
 
-  init(companion: CompanionKernelClient = .init(), remote: RemoteKernelClient = .init()) {
+  init(
+    companion: CompanionKernelClient = .init(), remote: RemoteKernelClient = .init(),
+    readPairingCode: @escaping @Sendable () async -> String? = {
+      try? await KeychainCredentialStore().read(account: companionPairingCodeAccount)
+    }
+  ) {
     self.companion = companion
     self.remote = remote
+    self.readPairingCode = readPairingCode
+  }
+
+  func usesComputer(_ preferences: ReaderPreferences) -> Bool {
+    preferences.engine != .ultraFast && !(preferences.engine == .precise && remotePreciseAvailable)
+  }
+
+  func services(_ preferences: ReaderPreferences) -> [CompanionTranslationService] {
+    guard usesComputer(preferences), computerHealth?.ok == true else { return [] }
+    if let translation = computerHealth?.translation {
+      let engine = preferences.engine == .fast ? CompanionKernel.fast : CompanionKernel.precise
+      return translation.services.filter { service in
+        service.kernels.map { $0.contains(where: { $0.id == engine }) } ?? true
+      }
+    }
+    // Compatibility with computers predating capability sharing.
+    return [
+      .init(id: "auto", name: "Automatic"),
+      .init(id: "siliconflow-free", name: ReaderTranslationService.siliconFlowFree.displayName),
+      .init(id: "apple-local", name: ReaderTranslationService.appleOnDevice.displayName)
+    ]
+  }
+
+  func languages(_ preferences: ReaderPreferences, direction: String) -> [TranslationLanguageOption] {
+    let engine = preferences.engine == .ultraFast ? "pdf_inspector"
+      : preferences.engine == .fast ? CompanionKernel.fast : CompanionKernel.precise
+    if usesComputer(preferences), computerHealth?.ok == true,
+       let translation = computerHealth?.translation {
+      return translation.languages(engine: engine, service: preferences.companionService, direction: direction)
+    }
+    let supported = translationLanguagesForKernel(engine, direction: direction)
+    return translationLanguageOptions.filter { supported.contains($0.name) }
+  }
+
+  func hasComputerOptions(_ preferences: ReaderPreferences) -> Bool {
+    usesComputer(preferences) && computerHealth?.ok == true && computerHealth?.translation != nil
+  }
+
+  func normalizeSelection(_ preferences: inout ReaderPreferences) {
+    guard hasComputerOptions(preferences) else { return }
+    let providers = services(preferences)
+    if !providers.contains(where: { $0.id == preferences.companionService }) {
+      preferences.companionService = providers.first(where: { $0.id == "auto" })?.id ?? providers.first?.id ?? "auto"
+    }
+    let targets = languages(preferences, direction: "target")
+    if !targets.contains(where: { $0.code == preferences.targetLanguage }), let first = targets.first {
+      preferences.targetLanguage = first.code
+    }
+    if !preferences.sourceLanguage.isEmpty,
+       !languages(preferences, direction: "source").contains(where: { $0.code == preferences.sourceLanguage }) {
+      preferences.sourceLanguage = ""
+    }
   }
 
   func loadAppleLanguages() async {
@@ -65,7 +123,7 @@ final class ReaderKernelMenuAvailability: ObservableObject {
   private func computerHealth(_ address: String) async -> CompanionHealth? {
     let url = normalizeCompanionURL(address)
     guard !url.isEmpty,
-      let code = try? await KeychainCredentialStore().read(account: companionPairingCodeAccount),
+      let code = await readPairingCode(),
       !code.isEmpty else { return nil }
     return await companion.health(url, pairingCode: code, force: true)
   }
@@ -104,6 +162,9 @@ struct ReaderKernelAvailabilityMonitor: View {
         }
         while !Task.isCancelled {
           await availability.refresh(library.preferences)
+          var preferences = library.preferences
+          availability.normalizeSelection(&preferences)
+          if preferences != library.preferences { library.savePreferences(preferences) }
           do { try await Task.sleep(for: .seconds(15)) }
           catch { return }
         }
@@ -150,12 +211,13 @@ struct ReaderTranslationMenu: View {
           Button {
             var value = library.preferences
             value.engine = engine
-            let languages = translationLanguagesForKernel(kernelID(engine))
+            let languages = availability.languages(value, direction: "target").map(\.name)
             if let current = translationLanguageOptions.first(where: { $0.code == value.targetLanguage }),
                !languages.contains(current.name),
                let fallback = translationLanguageOptions.first(where: { languages.contains($0.name) }) {
               value.targetLanguage = fallback.code
             }
+            availability.normalizeSelection(&value)
             onChange(value)
           } label: {
             if engine == library.preferences.engine {
@@ -170,6 +232,18 @@ struct ReaderTranslationMenu: View {
         Label(L10n.string("recentStatus.engine"), systemImage: "cpu")
       }
       .accessibilityIdentifier("reader.kernel")
+
+      if !availability.services(library.preferences).isEmpty {
+        Picker(selection: preference(\.companionService)) {
+          ForEach(availability.services(library.preferences)) { service in
+            Text(service.id == "auto" ? L10n.string("settings.translationServiceAuto") : service.name).tag(service.id)
+          }
+        } label: {
+          Label(L10n.string("settings.translationService"), systemImage: "desktopcomputer")
+        }
+        .pickerStyle(.menu)
+        .accessibilityIdentifier("reader.companionService")
+      }
 
       Picker(selection: preference(\.translationMode)) {
         ForEach(TranslationMode.allCases, id: \.self) { mode in
@@ -200,16 +274,14 @@ struct ReaderTranslationMenu: View {
 
   @ViewBuilder
   private func languageChoices(direction: String, current: String) -> some View {
-    let supported = translationLanguagesForKernel(kernelID(library.preferences.engine), direction: direction)
     let appleOnly = library.preferences.engine == .ultraFast && library.preferences.translationService == .appleOnDevice
-    let options = translationLanguageOptions.filter { option in
-      guard supported.contains(option.name) else { return false }
+    let options = availability.languages(library.preferences, direction: direction).filter { option in
       guard appleOnly else { return true }
       let language = AppleTranslationLanguages(source: option.code, target: option.code).target
       return availability.appleLanguages.contains(language.minimalIdentifier)
     }
     // Custom codes remain usable by the general translation services.
-    if !current.isEmpty, !appleOnly,
+    if !current.isEmpty, !appleOnly, !availability.hasComputerOptions(library.preferences),
        !translationLanguageOptions.contains(where: { $0.code == current }) {
       Text(languageLabel(current)).tag(current)
     }
@@ -229,16 +301,10 @@ struct ReaderTranslationMenu: View {
       set: { selection in
         var value = library.preferences
         value[keyPath: keyPath] = selection
+        availability.normalizeSelection(&value)
         onChange(value)
       }
     )
   }
 
-  private func kernelID(_ engine: ReaderEngine) -> String {
-    switch engine {
-    case .ultraFast: "pdf_inspector"
-    case .fast: CompanionKernel.fast
-    case .precise: CompanionKernel.precise
-    }
-  }
 }

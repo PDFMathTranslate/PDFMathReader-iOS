@@ -39,6 +39,8 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
   public var remoteKernelService: String
   /// PDFMathReader on the user's computer, which serves its Fast and Precise kernels.
   public var companionURL: String
+  /// Service configured on the paired computer; credentials stay on that computer.
+  public var companionService: String
   public var showTranslations: Bool
   public var defaultPageCropEnabled: Bool
   public var defaultPageCropX: Double
@@ -84,6 +86,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     remoteKernelEnabled: Bool = false,
     remoteKernelService: String = "",
     companionURL: String = "",
+    companionService: String = "auto",
     showTranslations: Bool = true,
     defaultPageCropEnabled: Bool = false,
     defaultPageCropX: Double = 0,
@@ -122,6 +125,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     self.remoteKernelEnabled = remoteKernelEnabled
     self.remoteKernelService = String(remoteKernelService.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
     self.companionURL = companionURL
+    self.companionService = companionService
     self.showTranslations = showTranslations
     self.defaultPageCropEnabled = defaultPageCropEnabled
     self.defaultPageCropX = Self.normalizedDefaultPageCrop(defaultPageCropX)
@@ -177,6 +181,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     case remoteKernelEnabled
     case remoteKernelService
     case companionURL
+    case companionService
     case showTranslations
     case defaultPageCropEnabled
     case defaultPageCropX
@@ -236,6 +241,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
         ?? !remoteKernelURL.isEmpty,
       remoteKernelService: try container.decodeIfPresent(String.self, forKey: .remoteKernelService) ?? "",
       companionURL: try container.decodeIfPresent(String.self, forKey: .companionURL) ?? "",
+      companionService: try container.decodeIfPresent(String.self, forKey: .companionService) ?? "auto",
       showTranslations: try container.decodeIfPresent(Bool.self, forKey: .showTranslations) ?? true,
       defaultPageCropEnabled: try container.decodeIfPresent(Bool.self, forKey: .defaultPageCropEnabled) ?? false,
       defaultPageCropX: (try? container.decodeIfPresent(Double.self, forKey: .defaultPageCropX)) ?? 0,

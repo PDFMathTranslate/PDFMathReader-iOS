@@ -149,4 +149,39 @@ final class ReaderKernelMenuAvailabilityTests: XCTestCase {
     XCTAssertFalse(availability.remotePreciseAvailable)
     XCTAssertEqual(ReaderKernelMenuURLProtocol.requestedPaths(), ["/health"])
   }
+  @MainActor
+  func testComputerConfigurationRefreshesServicesAndLanguageRestrictions() async {
+    let body = Data(#"{"status":"ok","app":"PDFMathReader","protocol":1,"kernels":[{"id":"pdf_math_fast","available":true,"version":"1","reason":""}],"translation":{"services":[{"id":"auto","name":"Automatic"},{"id":"custom:research","name":"Research model","targetLanguages":[{"name":"French","code":"fr"}]}],"kernels":[{"id":"pdf_math_fast","sourceLanguages":[{"name":"English","code":"en"}],"targetLanguages":[{"name":"English","code":"en"},{"name":"French","code":"fr"}]}]}}"#.utf8)
+    ReaderKernelMenuURLProtocol.install(body: body)
+    let session = readerKernelMenuTestSession()
+    defer { session.invalidateAndCancel() }
+    let availability = ReaderKernelMenuAvailability(
+      companion: CompanionKernelClient(session: session),
+      readPairingCode: { "AAAA" }
+    )
+    var preferences = ReaderPreferences(engine: .fast, companionURL: "mac.test", companionService: "custom:research")
+    await availability.refresh(preferences)
+    XCTAssertEqual(availability.services(preferences).map(\.id), ["auto", "custom:research"])
+    XCTAssertEqual(availability.languages(preferences, direction: "target").map(\.code), ["fr"])
+    availability.normalizeSelection(&preferences)
+    XCTAssertEqual(preferences.targetLanguage, "fr")
+    XCTAssertEqual(preferences.translationService, .siliconFlowFree)
+
+    // A removed service falls back to computer defaults. An unsupported explicit
+    // source returns to detection, while the local service remains independent.
+    preferences.companionService = "removed"
+    preferences.sourceLanguage = "ja"
+    availability.normalizeSelection(&preferences)
+    XCTAssertEqual(preferences.companionService, "auto")
+    XCTAssertEqual(preferences.sourceLanguage, "")
+
+    ReaderKernelMenuURLProtocol.install(fails: true)
+    await availability.refresh(preferences)
+    XCTAssertTrue(availability.services(preferences).isEmpty)
+    XCTAssertFalse(availability.hasComputerOptions(preferences))
+    XCTAssertEqual(preferences.companionService, "auto")
+    availability.reset()
+    XCTAssertNil(availability.computerHealth)
+  }
+
 }

@@ -7,18 +7,6 @@ extension Notification.Name {
   static let companionPairingCodeDidChange = Notification.Name("PDFMathReaderCompanionPairingCodeDidChange")
 }
 
-extension ReaderTranslationService {
-  /// The service PDFMathReader on the computer uses for a page. API keys stay
-  /// on this device, so OpenAI-compatible translation lets the computer choose.
-  var companionService: String {
-    switch self {
-    case .siliconFlowFree: "siliconflow-free"
-    case .appleOnDevice: "apple-local"
-    case .openAICompatible: "auto"
-    }
-  }
-}
-
 /// PDFMathReader on the user's computer, which shares its Fast and Precise kernels.
 struct ComputerKernelSettingsSection: View {
   @Environment(\.scenePhase) private var scenePhase

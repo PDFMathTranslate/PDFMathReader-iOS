@@ -264,6 +264,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       preferences.remoteKernelEnabled ? "remote-on" : "remote-off",
       preferences.remoteKernelService,
       preferences.companionURL,
+      preferences.companionService,
       (try? JSONEncoder().encode(preferences.glossaries).base64EncodedString()) ?? ""
     ]
     return sha256Hex(Data(values.joined(separator: "\n").utf8))
@@ -710,7 +711,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
             document: document, pageIndex: pageIndex,
             companionURL: value.companionURL, pairingCode: "",
             language: value.targetLanguage, sourceLanguage: sourceLanguage,
-            engine: kernel, service: value.translationService.companionService,
+            engine: kernel, service: value.companionService,
             glossary: glossaryEntries(value.glossaries), cacheScope: documentCacheScope,
             reuseTranslations: value.reuseTranslations, cacheOnly: true
           )
@@ -757,7 +758,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
             language: value.targetLanguage,
             sourceLanguage: sourceLanguage,
             engine: kernel,
-            service: value.translationService.companionService,
+            service: value.companionService,
             glossary: glossaryEntries(value.glossaries),
             cacheScope: documentCacheScope,
             forceRetranslation: ignoreCache,

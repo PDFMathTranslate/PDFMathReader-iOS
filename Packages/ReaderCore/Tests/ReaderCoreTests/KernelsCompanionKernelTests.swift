@@ -125,6 +125,34 @@ struct CompanionKernelClientTests {
   }
 
   @Test
+  func companionServicePersistsAndDefaultsToAutoForLegacyPreferences() throws {
+    let defaults = ReaderPreferences()
+    let encoded = try JSONEncoder().encode(defaults)
+    let encodedObject = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(encodedObject["companionService"] as? String == "auto")
+
+    let decoder = JSONDecoder()
+    let restored = try decoder.decode(ReaderPreferences.self, from: encoded)
+    #expect(restored.companionService == "auto")
+
+    let legacy = try decoder.decode(
+      ReaderPreferences.self,
+      from: Data(#"{"companionURL":"http://host:8891"}"#.utf8)
+    )
+    #expect(legacy.companionService == "auto")
+
+    let custom = ReaderPreferences(
+      companionURL: "http://host:8891",
+      companionService: "custom-provider"
+    )
+    let customRestored = try decoder.decode(
+      ReaderPreferences.self,
+      from: JSONEncoder().encode(custom)
+    )
+    #expect(customRestored.companionService == "custom-provider")
+  }
+
+  @Test
   func normalizesAddressesAndPairingCodes() {
     #expect(normalizeCompanionURL(" my-mac.local ") == "http://my-mac.local:8891")
     #expect(normalizeCompanionURL("192.168.1.20") == "http://192.168.1.20:8891")
@@ -224,6 +252,116 @@ struct CompanionKernelClientTests {
   }
 
   @Test
+  func healthParsesOptionalTranslationCapabilitiesAndLegacyHealthRemainsCompatible() async throws {
+    let translationBody = Data(
+      #"{"status":"ok","app":"PDFMathReader","protocol":1,"version":"0.1.12","kernels":[],"translation":{"services":[{"id":"custom-provider","name":"Custom Provider","sourceLanguages":null,"targetLanguages":[{"name":"Klingon","code":"tlh"}]}],"kernels":[{"id":"pdf_math_fast","sourceLanguages":[{"name":"Klingon","code":"tlh"}],"targetLanguages":[{"name":"Klingon","code":"tlh"}]}]}}"#.utf8
+    )
+    let legacyBody = Data(
+      #"{"status":"ok","app":"PDFMathReader","protocol":1,"version":"0.1.12","kernels":[]}"#.utf8
+    )
+    companionMock.install { request in
+      let body = request.url?.host == "translation.test" ? translationBody : legacyBody
+      return CompanionMockResponse(body: body)
+    }
+    let client = CompanionKernelClient(session: companionSession())
+
+    let translated = await client.health("translation.test", pairingCode: "AAAA")
+    #expect(translated.translation?.services.first?.id == "custom-provider")
+    #expect(translated.translation?.services.first?.sourceLanguages == nil)
+    #expect(translated.translation?.services.first?.targetLanguages?.map(\.code) == ["tlh"])
+    #expect(translated.translation?.kernels.first?.targetLanguages.map(\.code) == ["tlh"])
+
+    let legacy = await client.health("legacy-translation.test", pairingCode: "AAAA")
+    #expect(legacy.translation == nil)
+
+    let old = try JSONDecoder().decode(
+      CompanionHealth.self,
+      from: Data(#"{"ok":true,"version":"0.1.12","reason":"","kernels":[]}"#.utf8)
+    )
+    #expect(old.translation == nil)
+  }
+
+  @Test
+  func translationLanguagesIntersectKernelAndServiceWhileKeepingCustomAndEmptyCapabilities() {
+    let custom = TranslationLanguageOption(name: "Klingon", code: "tlh")
+    let english = TranslationLanguageOption(name: "English", code: "en")
+    let options = CompanionTranslationOptions(
+      services: [
+        CompanionTranslationService(id: "inherited", name: "Inherited"),
+        CompanionTranslationService(
+          id: "filtered",
+          name: "Filtered",
+          targetLanguages: [TranslationLanguageOption(name: "Custom Klingon", code: "tlh")]
+        ),
+        CompanionTranslationService(id: "empty", name: "Empty", targetLanguages: [])
+      ],
+      kernels: [
+        CompanionTranslationKernel(
+          id: CompanionKernel.fast,
+          sourceLanguages: [custom, english],
+          targetLanguages: [custom, english]
+        )
+      ]
+    )
+
+    #expect(options.languages(engine: CompanionKernel.fast, service: "inherited", direction: "target") == [custom, english])
+    #expect(options.languages(engine: CompanionKernel.fast, service: "filtered", direction: "target") == [custom])
+    #expect(options.languages(engine: CompanionKernel.fast, service: "filtered", direction: "source") == [custom, english])
+    #expect(options.languages(engine: CompanionKernel.fast, service: "empty", direction: "target").isEmpty)
+  }
+
+  @Test
+  func translationLanguagesUsePerKernelServiceLimitsAndRejectUnavailableKernels() {
+    let english = TranslationLanguageOption(name: "English", code: "en")
+    let chinese = TranslationLanguageOption(name: "Simplified Chinese", code: "zh")
+    let japanese = TranslationLanguageOption(name: "Japanese", code: "ja")
+    let unavailable = "pdf_math_unavailable"
+    let options = CompanionTranslationOptions(
+      services: [
+        CompanionTranslationService(
+          id: "per-kernel",
+          name: "Per Kernel",
+          kernels: [
+            CompanionTranslationKernel(
+              id: CompanionKernel.fast,
+              sourceLanguages: [english, chinese],
+              targetLanguages: [chinese]
+            ),
+            CompanionTranslationKernel(
+              id: CompanionKernel.precise,
+              sourceLanguages: [japanese],
+              targetLanguages: [english, chinese]
+            )
+          ]
+        )
+      ],
+      kernels: [
+        CompanionTranslationKernel(
+          id: CompanionKernel.fast,
+          sourceLanguages: [english, chinese],
+          targetLanguages: [chinese, japanese]
+        ),
+        CompanionTranslationKernel(
+          id: CompanionKernel.precise,
+          sourceLanguages: [english, japanese],
+          targetLanguages: [english, chinese]
+        ),
+        CompanionTranslationKernel(
+          id: unavailable,
+          sourceLanguages: [english],
+          targetLanguages: [english]
+        )
+      ]
+    )
+
+    #expect(options.languages(engine: CompanionKernel.fast, service: "per-kernel", direction: "source") == [english, chinese])
+    #expect(options.languages(engine: CompanionKernel.fast, service: "per-kernel", direction: "target") == [chinese])
+    #expect(options.languages(engine: CompanionKernel.precise, service: "per-kernel", direction: "source") == [japanese])
+    #expect(options.languages(engine: CompanionKernel.precise, service: "per-kernel", direction: "target") == [english, chinese])
+    #expect(options.languages(engine: unavailable, service: "per-kernel", direction: "target").isEmpty)
+  }
+
+  @Test
   func healthRejectsWrongCodeOldProtocolAndMissingCode() async {
     companionMock.install { request in
       if request.url?.host == "old.test" {
@@ -293,6 +431,39 @@ struct CompanionKernelClientTests {
     #expect((body["glossary"] as? [[String: String]])?.count == 1)
     let uploaded = Data(base64Encoded: body["pdf"] as? String ?? "")
     #expect(uploaded.flatMap { PDFDocument(data: $0) }?.pageCount == 1)
+  }
+
+  @Test
+  func customCompanionServiceIDIsForwardedVerbatim() async throws {
+    let serviceID = "com.example.custom-provider/v2"
+    companionMock.install { request in
+      switch (request.httpMethod ?? "GET", request.url?.path ?? "") {
+      case ("POST", "/companion/v1/jobs"):
+        return CompanionMockResponse(statusCode: 202, body: Data(#"{"id":"custom-service-job"}"#.utf8))
+      case ("GET", "/companion/v1/jobs/custom-service-job"):
+        return CompanionMockResponse(body: Data(#"{"state":"done","percent":100}"#.utf8))
+      case ("GET", "/companion/v1/jobs/custom-service-job/result"):
+        return CompanionMockResponse(body: companionPDF(pageCount: 1))
+      default:
+        return CompanionMockResponse(statusCode: 404)
+      }
+    }
+    let client = CompanionKernelClient(
+      session: companionSession(),
+      configuration: CompanionKernelConfiguration(pollInterval: 0.001)
+    )
+    _ = try await client.translatePage(
+      url: "mac.test",
+      pairingCode: "ABCD",
+      bytes: companionPDF(pageCount: 1),
+      engine: CompanionKernel.fast,
+      language: "zh",
+      service: serviceID
+    )
+
+    let submit = try #require(companionMock.first("POST", "/companion/v1/jobs"))
+    let body = try #require(try JSONSerialization.jsonObject(with: submit.body) as? [String: Any])
+    #expect(body["service"] as? String == serviceID)
   }
 
   @Test
