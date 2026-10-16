@@ -22,6 +22,7 @@ struct ReaderView: View {
   @StateObject private var model: ReaderViewModel
   @StateObject private var annotationModel: ReaderAnnotationViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
+  @State private var isLandscape: Bool?
   @State private var sidebarMode: ReaderSidebarMode = .thumbnails
   @State private var isCompactSidebarPresented = false
   @State private var isSearchPresented = false
@@ -75,10 +76,18 @@ struct ReaderView: View {
         )
       }
     }
-    .task {
-      if horizontalSizeClass == .regular {
-        columnVisibility = model.readingState.sidebarVisible ? .all : .detailOnly
-      }
+    // iPad default: sidebar off in portrait, on in landscape. Each rotation
+    // resets it; the toolbar toggle still works in between.
+    .onGeometryChange(for: Bool.self) { proxy in
+      proxy.size.width > proxy.size.height
+    } action: { landscape in
+      isLandscape = landscape
+    }
+    // Applied from a task: the split view ignores visibility set during its
+    // first layout pass.
+    .task(id: isLandscape) {
+      guard let isLandscape else { return }
+      columnVisibility = isLandscape ? .all : .detailOnly
     }
     .onChange(of: isCompactSidebarPresented) { _, presented in
       if !presented && model.readingState.sidebarVisible {

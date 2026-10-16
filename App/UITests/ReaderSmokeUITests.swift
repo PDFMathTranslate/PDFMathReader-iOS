@@ -85,6 +85,38 @@ final class ReaderSmokeUITests: XCTestCase {
     attachScreenshot(app, name: "4-highlighted")
   }
 
+  /// iPad reader: sidebar hidden in portrait, shown in landscape.
+  @MainActor
+  func testSidebarFollowsOrientation() throws {
+    try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad only")
+    XCUIDevice.shared.orientation = .portrait
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
+    app.launch()
+
+    let thumbnails = app.buttons["Thumbnails"].firstMatch
+    let shown = NSPredicate(format: "exists == true AND isHittable == true")
+    let hidden = NSPredicate(format: "exists == false OR isHittable == false")
+    func expectSidebar(_ predicate: NSPredicate, _ name: String) {
+      let result = XCTWaiter().wait(
+        for: [XCTNSPredicateExpectation(predicate: predicate, object: thumbnails)],
+        timeout: 10
+      )
+      attachScreenshot(app, name: name)
+      XCTAssertEqual(result, .completed, "Unexpected sidebar state: \(name)")
+    }
+
+    let pageText = app.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "The grass-blade is worthy")
+    ).firstMatch
+    XCTAssertTrue(pageText.waitForExistence(timeout: 30), "Reader did not open")
+    expectSidebar(hidden, "portrait-sidebar-hidden")
+    XCUIDevice.shared.orientation = .landscapeLeft
+    expectSidebar(shown, "landscape-sidebar-shown")
+    XCUIDevice.shared.orientation = .portrait
+    expectSidebar(hidden, "portrait-again-sidebar-hidden")
+  }
+
   @MainActor
   /// Opens a PDF that lives outside the app sandbox (Files "On My iPad" or
   /// iCloud Drive) through the import picker. Place `PMR-Files-Test.pdf` in
