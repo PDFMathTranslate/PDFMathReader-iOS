@@ -134,5 +134,10 @@ public func translationLanguageLabel(_ name: String, locale: String = "en") -> S
   case "zh-HK": displayCode = "zh-Hant-HK"
   default: displayCode = code
   }
-  return Locale(identifier: locale).localizedString(forLanguageCode: displayCode) ?? name
+  let displayLocale = Locale(identifier: locale)
+  if code == "zh" || code == "zh-TW" || code == "zh-HK" {
+    // Language-only localization discards the script and labels every variant "Chinese".
+    return displayLocale.localizedString(forIdentifier: displayCode) ?? name
+  }
+  return displayLocale.localizedString(forLanguageCode: displayCode) ?? name
 }
