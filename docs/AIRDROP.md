@@ -1,5 +1,15 @@
 # Send a document to a computer
 
+## Receive a PDF on iPhone or iPad
+
+In another app, select a PDF and choose **Share** or **Open In**, then choose
+**PDFMathReader**. Incoming PDFs open from either the library or an existing
+reader window. The app saves a local copy so the document remains available in
+Recents after the sending app removes its temporary file. Invalid or unreadable
+files show an error without replacing the currently open document.
+
+## Send a PDF
+
 Open a PDF, open the reader's menu, and choose **AirDrop to Computer**.
 In the system share sheet, select **AirDrop** and the receiving Mac. The Mac
 must have AirDrop receiving enabled. This shares a newly generated PDF file;
