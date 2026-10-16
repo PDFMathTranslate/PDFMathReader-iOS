@@ -399,7 +399,13 @@ final class ReaderTranslationPageOverlay: UIView {
       width: bounds.width,
       height: 4
     )
-    remotePDFView?.frame = bounds
+    // Kernel PDFs still contain the complete source page. Position them in
+    // page space so cropping clips margins instead of squeezing the content.
+    if let page, let pdfView {
+      remotePDFView?.frame = viewRect(page.bounds(for: .cropBox), page: page, pdfView: pdfView)
+    } else {
+      remotePDFView?.frame = bounds
+    }
     markupView.frame = bounds
     bringSubviewToFront(markupView)
     bringSubviewToFront(progressView)

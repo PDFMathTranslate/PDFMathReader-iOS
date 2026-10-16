@@ -1,4 +1,5 @@
 import PDFKit
+import ReaderCore
 import UIKit
 import os
 
@@ -108,8 +109,30 @@ enum ReaderDarkPDF {
 /// The reader's document type. Its pages invert themselves while
 /// `invertsPages` is on; exports and cached previews use other documents or
 /// draw before the flag is set, so they stay unchanged.
+private enum ReaderPDFSerialization {
+  static let key = "PDFMathReader.originalPageBoxes"
+
+  static var usesOriginalBoxes: Bool { Thread.current.threadDictionary[key] != nil }
+
+  static func withOriginalBoxes<T>(_ body: () -> T) -> T {
+    let dictionary = Thread.current.threadDictionary
+    let previous = dictionary[key]
+    dictionary[key] = true
+    defer { dictionary[key] = previous }
+    return body()
+  }
+}
+
 final class ReaderPDFDocument: PDFDocument {
   private let invertsLock = OSAllocatedUnfairLock(initialState: false)
+
+  private let cropLock = OSAllocatedUnfairLock(initialState: PageCrop())
+
+  /// A virtual display box: the PDF's stored boxes and export data stay intact.
+  var pageCrop: PageCrop {
+    get { cropLock.withLock { $0 } }
+    set { cropLock.withLock { $0 = newValue } }
+  }
 
   /// PDFKit renders page tiles off the main thread, so access is locked.
   var invertsPages: Bool {
@@ -118,10 +141,39 @@ final class ReaderPDFDocument: PDFDocument {
   }
 
   override var pageClass: AnyClass { ReaderPDFPage.self }
+
+  override func dataRepresentation() -> Data? {
+    ReaderPDFSerialization.withOriginalBoxes { super.dataRepresentation() }
+  }
+
+  override func dataRepresentation(options: [AnyHashable: Any] = [:]) -> Data? {
+    ReaderPDFSerialization.withOriginalBoxes { super.dataRepresentation(options: options) }
+  }
+
 }
 
 final class ReaderPDFPage: PDFPage {
+  override var dataRepresentation: Data? {
+    ReaderPDFSerialization.withOriginalBoxes { super.dataRepresentation }
+  }
+  override func bounds(for box: PDFDisplayBox) -> CGRect {
+    guard box == .artBox, !ReaderPDFSerialization.usesOriginalBoxes,
+      let document = document as? ReaderPDFDocument else {
+      return super.bounds(for: box)
+    }
+    let source = super.bounds(for: .cropBox)
+    let crop = document.pageCrop
+    // Fractions describe the total removed in each direction, split equally
+    // between opposite edges. Swap axes for a visually rotated page.
+    let rotated = rotation % 180 != 0
+    return source.insetBy(
+      dx: source.width * CGFloat(rotated ? crop.y : crop.x) / 2,
+      dy: source.height * CGFloat(rotated ? crop.x : crop.y) / 2
+    )
+  }
+
   override func draw(with box: PDFDisplayBox, to context: CGContext) {
+    let box: PDFDisplayBox = box == .artBox ? .cropBox : box
     guard (document as? ReaderPDFDocument)?.invertsPages == true else {
       super.draw(with: box, to: context)
       return

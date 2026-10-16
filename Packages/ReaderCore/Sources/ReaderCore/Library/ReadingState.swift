@@ -26,6 +26,7 @@ public struct ReadingState: Codable, Hashable, Sendable {
   public var displayMode: ReaderDisplayMode
   public var scrollDirection: ReaderScrollDirection
   public var sidebarVisible: Bool
+  public var pageCrop: PageCrop?
   public var lastUpdated: Date
 
   public init(
@@ -35,7 +36,8 @@ public struct ReadingState: Codable, Hashable, Sendable {
     displayMode: ReaderDisplayMode = .singlePage,
     scrollDirection: ReaderScrollDirection = .vertical,
     sidebarVisible: Bool = true,
-    lastUpdated: Date = .now
+    lastUpdated: Date = .now,
+    pageCrop: PageCrop? = nil
   ) {
     self.page = max(1, page)
     self.zoom = max(0.1, zoom)
@@ -43,6 +45,7 @@ public struct ReadingState: Codable, Hashable, Sendable {
     self.displayMode = displayMode
     self.scrollDirection = scrollDirection
     self.sidebarVisible = sidebarVisible
+    self.pageCrop = pageCrop
     self.lastUpdated = lastUpdated
   }
 }

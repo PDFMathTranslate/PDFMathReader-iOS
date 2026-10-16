@@ -161,6 +161,24 @@ struct SettingsView: View {
           }
         }
 
+        Section {
+          Toggle(L10n.string("settings.defaultPageCrop"), isOn: $draft.defaultPageCropEnabled)
+            .accessibilityIdentifier("settings.defaultPageCrop")
+
+          cropSlider(
+            label: L10n.string("settings.cropHorizontal"),
+            value: $draft.defaultPageCropX,
+            identifier: "settings.defaultPageCropX"
+          )
+          cropSlider(
+            label: L10n.string("settings.cropVertical"),
+            value: $draft.defaultPageCropY,
+            identifier: "settings.defaultPageCropY"
+          )
+        } footer: {
+          Text(L10n.string("settings.defaultPageCropHint"))
+        }
+
         TranslationCacheSettingsSection()
 
         TranslationFontSettingsSection(preferences: $draft)
@@ -234,6 +252,25 @@ struct SettingsView: View {
       services.append(.appleOnDevice)
     }
     return services
+  }
+
+  private func cropSlider(
+    label: String,
+    value: Binding<Double>,
+    identifier: String
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Text(label)
+        Spacer()
+        Text("\(Int((value.wrappedValue * 100).rounded()))%")
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+      }
+      Slider(value: value, in: 0...0.5, step: 0.01)
+        .disabled(!draft.defaultPageCropEnabled)
+        .accessibilityIdentifier(identifier)
+    }
   }
 
   private var translationDataDisclosure: String {

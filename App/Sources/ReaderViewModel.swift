@@ -38,6 +38,12 @@ final class ReaderViewModel: ObservableObject {
     self.session = session
     self.library = library
     self.readingState = library.readingState(for: session)
+    if self.readingState.pageCrop == nil {
+      let preferences = library.preferences
+      self.readingState.pageCrop = preferences.defaultPageCropEnabled
+        ? PageCrop(x: min(0.5, preferences.defaultPageCropX), y: min(0.5, preferences.defaultPageCropY))
+        : PageCrop()
+    }
     self.document = nil
     self.translationCoordinator = nil
     // The reader observes this model, not the nested LibraryModel. Apply
@@ -192,6 +198,11 @@ final class ReaderViewModel: ObservableObject {
 
   func setScrollDirection(_ direction: ReaderScrollDirection) {
     readingState.scrollDirection = direction
+    persistReadingState()
+  }
+
+  func setPageCrop(_ crop: PageCrop) {
+    readingState.pageCrop = crop
     persistReadingState()
   }
 

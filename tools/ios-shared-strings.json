@@ -148,5 +148,53 @@
     "ko": "강제로 다시 번역",
     "zh-CN": "强制重新翻译",
     "zh-TW": "強制重新翻譯"
+  },
+  "menu.extra.messages.Page Crop": {
+    "es": "Recorte de página",
+    "fr": "Recadrage de page",
+    "ja": "ページの切り抜き",
+    "ko": "페이지 자르기",
+    "zh-CN": "页面裁剪",
+    "zh-TW": "頁面裁剪"
+  },
+  "menu.extra.messages.Crop More Horizontally": {
+    "es": "Recortar más horizontalmente",
+    "fr": "Recadrer davantage horizontalement",
+    "ja": "横方向の切り抜きを増やす",
+    "ko": "가로 자르기 늘리기",
+    "zh-CN": "增加横向裁剪",
+    "zh-TW": "增加橫向裁剪"
+  },
+  "menu.extra.messages.Crop Less Horizontally": {
+    "es": "Recortar menos horizontalmente",
+    "fr": "Recadrer moins horizontalement",
+    "ja": "横方向の切り抜きを減らす",
+    "ko": "가로 자르기 줄이기",
+    "zh-CN": "减少横向裁剪",
+    "zh-TW": "減少橫向裁剪"
+  },
+  "menu.extra.messages.Crop More Vertically": {
+    "es": "Recortar más verticalmente",
+    "fr": "Recadrer davantage verticalement",
+    "ja": "縦方向の切り抜きを増やす",
+    "ko": "세로 자르기 늘리기",
+    "zh-CN": "增加纵向裁剪",
+    "zh-TW": "增加縱向裁剪"
+  },
+  "menu.extra.messages.Crop Less Vertically": {
+    "es": "Recortar menos verticalmente",
+    "fr": "Recadrer moins verticalement",
+    "ja": "縦方向の切り抜きを減らす",
+    "ko": "세로 자르기 줄이기",
+    "zh-CN": "减少纵向裁剪",
+    "zh-TW": "減少縱向裁剪"
+  },
+  "menu.extra.messages.Reset Crop": {
+    "es": "Restablecer recorte",
+    "fr": "Réinitialiser le recadrage",
+    "ja": "切り抜きをリセット",
+    "ko": "자르기 재설정",
+    "zh-CN": "重置裁剪",
+    "zh-TW": "重設裁剪"
   }
 }

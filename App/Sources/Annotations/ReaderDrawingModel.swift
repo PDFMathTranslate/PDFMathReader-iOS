@@ -366,12 +366,15 @@ final class ReaderPencilCanvas: PKCanvasView {
 final class ReaderDrawingPageOverlay: UIView {
   let canvas: ReaderPencilCanvas
   private let pageSize: CGSize
+  private let visibleSize: CGSize
 
-  init(canvas: ReaderPencilCanvas, pageSize: CGSize, content: UIView?) {
+  init(canvas: ReaderPencilCanvas, pageSize: CGSize, visibleSize: CGSize, content: UIView?) {
     self.canvas = canvas
     self.pageSize = pageSize
+    self.visibleSize = visibleSize
     super.init(frame: .zero)
     backgroundColor = .clear
+    clipsToBounds = true
     if let content { addSubview(content) }
     addSubview(canvas)
   }
@@ -381,10 +384,10 @@ final class ReaderDrawingPageOverlay: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
     for view in subviews where view !== canvas { view.frame = bounds }
-    guard pageSize.width > 0, pageSize.height > 0 else { return }
+    guard pageSize.width > 0, pageSize.height > 0, visibleSize.width > 0, visibleSize.height > 0 else { return }
     canvas.bounds = CGRect(origin: .zero, size: pageSize)
     canvas.center = CGPoint(x: bounds.midX, y: bounds.midY)
-    canvas.transform = CGAffineTransform(scaleX: bounds.width / pageSize.width, y: bounds.height / pageSize.height)
+    canvas.transform = CGAffineTransform(scaleX: bounds.width / visibleSize.width, y: bounds.height / visibleSize.height)
     canvas.contentSize = pageSize
   }
 

@@ -514,73 +514,6 @@ private struct ReaderDetail: View {
   @ViewBuilder
   private var moreMenu: some View {
     Section {
-      if !annotations.annotations.isEmpty {
-        Button {
-          annotations.setShowsAnnotations(!annotations.showsAnnotations, in: model.pdfViewReference.view)
-        } label: {
-          Label(
-            L10n.string(annotations.showsAnnotations ? "toolbar.hideAnnotations" : "toolbar.showAnnotations"),
-            systemImage: annotations.showsAnnotations ? "eye" : "eye.slash"
-          )
-        }
-        .accessibilityIdentifier("reader.toggleAnnotations")
-      }
-    }
-
-    ReaderTranslationMenu(library: model.library, availability: kernelAvailability) { preferences in
-      guard preferences != model.library.preferences else { return }
-      translateAll.cancel()
-      model.library.savePreferences(preferences)
-      model.updateTranslationPreferences(model.library.preferences)
-    }
-    Section {
-      Button {
-        translateAll.cancel()
-        model.translationCoordinator?.forceRetranslate()
-        translateAll.resetForCurrentConfiguration()
-      } label: {
-        Label(L10n.string("menu.extra.messages.Force Retranslate"), systemImage: "arrow.clockwise")
-      }
-      .accessibilityIdentifier("reader.forceRetranslate")
-      Button {
-        translateAll.cancel()
-        do { try model.translationCoordinator?.clearDocumentCache() }
-        catch { importError = error.localizedDescription }
-      } label: {
-        Label(L10n.string("ios.clearDocumentTranslationCache"), systemImage: "trash")
-      }
-      .accessibilityIdentifier("reader.clearDocumentTranslationCache")
-    }
-    Section(L10n.string("ios.drawingTools")) {
-      Toggle(isOn: $drawings.usesFinger) {
-        Label(L10n.string("ios.drawWithFinger"), systemImage: "applepencil")
-      }
-        .accessibilityIdentifier("reader.drawWithFinger")
-      Button(L10n.string("ios.undoDrawing"), systemImage: "arrow.uturn.backward") { drawings.undo() }
-        .disabled(!drawings.isDrawing)
-      Button(L10n.string("ios.redoDrawing"), systemImage: "arrow.uturn.forward") { drawings.redo() }
-        .disabled(!drawings.isDrawing)
-    }
-    Section {
-      Button {
-        translateAll.isRunning ? translateAll.cancel() : translateAll.start()
-      } label: {
-        Label {
-          Text(translateAll.menuTitle)
-          if let subtitle = translateAll.menuSubtitle { Text(subtitle) }
-        } icon: {
-          Image(systemName: translateAll.menuSymbol)
-        }
-      }
-      .disabled(translateAll.isFinished && !translateAll.isRunning)
-      .accessibilityIdentifier("reader.translateAllPages")
-
-      if regular {
-        Button(L10n.string("ios.compare"), systemImage: "rectangle.split.2x1", action: onCompare)
-      }
-    }
-
-    Section {
       Menu {
         Button(L10n.string("toolbar.zoomIn"), systemImage: "plus.magnifyingglass") { model.zoomIn() }
         Button(L10n.string("toolbar.zoomOut"), systemImage: "minus.magnifyingglass") { model.zoomOut() }
@@ -615,6 +548,118 @@ private struct ReaderDetail: View {
       } label: {
         Label(L10n.string("menu.extra.messages.Layout"), systemImage: "rectangle.split.2x1")
       }
+
+      Menu {
+        let crop = model.readingState.pageCrop ?? PageCrop()
+        Text("\(L10n.string("settings.cropHorizontal")): \(Int((crop.x * 100).rounded()))% · \(L10n.string("settings.cropVertical")): \(Int((crop.y * 100).rounded()))%")
+        Button(L10n.string("menu.extra.messages.Crop More Horizontally"), systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right") {
+          model.setPageCrop(PageCrop(x: crop.x + PageCrop.adjustmentStep, y: crop.y))
+        }
+        .disabled(crop.x >= PageCrop.maximumFraction)
+        .accessibilityIdentifier("reader.cropMoreHorizontally")
+        Button(L10n.string("menu.extra.messages.Crop Less Horizontally"), systemImage: "arrow.left.and.right") {
+          model.setPageCrop(PageCrop(x: crop.x - PageCrop.adjustmentStep, y: crop.y))
+        }
+        .disabled(crop.x <= 0)
+        .accessibilityIdentifier("reader.cropLessHorizontally")
+        Divider()
+        Button(L10n.string("menu.extra.messages.Crop More Vertically"), systemImage: "arrow.up.and.down.righttriangle.up.righttriangle.down") {
+          model.setPageCrop(PageCrop(x: crop.x, y: crop.y + PageCrop.adjustmentStep))
+        }
+        .disabled(crop.y >= PageCrop.maximumFraction)
+        .accessibilityIdentifier("reader.cropMoreVertically")
+        Button(L10n.string("menu.extra.messages.Crop Less Vertically"), systemImage: "arrow.up.and.down") {
+          model.setPageCrop(PageCrop(x: crop.x, y: crop.y - PageCrop.adjustmentStep))
+        }
+        .disabled(crop.y <= 0)
+        .accessibilityIdentifier("reader.cropLessVertically")
+        Divider()
+        Button(L10n.string("menu.extra.messages.Reset Crop"), systemImage: "arrow.counterclockwise") {
+          model.setPageCrop(PageCrop())
+        }
+        .disabled(!crop.isActive)
+        .accessibilityIdentifier("reader.resetCrop")
+      } label: {
+        Label(L10n.string("menu.extra.messages.Page Crop"), systemImage: "crop")
+      }
+      .accessibilityIdentifier("reader.pageCrop")
+
+      if regular {
+        Button(L10n.string("ios.compare"), systemImage: "rectangle.split.2x1", action: onCompare)
+      }
+    }
+
+    Section {
+      Button {
+        translateAll.isRunning ? translateAll.cancel() : translateAll.start()
+      } label: {
+        Label {
+          Text(translateAll.menuTitle)
+          if let subtitle = translateAll.menuSubtitle { Text(subtitle) }
+        } icon: {
+          Image(systemName: translateAll.menuSymbol)
+        }
+      }
+      .disabled(translateAll.isFinished && !translateAll.isRunning)
+      .accessibilityIdentifier("reader.translateAllPages")
+
+      Menu {
+        ReaderTranslationMenu(library: model.library, availability: kernelAvailability) { preferences in
+          guard preferences != model.library.preferences else { return }
+          translateAll.cancel()
+          model.library.savePreferences(preferences)
+          model.updateTranslationPreferences(model.library.preferences)
+        }
+        Section {
+          Button {
+            translateAll.cancel()
+            model.translationCoordinator?.forceRetranslate()
+            translateAll.resetForCurrentConfiguration()
+          } label: {
+            Label(L10n.string("menu.extra.messages.Force Retranslate"), systemImage: "arrow.clockwise")
+          }
+          .accessibilityIdentifier("reader.forceRetranslate")
+          Button {
+            translateAll.cancel()
+            do { try model.translationCoordinator?.clearDocumentCache() }
+            catch { importError = error.localizedDescription }
+          } label: {
+            Label(L10n.string("ios.clearDocumentTranslationCache"), systemImage: "trash")
+          }
+          .accessibilityIdentifier("reader.clearDocumentTranslationCache")
+        }
+      } label: {
+        Label(L10n.string("settings.translation"), systemImage: "character.bubble")
+      }
+      .accessibilityIdentifier("reader.translationMenu")
+    }
+
+    Section {
+      if !annotations.annotations.isEmpty {
+        Button {
+          annotations.setShowsAnnotations(!annotations.showsAnnotations, in: model.pdfViewReference.view)
+        } label: {
+          Label(
+            L10n.string(annotations.showsAnnotations ? "toolbar.hideAnnotations" : "toolbar.showAnnotations"),
+            systemImage: annotations.showsAnnotations ? "eye" : "eye.slash"
+          )
+        }
+        .accessibilityIdentifier("reader.toggleAnnotations")
+      }
+
+      Menu {
+        Toggle(isOn: $drawings.usesFinger) {
+          Label(L10n.string("ios.drawWithFinger"), systemImage: "applepencil")
+        }
+        .accessibilityIdentifier("reader.drawWithFinger")
+        Button(L10n.string("ios.undoDrawing"), systemImage: "arrow.uturn.backward") { drawings.undo() }
+          .disabled(!drawings.isDrawing)
+        Button(L10n.string("ios.redoDrawing"), systemImage: "arrow.uturn.forward") { drawings.redo() }
+          .disabled(!drawings.isDrawing)
+      } label: {
+        Label(L10n.string("ios.drawingTools"), systemImage: "pencil.tip.crop.circle")
+      }
+      .accessibilityIdentifier("reader.drawingMenu")
     }
 
     Section {

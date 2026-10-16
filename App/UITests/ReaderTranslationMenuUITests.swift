@@ -9,7 +9,7 @@ final class ReaderTranslationMenuUITests: XCTestCase {
     app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
     app.launch()
 
-    openMoreMenu(in: app)
+    openTranslationMenu(in: app)
     let source = element(withIdentifier: "reader.sourceLanguage", in: app)
     let target = element(withIdentifier: "reader.targetLanguage", in: app)
     let kernel = element(withIdentifier: "reader.kernel", in: app)
@@ -23,7 +23,7 @@ final class ReaderTranslationMenuUITests: XCTestCase {
     XCTAssertTrue(englishSource.waitForExistence(timeout: 5), "English source language is missing")
     englishSource.tap()
 
-    openMoreMenu(in: app)
+    openTranslationMenu(in: app)
     source.tap()
     let selectedEnglish = menuItem("English", in: app)
     XCTAssertTrue(selectedEnglish.waitForExistence(timeout: 5), "English source language disappeared")
@@ -36,7 +36,7 @@ final class ReaderTranslationMenuUITests: XCTestCase {
     XCTAssertTrue(restoreSource.waitForExistence(timeout: 5), "Original source language could not be restored")
     restoreSource.tap()
 
-    openMoreMenu(in: app)
+    openTranslationMenu(in: app)
     target.tap()
     let initialTarget = selectedMenuItemLabel(in: app)
     let targetChoice = initialTarget == "English" ? "Japanese" : "English"
@@ -44,7 +44,7 @@ final class ReaderTranslationMenuUITests: XCTestCase {
     XCTAssertTrue(chosenTarget.waitForExistence(timeout: 5), "Target language choices are missing")
     chosenTarget.tap()
 
-    openMoreMenu(in: app)
+    openTranslationMenu(in: app)
     target.tap()
     let selectedTarget = menuItem(targetChoice, in: app)
     XCTAssertTrue(selectedTarget.waitForExistence(timeout: 5), "Selected target language disappeared")
@@ -57,11 +57,19 @@ final class ReaderTranslationMenuUITests: XCTestCase {
       selectedTarget.tap()
     }
 
-    openMoreMenu(in: app)
+    openTranslationMenu(in: app)
     kernel.tap()
     let ultraFast = element(withIdentifier: "reader.kernel.ultraFast", in: app)
     XCTAssertTrue(ultraFast.waitForExistence(timeout: 5), "Ultra Fast kernel entry is missing")
     ultraFast.tap()
+  }
+
+  @MainActor
+  private func openTranslationMenu(in app: XCUIApplication) {
+    openMoreMenu(in: app)
+    let translation = element(withIdentifier: "reader.translationMenu", in: app)
+    XCTAssertTrue(translation.waitForExistence(timeout: 5), "Translation submenu is missing")
+    translation.tap()
   }
 
   @MainActor

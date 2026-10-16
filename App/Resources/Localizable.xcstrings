@@ -50935,14 +50935,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Horizontally"
+            "state": "translated",
+            "value": "Recortar menos horizontalmente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Horizontally"
+            "state": "translated",
+            "value": "Recadrer moins horizontalement"
           }
         },
         "hi": {
@@ -50953,14 +50953,14 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Horizontally"
+            "state": "translated",
+            "value": "横方向の切り抜きを減らす"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Horizontally"
+            "state": "translated",
+            "value": "가로 자르기 줄이기"
           }
         },
         "pcm": {
@@ -50989,14 +50989,14 @@
         },
         "zh-CN": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Horizontally"
+            "state": "translated",
+            "value": "减少横向裁剪"
           }
         },
         "zh-TW": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Horizontally"
+            "state": "translated",
+            "value": "減少橫向裁剪"
           }
         }
       }
@@ -51035,14 +51035,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Vertically"
+            "state": "translated",
+            "value": "Recortar menos verticalmente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Vertically"
+            "state": "translated",
+            "value": "Recadrer moins verticalement"
           }
         },
         "hi": {
@@ -51053,14 +51053,14 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Vertically"
+            "state": "translated",
+            "value": "縦方向の切り抜きを減らす"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Vertically"
+            "state": "translated",
+            "value": "세로 자르기 줄이기"
           }
         },
         "pcm": {
@@ -51089,14 +51089,14 @@
         },
         "zh-CN": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Vertically"
+            "state": "translated",
+            "value": "减少纵向裁剪"
           }
         },
         "zh-TW": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop Less Vertically"
+            "state": "translated",
+            "value": "減少縱向裁剪"
           }
         }
       }
@@ -51135,14 +51135,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Horizontally"
+            "state": "translated",
+            "value": "Recortar más horizontalmente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Horizontally"
+            "state": "translated",
+            "value": "Recadrer davantage horizontalement"
           }
         },
         "hi": {
@@ -51153,14 +51153,14 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Horizontally"
+            "state": "translated",
+            "value": "横方向の切り抜きを増やす"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Horizontally"
+            "state": "translated",
+            "value": "가로 자르기 늘리기"
           }
         },
         "pcm": {
@@ -51189,14 +51189,14 @@
         },
         "zh-CN": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Horizontally"
+            "state": "translated",
+            "value": "增加横向裁剪"
           }
         },
         "zh-TW": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Horizontally"
+            "state": "translated",
+            "value": "增加橫向裁剪"
           }
         }
       }
@@ -51235,14 +51235,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Vertically"
+            "state": "translated",
+            "value": "Recortar más verticalmente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Vertically"
+            "state": "translated",
+            "value": "Recadrer davantage verticalement"
           }
         },
         "hi": {
@@ -51253,14 +51253,14 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Vertically"
+            "state": "translated",
+            "value": "縦方向の切り抜きを増やす"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Vertically"
+            "state": "translated",
+            "value": "세로 자르기 늘리기"
           }
         },
         "pcm": {
@@ -51289,14 +51289,14 @@
         },
         "zh-CN": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Vertically"
+            "state": "translated",
+            "value": "增加纵向裁剪"
           }
         },
         "zh-TW": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crop More Vertically"
+            "state": "translated",
+            "value": "增加縱向裁剪"
           }
         }
       }
@@ -53835,14 +53835,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Page Crop"
+            "state": "translated",
+            "value": "Recorte de página"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Page Crop"
+            "state": "translated",
+            "value": "Recadrage de page"
           }
         },
         "hi": {
@@ -53853,14 +53853,14 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Page Crop"
+            "state": "translated",
+            "value": "ページの切り抜き"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Page Crop"
+            "state": "translated",
+            "value": "페이지 자르기"
           }
         },
         "pcm": {
@@ -53889,14 +53889,14 @@
         },
         "zh-CN": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Page Crop"
+            "state": "translated",
+            "value": "页面裁剪"
           }
         },
         "zh-TW": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Page Crop"
+            "state": "translated",
+            "value": "頁面裁剪"
           }
         }
       }
@@ -54635,14 +54635,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Crop"
+            "state": "translated",
+            "value": "Restablecer recorte"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Crop"
+            "state": "translated",
+            "value": "Réinitialiser le recadrage"
           }
         },
         "hi": {
@@ -54653,14 +54653,14 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Crop"
+            "state": "translated",
+            "value": "切り抜きをリセット"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Crop"
+            "state": "translated",
+            "value": "자르기 재설정"
           }
         },
         "pcm": {
@@ -54689,14 +54689,14 @@
         },
         "zh-CN": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Crop"
+            "state": "translated",
+            "value": "重置裁剪"
           }
         },
         "zh-TW": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reset Crop"
+            "state": "translated",
+            "value": "重設裁剪"
           }
         }
       }

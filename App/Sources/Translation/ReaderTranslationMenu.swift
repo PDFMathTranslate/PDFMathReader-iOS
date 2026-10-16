@@ -141,21 +141,7 @@ struct ReaderTranslationMenu: View {
       .pickerStyle(.menu)
       .accessibilityIdentifier("reader.targetLanguage")
 
-      Picker(selection: preference(\.translationMode)) {
-        ForEach(TranslationMode.allCases, id: \.self) { mode in
-          Text(mode.displayName).tag(mode)
-        }
-      } label: {
-        Label(L10n.string("settings.translationMode"), systemImage: "text.bubble")
-      }
-      .pickerStyle(.menu)
-      .accessibilityIdentifier("reader.translationMode")
-
-      Toggle(L10n.string("settings.reuseTranslations"), isOn: preference(\.reuseTranslations))
-        .accessibilityIdentifier("reader.reuseTranslations")
-
-      Toggle(L10n.string("advanced.options.ignore_cache.label"), isOn: preference(\.ignoreCache))
-        .accessibilityIdentifier("reader.ignoreCache")
+      Divider()
 
       // Buttons permit an unavailable saved selection to have no checkmark;
       // a Picker would require keeping that unavailable option in its list.
@@ -184,6 +170,24 @@ struct ReaderTranslationMenu: View {
         Label(L10n.string("recentStatus.engine"), systemImage: "cpu")
       }
       .accessibilityIdentifier("reader.kernel")
+
+      Picker(selection: preference(\.translationMode)) {
+        ForEach(TranslationMode.allCases, id: \.self) { mode in
+          Text(mode.displayName).tag(mode)
+        }
+      } label: {
+        Label(L10n.string("settings.translationMode"), systemImage: "text.bubble")
+      }
+      .pickerStyle(.menu)
+      .accessibilityIdentifier("reader.translationMode")
+
+      Divider()
+
+      Toggle(L10n.string("settings.reuseTranslations"), isOn: preference(\.reuseTranslations))
+        .accessibilityIdentifier("reader.reuseTranslations")
+
+      Toggle(L10n.string("advanced.options.ignore_cache.label"), isOn: preference(\.ignoreCache))
+        .accessibilityIdentifier("reader.ignoreCache")
     }
   }
 

@@ -40,6 +40,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
   /// PDFMathReader on the user's computer, which serves its Fast and Precise kernels.
   public var companionURL: String
   public var showTranslations: Bool
+  public var defaultPageCropEnabled: Bool
+  public var defaultPageCropX: Double
+  public var defaultPageCropY: Double
   public var reuseTranslations: Bool
   public var ignoreCache: Bool
   public var translationMode: TranslationMode
@@ -82,6 +85,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     remoteKernelService: String = "",
     companionURL: String = "",
     showTranslations: Bool = true,
+    defaultPageCropEnabled: Bool = false,
+    defaultPageCropX: Double = 0,
+    defaultPageCropY: Double = 0,
     reuseTranslations: Bool = false,
     ignoreCache: Bool = false,
     translateFullDocument: Bool = false,
@@ -117,6 +123,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     self.remoteKernelService = String(remoteKernelService.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
     self.companionURL = companionURL
     self.showTranslations = showTranslations
+    self.defaultPageCropEnabled = defaultPageCropEnabled
+    self.defaultPageCropX = Self.normalizedDefaultPageCrop(defaultPageCropX)
+    self.defaultPageCropY = Self.normalizedDefaultPageCrop(defaultPageCropY)
     self.reuseTranslations = reuseTranslations
     self.ignoreCache = ignoreCache
     self.translationMode = translateFullDocument ? .full : translationMode
@@ -151,6 +160,11 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     return value.lowercased()
   }
 
+  private static func normalizedDefaultPageCrop(_ value: Double) -> Double {
+    guard value.isFinite else { return 0 }
+    return min(0.5, max(0, value))
+  }
+
   private enum CodingKeys: String, CodingKey {
     case uiLanguage
     case sourceLanguage
@@ -164,6 +178,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     case remoteKernelService
     case companionURL
     case showTranslations
+    case defaultPageCropEnabled
+    case defaultPageCropX
+    case defaultPageCropY
     case reuseTranslations
     case ignoreCache
     case translationMode
@@ -220,6 +237,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
       remoteKernelService: try container.decodeIfPresent(String.self, forKey: .remoteKernelService) ?? "",
       companionURL: try container.decodeIfPresent(String.self, forKey: .companionURL) ?? "",
       showTranslations: try container.decodeIfPresent(Bool.self, forKey: .showTranslations) ?? true,
+      defaultPageCropEnabled: try container.decodeIfPresent(Bool.self, forKey: .defaultPageCropEnabled) ?? false,
+      defaultPageCropX: (try? container.decodeIfPresent(Double.self, forKey: .defaultPageCropX)) ?? 0,
+      defaultPageCropY: (try? container.decodeIfPresent(Double.self, forKey: .defaultPageCropY)) ?? 0,
       reuseTranslations: try container.decodeIfPresent(Bool.self, forKey: .reuseTranslations) ?? false,
       ignoreCache: try container.decodeIfPresent(Bool.self, forKey: .ignoreCache) ?? false,
       interactionMode: (try? container.decodeIfPresent(ReaderInteractionMode.self, forKey: .interactionMode)) ?? .reading,

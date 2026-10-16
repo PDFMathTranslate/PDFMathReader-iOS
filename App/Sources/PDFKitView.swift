@@ -45,6 +45,7 @@ private final class PDFPageOverlayBridge: NSObject, @preconcurrency PDFPageOverl
     return ReaderDrawingPageOverlay(
       canvas: drawingModel.canvas(for: index, page: page),
       pageSize: page.bounds(for: .cropBox).size,
+      visibleSize: page.bounds(for: view.displayBox).size,
       content: content
     )
   }
@@ -80,6 +81,8 @@ struct PDFKitView: UIViewRepresentable {
     view.maxScaleFactor = 5
     context.coordinator.setDrawingModel(drawingModel)
     // The view has no window yet, so take the appearance from SwiftUI.
+    (document as? ReaderPDFDocument)?.pageCrop = readingState.pageCrop ?? PageCrop()
+    view.displayBox = .artBox
     (document as? ReaderPDFDocument)?.invertsPages = context.environment.colorScheme == .dark
     context.coordinator.attach(view, document: document, overlayProvider: overlayProvider)
     reference.attach(view)
@@ -283,6 +286,18 @@ struct PDFKitView: UIViewRepresentable {
     @MainActor
     func apply(_ state: ReadingState) {
       guard let view = pdfView else { return }
+      let crop = state.pageCrop ?? PageCrop()
+      if let document = view.document as? ReaderPDFDocument, document.pageCrop != crop {
+        let destination = view.currentDestination
+        let scale = view.scaleFactor
+        document.pageCrop = crop
+        isReloadingAppearance = true
+        view.document = nil
+        view.document = document
+        view.scaleFactor = scale
+        if let destination { view.go(to: destination) }
+        isReloadingAppearance = false
+      }
       let direction: PDFDisplayDirection = state.scrollDirection == .vertical ? .vertical : .horizontal
       if view.displayDirection != direction { view.displayDirection = direction }
       let displayMode: PDFDisplayMode
