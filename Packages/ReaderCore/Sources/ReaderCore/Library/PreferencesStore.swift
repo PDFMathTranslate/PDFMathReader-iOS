@@ -18,6 +18,14 @@ public enum ReaderTheme: String, Codable, CaseIterable, Sendable {
   case dark
 }
 
+/// Desktop parity: reading mode keeps translations in place and lets a long
+/// press select text for annotation; comparison mode toggles a paragraph
+/// between translation and original on tap.
+public enum ReaderInteractionMode: String, Codable, CaseIterable, Sendable {
+  case reading
+  case comparison
+}
+
 public struct ReaderPreferences: Codable, Hashable, Sendable {
   public var uiLanguage: String
   public var sourceLanguage: String
@@ -29,6 +37,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
   public var remoteKernelURL: String
   public var showTranslations: Bool
   public var translateFullDocument: Bool
+  public var interactionMode: ReaderInteractionMode
   public var theme: ReaderTheme
   public var glossaries: [GlossaryLibrary]
   public var bionicReading: BionicReadingMode
@@ -55,6 +64,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     remoteKernelURL: String = "",
     showTranslations: Bool = true,
     translateFullDocument: Bool = false,
+    interactionMode: ReaderInteractionMode = .reading,
     theme: ReaderTheme = .system,
     glossaries: [GlossaryLibrary] = [],
     bionicReading: BionicReadingMode = .off,
@@ -80,6 +90,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     self.remoteKernelURL = remoteKernelURL
     self.showTranslations = showTranslations
     self.translateFullDocument = translateFullDocument
+    self.interactionMode = interactionMode
     self.theme = theme
     self.glossaries = cloneGlossaries(glossaries)
     let normalizedBionic = BionicReading.normalize(
@@ -111,6 +122,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     case remoteKernelURL
     case showTranslations
     case translateFullDocument
+    case interactionMode
     case theme
     case glossaries
     case bionicReading
@@ -140,6 +152,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
       remoteKernelURL: try container.decodeIfPresent(String.self, forKey: .remoteKernelURL) ?? "",
       showTranslations: try container.decodeIfPresent(Bool.self, forKey: .showTranslations) ?? true,
       translateFullDocument: try container.decodeIfPresent(Bool.self, forKey: .translateFullDocument) ?? false,
+      interactionMode: (try? container.decodeIfPresent(ReaderInteractionMode.self, forKey: .interactionMode)) ?? .reading,
       theme: try container.decodeIfPresent(ReaderTheme.self, forKey: .theme) ?? .system,
       glossaries: try container.decodeIfPresent([GlossaryLibrary].self, forKey: .glossaries) ?? [],
       bionicReading: try container.decodeIfPresent(BionicReadingMode.self, forKey: .bionicReading) ?? .off,

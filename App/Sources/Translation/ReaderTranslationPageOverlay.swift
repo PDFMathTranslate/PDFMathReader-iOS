@@ -14,6 +14,11 @@ final class ReaderTranslationLabel: UILabel {
   var coverColor: UIColor = .white {
     didSet { applyCoverColor() }
   }
+  /// Highlights under this cover, in label coordinates. Painted behind the
+  /// text so the translation stays readable.
+  var marks: [ReaderTranslationMarkupView.Highlight] = [] {
+    didSet { if marks != oldValue { setNeedsDisplay() } }
+  }
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -31,7 +36,63 @@ final class ReaderTranslationLabel: UILabel {
   }
 
   override func drawText(in rect: CGRect) {
+    if !marks.isEmpty, let context = UIGraphicsGetCurrentContext() {
+      let alpha = traitCollection.userInterfaceStyle == .dark ? 0.4 : 0.5
+      for mark in marks {
+        context.setFillColor(mark.color.withAlphaComponent(alpha).cgColor)
+        context.fill(mark.rect)
+      }
+    }
     super.drawText(in: rect.inset(by: textInsets))
+  }
+}
+
+/// Redraws markup that sits under a translation cover: PDFKit paints
+/// annotations on the page, below overlay views. Its live text selection is
+/// drawn above overlays, so it is not repeated here. Label covers paint their
+/// own highlights; this view handles the remote page image and comment icons.
+/// Drawing is clipped to the covers so uncovered markup is not drawn twice.
+@MainActor
+final class ReaderTranslationMarkupView: UIView {
+  struct Highlight: Equatable {
+    let rect: CGRect
+    let color: UIColor
+  }
+
+  var covers: [CGRect] = [] { didSet { setNeedsDisplay() } }
+  var highlights: [Highlight] = [] { didSet { setNeedsDisplay() } }
+  var comments: [PDFAnnotation] = [] { didSet { setNeedsDisplay() } }
+  /// Maps page space (crop box) into this view, for PDFKit-drawn comment icons.
+  var pageTransform: CGAffineTransform = .identity { didSet { setNeedsDisplay() } }
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    backgroundColor = .clear
+    isOpaque = false
+    isUserInteractionEnabled = false
+    contentMode = .redraw
+    isAccessibilityElement = false
+  }
+
+  required init?(coder: NSCoder) {
+    nil
+  }
+
+  override func draw(_ rect: CGRect) {
+    guard let context = UIGraphicsGetCurrentContext(), !covers.isEmpty else { return }
+    context.saveGState()
+    context.addRects(covers)
+    context.clip()
+    let alpha = traitCollection.userInterfaceStyle == .dark ? 0.3 : 0.35
+    for highlight in highlights {
+      context.setFillColor(highlight.color.withAlphaComponent(alpha).cgColor)
+      context.fill(highlight.rect)
+    }
+    if !comments.isEmpty {
+      context.concatenate(pageTransform)
+      comments.forEach { $0.draw(with: .cropBox, in: context) }
+    }
+    context.restoreGState()
   }
 }
 
@@ -44,12 +105,14 @@ final class ReaderTranslationPageOverlay: UIView {
   private weak var page: PDFPage?
   private var state = PageTranslationState(pageIndex: 0)
   private var showTranslations = true
+  private var interactionMode: ReaderInteractionMode = .reading
   private var readingAidsConfiguration = ReadingAidsConfiguration()
   private var originalOverrides = Set<Int>()
   private var labels: [Int: ReaderTranslationLabel] = [:]
   private var remotePageData: Data?
   private var remoteImageView: UIImageView?
   private let progressView = UIProgressView(progressViewStyle: .bar)
+  private let markupView = ReaderTranslationMarkupView()
 
   init(pageIndex: Int, page: PDFPage, pdfView: PDFView) {
     self.pageIndex = pageIndex
@@ -63,7 +126,15 @@ final class ReaderTranslationPageOverlay: UIView {
     progressView.progressTintColor = UIColor.secondaryLabel.withAlphaComponent(0.65)
     progressView.alpha = 0
     addSubview(progressView)
+    addSubview(markupView)
     isAccessibilityElement = false
+    // Applying a highlight clears the selection; refresh the covered marks then.
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(selectionChanged(_:)),
+      name: Notification.Name.PDFViewSelectionChanged,
+      object: nil
+    )
   }
 
   required init?(coder: NSCoder) {
@@ -85,15 +156,47 @@ final class ReaderTranslationPageOverlay: UIView {
     setNeedsLayout()
   }
 
+  #if DEBUG
+  var debugDisplayedText: [String] {
+    guard window != nil, !isHidden, showTranslations else { return [] }
+    return labels.sorted { $0.key < $1.key }
+      .filter { $0.value.window != nil && !$0.value.isHidden }
+      .map(\.value.fittedText)
+  }
+  #endif
+
+  /// Annotation edits replace the PDFDocument; PDFKit then asks for this
+  /// page's overlay with the new document's page object.
+  func rebind(page: PDFPage, pdfView: PDFView) {
+    guard page !== self.page || pdfView !== self.pdfView else { return }
+    self.page = page
+    self.pdfView = pdfView
+    setNeedsLayout()
+  }
+
+  func setInteractionMode(_ mode: ReaderInteractionMode) {
+    guard mode != interactionMode else { return }
+    interactionMode = mode
+    let restore = !originalOverrides.isEmpty
+    originalOverrides.removeAll()
+    for item in state.paragraphs {
+      guard let label = labels[item.paragraph.id] else { continue }
+      label.isUserInteractionEnabled = mode == .comparison
+      if restore { updateLabel(label, item: item) }
+    }
+  }
+
   /// Applies visibility with the last known state, even if the coordinator
   /// has no state for this page right now (e.g. during a pipeline restart).
   func setTranslationsVisible(_ visible: Bool) {
     update(state: state, showTranslations: visible)
   }
 
-  // Only translation labels take touches; everything else falls through to
-  // PDFKit so text selection still works under the overlay.
+  // Reading mode: nothing here takes touches, so a long press on a
+  // translation reaches PDFKit, which selects the source text beneath it and
+  // shows the annotation menu. Comparison mode: labels take taps to toggle.
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    guard interactionMode == .comparison else { return nil }
     let hit = super.hitTest(point, with: event)
     return hit === self ? nil : hit
   }
@@ -164,12 +267,97 @@ final class ReaderTranslationPageOverlay: UIView {
        let translated = PDFDocument(data: remotePageData)?.page(at: 0) {
       remoteImageView?.image = translated.thumbnail(of: bounds.size, for: .cropBox)
     }
+    markupView.frame = bounds
+    bringSubviewToFront(markupView)
     bringSubviewToFront(progressView)
-    guard remotePageData == nil else { return }
+    guard remotePageData == nil else {
+      updateMarkup()
+      return
+    }
     for item in state.paragraphs {
       guard let label = labels[item.paragraph.id] else { continue }
       layoutLabel(label, item: item, forceFit: false)
     }
+    updateMarkup()
+  }
+
+  @objc private func selectionChanged(_ notification: Notification) {
+    guard let pdfView, notification.object as? PDFView === pdfView else { return }
+    updateMarkup()
+  }
+
+  private func updateMarkup() {
+    let covers: [CGRect]
+    var labelCovers = false
+    if !showTranslations {
+      covers = []
+    } else if let remoteImageView, !remoteImageView.isHidden {
+      covers = [remoteImageView.frame]
+    } else {
+      covers = labels.values.map(\.frame)
+      labelCovers = true
+    }
+    markupView.covers = covers
+    guard !covers.isEmpty, let pdfView, let page else {
+      markupView.highlights = []
+      markupView.comments = []
+      labels.values.forEach { $0.marks = [] }
+      return
+    }
+    var highlights: [ReaderTranslationMarkupView.Highlight] = []
+    var comments: [PDFAnnotation] = []
+    for annotation in page.annotations {
+      switch annotation.type?.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
+      case "Highlight":
+        let color = annotation.color.withAlphaComponent(1)
+        for rect in markupRects(annotation) {
+          highlights.append(.init(rect: viewRect(rect, page: page, pdfView: pdfView), color: color))
+        }
+      case "Text":
+        comments.append(annotation)
+      default:
+        break
+      }
+    }
+    // Labels paint highlights behind their own text; a separate layer on top
+    // cannot blend with the label below it and would hide the translation.
+    for label in labels.values {
+      let frame = label.frame
+      label.marks = labelCovers ? highlights.compactMap { highlight in
+        let rect = highlight.rect.intersection(frame)
+        guard !rect.isNull, !rect.isEmpty else { return nil }
+        return .init(rect: rect.offsetBy(dx: -frame.minX, dy: -frame.minY), color: highlight.color)
+      } : []
+    }
+    markupView.highlights = labelCovers ? [] : highlights
+    markupView.comments = comments
+    markupView.pageTransform = pageTransform(page: page, pdfView: pdfView)
+  }
+
+  /// Quad points are relative to the annotation origin; fall back to bounds.
+  private func markupRects(_ annotation: PDFAnnotation) -> [CGRect] {
+    let points = (annotation.quadrilateralPoints ?? []).map(\.cgPointValue)
+    guard points.count >= 4 else { return [annotation.bounds] }
+    let origin = annotation.bounds.origin
+    return stride(from: 0, to: points.count - 3, by: 4).map { start in
+      let quad = points[start..<start + 4].map { CGPoint(x: $0.x + origin.x, y: $0.y + origin.y) }
+      let xs = quad.map(\.x)
+      let ys = quad.map(\.y)
+      return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+    }
+  }
+
+  private func viewRect(_ pageRect: CGRect, page: PDFPage, pdfView: PDFView) -> CGRect {
+    convert(pdfView.convert(pageRect, from: page), from: pdfView).standardized
+  }
+
+  private func pageTransform(page: PDFPage, pdfView: PDFView) -> CGAffineTransform {
+    let bounds = page.bounds(for: .cropBox)
+    let view = viewRect(bounds, page: page, pdfView: pdfView)
+    guard bounds.width > 0, bounds.height > 0 else { return .identity }
+    return CGAffineTransform(translationX: view.minX, y: view.maxY)
+      .scaledBy(x: view.width / bounds.width, y: -view.height / bounds.height)
+      .translatedBy(x: -bounds.minX, y: -bounds.minY)
   }
 
   private func rebuildLabels() {
@@ -187,7 +375,7 @@ final class ReaderTranslationPageOverlay: UIView {
       label.textColor = .label
       // Square cover, like the desktop box-shadow.
       label.coverColor = paperColor
-      label.isUserInteractionEnabled = true
+      label.isUserInteractionEnabled = interactionMode == .comparison
       label.textAlignment = textAlignment(for: item.paragraph.textAlign)
       label.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleParagraph(_:))))
       addSubview(label)
@@ -256,7 +444,7 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   @objc private func toggleParagraph(_ recognizer: UITapGestureRecognizer) {
-    guard let label = recognizer.view as? ReaderTranslationLabel else { return }
+    guard interactionMode == .comparison, let label = recognizer.view as? ReaderTranslationLabel else { return }
     if originalOverrides.contains(label.tag) {
       originalOverrides.remove(label.tag)
     } else {

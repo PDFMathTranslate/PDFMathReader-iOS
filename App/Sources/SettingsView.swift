@@ -88,6 +88,10 @@ struct SettingsView: View {
             }
           }
           Toggle(L10n.string("toolbar.showTranslatedText"), isOn: $draft.showTranslations)
+          Picker(L10n.string("settings.interactionMode"), selection: $draft.interactionMode) {
+            Text(L10n.string("settings.readingMode")).tag(ReaderInteractionMode.reading)
+            Text(L10n.string("settings.comparisonMode")).tag(ReaderInteractionMode.comparison)
+          }
           Toggle(L10n.string("translation.full"), isOn: $draft.translateFullDocument)
           NavigationLink {
             GlossaryEditorView(libraries: $draft.glossaries)

@@ -34,11 +34,70 @@ final class ReaderSmokeUITests: XCTestCase {
     sleep(1)
     attachScreenshot(app, name: "2-original")
 
-    // "worthy" sits 37% along the first line; PDFKit exposes that line as
-    // static text, which keeps the press independent of device and layout.
-    let line = app.staticTexts.matching(
+    guard let highlight = selectWordForAnnotation(in: app) else { return }
+    attachScreenshot(app, name: "3-menu")
+    highlight.tap()
+    sleep(1)
+    attachScreenshot(app, name: "4-highlighted")
+  }
+
+  /// Reading mode (the default): translations stay in place, a tap does not
+  /// swap a paragraph back to the original, and a long press on translated
+  /// text selects the source beneath it and offers the annotation menu.
+  @MainActor
+  func testReadingModeAnnotatesUnderTranslation() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe"]
+    app.launch()
+
+    XCTAssertTrue(translationProbes(in: app).firstMatch.waitForExistence(timeout: 30), "Reader did not open")
+    if !translatedProbe(in: app).waitForExistence(timeout: 120) {
+      attachScreenshot(app, name: "translation-missing")
+      XCTFail("No translated paragraph appeared")
+      return
+    }
+    setTranslationsVisible(true, in: app)
+    sleep(1)
+    let before = displayedTranslations(in: app)
+    XCTAssertGreaterThan(before, 0, "No translated text on screen")
+    attachScreenshot(app, name: "1-reading-translated")
+
+    pageLine(in: app).coordinate(withNormalizedOffset: CGVector(dx: 0.37, dy: 0.5)).tap()
+    sleep(1)
+    XCTAssertEqual(displayedTranslations(in: app), before, "A tap swapped a translation to the original")
+
+    guard let highlight = selectWordForAnnotation(in: app) else { return }
+    attachScreenshot(app, name: "2-reading-menu")
+    highlight.tap()
+    sleep(1)
+    attachScreenshot(app, name: "3-reading-highlighted")
+    XCTAssertEqual(displayedTranslations(in: app), before, "Translations changed after highlighting")
+  }
+
+  /// Paragraphs the overlays currently show in translation (Han text).
+  @MainActor
+  private func displayedTranslations(in app: XCUIApplication) -> Int {
+    // iPad may restore several reader windows; sum over every probe.
+    app.descendants(matching: .any).matching(identifier: "debug.overlayText").allElementsBoundByIndex
+      .flatMap { ($0.value as? String ?? "").split(separator: "\n") }
+      .filter { $0.range(of: "\\p{Han}", options: .regularExpression) != nil }
+      .count
+  }
+
+  /// "The grass-blade is worthy" is the sample's first line. PDFKit exposes
+  /// that line as static text, which keeps presses independent of layout.
+  @MainActor
+  private func pageLine(in app: XCUIApplication) -> XCUIElement {
+    app.staticTexts.matching(
       NSPredicate(format: "label BEGINSWITH %@", "The grass-blade is worthy")
     ).firstMatch
+  }
+
+  /// Selects "worthy" (37% along the first line) and returns the visible
+  /// Highlight Yellow menu entry, or records a failure and returns nil.
+  @MainActor
+  private func selectWordForAnnotation(in app: XCUIApplication) -> XCUIElement? {
+    let line = pageLine(in: app)
     let hasLine = line.waitForExistence(timeout: 5)
     let word = hasLine
       ? line.coordinate(withNormalizedOffset: CGVector(dx: 0.37, dy: 0.5))
@@ -77,12 +136,9 @@ final class ReaderSmokeUITests: XCTestCase {
       attachScreenshot(app, name: "edit-menu-missing")
       add(XCTAttachment(string: app.debugDescription))
       XCTFail("Highlight Yellow is not in the selection menu")
-      return
+      return nil
     }
-    attachScreenshot(app, name: "3-menu")
-    highlight.tap()
-    sleep(1)
-    attachScreenshot(app, name: "4-highlighted")
+    return highlight
   }
 
   /// iPad reader: sidebar hidden in portrait, shown in landscape.

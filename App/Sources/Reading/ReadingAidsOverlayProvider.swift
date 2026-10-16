@@ -92,8 +92,11 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
   }
 
   public func overlayView(for page: PDFPage, in pdfView: PDFView) -> UIView? {
-    let pageIndex = document.index(for: page)
-    guard pageIndex != NSNotFound, readingAidsConfiguration.hasOriginalOverlay else { return nil }
+    // Annotation edits swap in a new PDFDocument; see ReaderTranslationCoordinator.
+    let pageIndex = pdfView.document?.index(for: page) ?? document.index(for: page)
+    guard pageIndex != NSNotFound, pageIndex < document.pageCount,
+      readingAidsConfiguration.hasOriginalOverlay
+    else { return nil }
     let data: ReadingAidsPageData
     if let cached = pageData[pageIndex] {
       data = cached
@@ -112,6 +115,7 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
     let overlay: ReadingAidsPageOverlay
     if let existing = overlays[pageIndex] {
       overlay = existing
+      overlay.rebind(page: page, pdfView: pdfView)
     } else {
       overlay = ReadingAidsPageOverlay(page: page, pdfView: pdfView, data: data)
       overlays[pageIndex] = overlay
@@ -384,6 +388,13 @@ private final class ReadingAidsPageOverlay: UIView {
 
   required init?(coder: NSCoder) {
     nil
+  }
+
+  func rebind(page: PDFPage, pdfView: PDFView) {
+    guard page !== self.page || pdfView !== self.pdfView else { return }
+    self.page = page
+    self.pdfView = pdfView
+    setNeedsLayout()
   }
 
   func update(analysis: ReadingAidsPageAnalysis) {

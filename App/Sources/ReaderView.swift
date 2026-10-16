@@ -562,6 +562,14 @@ private struct TranslationStatusProbe: View {
       .accessibilityElement()
       .accessibilityIdentifier("debug.translationStatus")
       .accessibilityValue(coordinator.debugTranslations)
+    // Overlays change outside SwiftUI (taps, document swaps), so poll.
+    TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+      Color.clear
+        .frame(width: 1, height: 1)
+        .accessibilityElement()
+        .accessibilityIdentifier("debug.overlayText")
+        .accessibilityValue(coordinator.debugDisplayedText)
+    }
   }
 }
 #endif

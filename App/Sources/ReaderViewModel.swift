@@ -74,7 +74,8 @@ final class ReaderViewModel: ObservableObject {
 
   func receivePDFViewState(_ view: PDFView) {
     var next = readingState
-    if let page = view.currentPage, let document {
+    // Annotation edits replace the view's document, so index its pages there.
+    if let page = view.currentPage, let document = view.document ?? document {
       let index = document.index(for: page)
       if index != NSNotFound { next.page = index + 1 }
     }
@@ -92,8 +93,8 @@ final class ReaderViewModel: ObservableObject {
     guard pageCount > 0 else { return }
     readingState.page = page
     persistReadingState()
-    if let target = document?.page(at: page - 1) {
-      pdfViewReference.view?.go(to: target)
+    if let view = pdfViewReference.view, let target = (view.document ?? document)?.page(at: page - 1) {
+      view.go(to: target)
     }
   }
 

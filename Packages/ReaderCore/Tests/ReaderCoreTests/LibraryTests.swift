@@ -88,6 +88,17 @@ private func temporaryLibraryDirectory() throws -> URL {
   #expect(store.load() == preferences)
 }
 
+@Test func interactionModeDefaultsToReadingAndKeepsSavedComparison() throws {
+  let legacy = Data(#"{"targetLanguage":"de"}"#.utf8)
+  #expect(try JSONDecoder().decode(ReaderPreferences.self, from: legacy).interactionMode == .reading)
+
+  let unknown = Data(#"{"interactionMode":"split"}"#.utf8)
+  #expect(try JSONDecoder().decode(ReaderPreferences.self, from: unknown).interactionMode == .reading)
+
+  let saved = try JSONEncoder().encode(ReaderPreferences(interactionMode: .comparison))
+  #expect(try JSONDecoder().decode(ReaderPreferences.self, from: saved).interactionMode == .comparison)
+}
+
 @Test func glossaryStoreRoundTripsAndRejectsInvalidValues() throws {
   let directory = try temporaryLibraryDirectory()
   defer { try? FileManager.default.removeItem(at: directory) }

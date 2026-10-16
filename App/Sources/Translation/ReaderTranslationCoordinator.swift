@@ -67,6 +67,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     if visibilityChanged {
       overlays.values.forEach { $0.setTranslationsVisible(showTranslations) }
     }
+    overlays.values.forEach { $0.setInteractionMode(value.interactionMode) }
     // UI-only changes (visibility, theme, reading aids) must not restart the
     // pipeline: a restart clears the page states the overlays rely on.
     if translationConfigurationID != previousConfigurationID
@@ -114,6 +115,14 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       .flatMap(\.value.paragraphs)
       .compactMap(\.translation)
       .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+      .joined(separator: "\n")
+  }
+
+  /// Text the on-screen overlays show (translation or original), one
+  /// paragraph per line; lets UI tests see what the reader displays.
+  var debugDisplayedText: String {
+    overlays.sorted { $0.key < $1.key }
+      .flatMap(\.value.debugDisplayedText)
       .joined(separator: "\n")
   }
   #endif
@@ -199,15 +208,19 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   }
 
   func overlayView(for page: PDFPage, in pdfView: PDFView) -> UIView? {
-    let index = document.index(for: page)
-    guard index != NSNotFound else { return nil }
+    // Annotation edits swap in a new PDFDocument with the same pages, so the
+    // live view's document, not the original one, owns `page`.
+    let index = pdfView.document?.index(for: page) ?? document.index(for: page)
+    guard index != NSNotFound, index < document.pageCount else { return nil }
     let overlay: ReaderTranslationPageOverlay
     if let existing = overlays[index] {
       overlay = existing
+      overlay.rebind(page: page, pdfView: pdfView)
     } else {
       overlay = ReaderTranslationPageOverlay(pageIndex: index, page: page, pdfView: pdfView)
       overlays[index] = overlay
     }
+    overlay.setInteractionMode(preferences.interactionMode)
     if let state = currentState(for: index) {
       overlay.update(state: state, showTranslations: showTranslations)
     }
