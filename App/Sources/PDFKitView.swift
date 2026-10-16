@@ -140,6 +140,9 @@ struct PDFKitView: UIViewRepresentable {
       pdfView = view
       overlayBridge.provider = overlayProvider
       view.pageOverlayViewProvider = overlayBridge
+      (document as? ReaderPDFDocument)?.bionicOptions =
+        (overlayProvider as? ReadingAidsConfigurationProviding)?.readingAidsConfiguration.bionicOptions
+        ?? BionicReadingOptions()
       view.document = document
       fingerPress.addTarget(self, action: #selector(fingerPressed(_:)))
       fingerPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
@@ -210,6 +213,20 @@ struct PDFKitView: UIViewRepresentable {
 
     func updateOverlayProvider(_ provider: (any ReaderPageOverlayProviding)?) {
       overlayBridge.provider = provider
+      guard let view = pdfView, let document = view.document as? ReaderPDFDocument else { return }
+      let options = (provider as? ReadingAidsConfigurationProviding)?.readingAidsConfiguration.bionicOptions
+        ?? BionicReadingOptions()
+      guard options != document.bionicOptions else { return }
+      document.bionicOptions = options
+      // PDFKit caches page tiles. Rebuild them without resetting live zoom or position.
+      let destination = view.currentDestination
+      let scale = view.scaleFactor
+      isReloadingAppearance = true
+      view.document = nil
+      view.document = document
+      view.scaleFactor = scale
+      if let destination { view.go(to: destination) }
+      isReloadingAppearance = false
     }
 
     func setDrawingModel(_ model: ReaderDrawingModel?) {

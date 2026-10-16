@@ -29,7 +29,6 @@ private struct ReadingAidsLink: Sendable {
 }
 
 private struct ReadingAidsPageAnalysis: Sendable {
-  var bionicRanges: [ReadingRange]
   var informationRanges: [InformationRange]
   var topicRanges: [ReadingRange]
   var tfidfRanges: [TfidfRange]
@@ -52,7 +51,6 @@ private extension ReadingAidsPageData {
 
 private extension ReadingAidsPageAnalysis {
   static let empty = ReadingAidsPageAnalysis(
-    bionicRanges: [],
     informationRanges: [],
     topicRanges: [],
     tfidfRanges: [],
@@ -99,6 +97,7 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
   public func updatePreferences(_ preferences: ReaderPreferences) {
     let next = ReadingAidsConfiguration(preferences: preferences)
     guard next != readingAidsConfiguration else { return }
+    objectWillChange.send()
     readingAidsConfiguration = next
     analysisGeneration &+= 1
     pendingAnalysisTasks.values.forEach { $0.cancel() }
@@ -294,7 +293,6 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
       ? detectedLinks(in: data.text)
       : []
     return ReadingAidsPageAnalysis(
-      bionicRanges: BionicReading.ranges(in: data.text, options: configuration.bionicOptions),
       informationRanges: information,
       topicRanges: topic,
       tfidfRanges: tfidf,
@@ -348,7 +346,11 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
 }
 
 @MainActor
-public final class ReaderPageOverlayCompositeProvider: ReaderPageOverlayProviding {
+public final class ReaderPageOverlayCompositeProvider: ReaderPageOverlayProviding, ReadingAidsConfigurationProviding {
+  public var readingAidsConfiguration: ReadingAidsConfiguration {
+    readingProvider?.readingAidsConfiguration ?? ReadingAidsConfiguration()
+  }
+
   private let providers: [any ReaderPageOverlayProviding]
   private var composites: [Int: ReadingAidsCompositePageOverlay] = [:]
   private weak var readingProvider: ReadingAidsOverlayProvider?
@@ -458,7 +460,6 @@ private final class ReadingAidsPageOverlay: UIView {
   private weak var page: PDFPage?
   private var data: ReadingAidsPageData
   private var analysis = ReadingAidsPageAnalysis(
-    bionicRanges: [],
     informationRanges: [],
     topicRanges: [],
     tfidfRanges: [],
@@ -549,11 +550,6 @@ private final class ReadingAidsPageOverlay: UIView {
     }
 
     var boldStrength: [Int: Double] = [:]
-    for range in analysis.bionicRanges {
-      for glyph in data.glyphs where glyph.index >= range.start && glyph.index < range.end {
-        boldStrength[glyph.index] = max(boldStrength[glyph.index] ?? 0, 1)
-      }
-    }
     for range in analysis.tfidfRanges {
       for glyph in data.glyphs where glyph.index >= range.start && glyph.index < range.end {
         boldStrength[glyph.index] = max(boldStrength[glyph.index] ?? 0, range.strength)

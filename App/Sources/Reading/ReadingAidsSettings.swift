@@ -59,8 +59,7 @@ public struct ReadingAidsConfiguration: Equatable, Sendable {
   }
 
   public var hasOriginalOverlay: Bool {
-    BionicReading.active(bionicOptions) ||
-      emphasizeInformation ||
+    emphasizeInformation ||
       emphasizeTopicSentences ||
       tfidfWeightingEnabled ||
       readingLinksEnabled

@@ -1,3 +1,4 @@
+import CoreImage
 import PDFKit
 import ReaderCore
 import UIKit
@@ -127,6 +128,58 @@ final class ReaderPDFDocument: PDFDocument {
   private let invertsLock = OSAllocatedUnfairLock(initialState: false)
 
   private let cropLock = OSAllocatedUnfairLock(initialState: PageCrop())
+  private struct BionicPageRegions: @unchecked Sendable {
+    weak var page: PDFPage?
+    var rects: [CGRect]
+  }
+  private struct BionicState: Sendable {
+    var options = BionicReadingOptions()
+    var regions: [ObjectIdentifier: BionicPageRegions] = [:]
+  }
+  private let bionicLock = OSAllocatedUnfairLock(uncheckedState: BionicState())
+
+  var bionicOptions: BionicReadingOptions {
+    get { bionicLock.withLock { $0.options } }
+    set {
+      bionicLock.withLock {
+        let next = BionicReading.normalize(newValue)
+        guard next != $0.options else { return }
+        $0.options = next
+        $0.regions.removeAll()
+      }
+    }
+  }
+
+  func bionicRegions(on page: PDFPage) -> [CGRect] {
+    // The synchronous closure stays on the drawing thread; PDFKit objects
+    // are not transferred to another executor. Serialize geometry extraction.
+    bionicLock.withLockUnchecked { state in
+      guard BionicReading.active(state.options) else { return [] }
+      let key = ObjectIdentifier(page)
+      if let cached = state.regions[key], cached.page === page { return cached.rects }
+      let regions = BionicReading.ranges(in: page.string ?? "", options: state.options).flatMap { range -> [CGRect] in
+        let start = min(page.numberOfCharacters, max(0, range.start))
+        let end = min(page.numberOfCharacters, max(start, range.end))
+        let glyphs = (start..<end)
+          .map { page.characterBounds(at: $0) }
+          .filter { !$0.isNull && !$0.isEmpty }
+        return page.selection(for: NSRange(location: range.start, length: range.end - range.start))?
+          .selectionsByLine().map { line in
+            let bounds = line.bounds(for: page)
+            // Selection boxes include advance widths and can extend into the
+            // next letter's ink. Restrict replacement to the prefix glyphs.
+            let ink = glyphs.filter { $0.intersects(bounds) }
+              .reduce(CGRect.null) { $0.union($1) }
+            return bounds.intersection(ink)
+          } ?? []
+      }.filter { (rect: CGRect) in !rect.isEmpty && !rect.isNull && !rect.isInfinite }
+      // Compaction replaces page objects. Bound geometry retained for retired pages.
+      if state.regions.count >= max(8, pageCount) { state.regions.removeAll() }
+      state.regions[key] = BionicPageRegions(page: page, rects: regions)
+      return regions
+    }
+  }
+
 
   /// A virtual display box: the PDF's stored boxes and export data stay intact.
   var pageCrop: PageCrop {
@@ -175,7 +228,7 @@ final class ReaderPDFPage: PDFPage {
   override func draw(with box: PDFDisplayBox, to context: CGContext) {
     let box: PDFDisplayBox = box == .artBox ? .cropBox : box
     guard (document as? ReaderPDFDocument)?.invertsPages == true else {
-      super.draw(with: box, to: context)
+      drawReadingContent(with: box, to: context)
       return
     }
     // Tiles clip to the part of the page being rendered; fall back to the
@@ -189,12 +242,96 @@ final class ReaderPDFPage: PDFPage {
     context.setFillColor(gray: 1, alpha: 1)
     context.fill(area)
     context.restoreGState()
-    super.draw(with: box, to: context)
+    drawReadingContent(with: box, to: context)
     ReaderDarkPDF.invert(area, in: context)
+  }
+
+  private func drawReadingContent(with box: PDFDisplayBox, to context: CGContext) {
+    guard !ReaderPDFSerialization.usesOriginalBoxes else {
+      super.draw(with: box, to: context)
+      return
+    }
+    let regions = (document as? ReaderPDFDocument)?.bionicRegions(on: self) ?? []
+    guard !regions.isEmpty,
+      ReaderBionicPDF.draw(in: context, bounds: super.bounds(for: box), regions: regions,
+        source: { super.draw(with: box, to: $0) })
+    else {
+      super.draw(with: box, to: context)
+      return
+    }
   }
 
   func drawUninverted(with box: PDFDisplayBox, to context: CGContext) {
     super.draw(with: box, to: context)
+  }
+}
+
+/// Embolden the PDF's own ink during tile rendering. No substitute font is
+/// drawn over existing letters. Prefix pixels replace their source pixels;
+/// everything outside those regions keeps PDFKit's normal vector drawing.
+enum ReaderBionicPDF {
+  private static let imageContext = CIContext(options: [.cacheIntermediates: false])
+
+  static func draw(
+    in context: CGContext, bounds: CGRect, regions: [CGRect], source: (CGContext) -> Void
+  ) -> Bool {
+    let clip = context.boundingBoxOfClipPath.intersection(bounds)
+    let visible = regions.filter { $0.intersects(clip) }
+    guard !visible.isEmpty else { return false }
+    let transform = context.ctm
+    let deviceScale = max(hypot(transform.a, transform.b), hypot(transform.c, transform.d))
+    guard deviceScale.isFinite, deviceScale > 0 else { return false }
+    // Morphology kernels use whole pixels. Supersample low zoom levels so
+    // their smallest kernel still represents a quarter-point of source ink.
+    let scale = max(4, deviceScale)
+    // Padding supplies neighboring ink to the filter at tile boundaries.
+    let area = clip.insetBy(dx: -1, dy: -1).intersection(bounds)
+    let width = ceil(area.width * scale), height = ceil(area.height * scale)
+    guard width > 0, height > 0, width <= 8192, height <= 8192,
+      width * height <= 16_777_216,
+      let bitmap = CGContext(data: nil, width: Int(width), height: Int(height),
+        bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    else { return false }
+    bitmap.setFillColor(gray: 1, alpha: 1)
+    bitmap.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    // Account for pixel rounding so the filtered tile maps back exactly.
+    bitmap.scaleBy(x: width / area.width, y: height / area.height)
+    bitmap.translateBy(x: -area.minX, y: -area.minY)
+    source(bitmap)
+    guard let original = bitmap.makeImage() else { return false }
+    let image = CIImage(cgImage: original)
+    let bold = image.clampedToExtent().applyingFilter("CIMorphologyMinimum", parameters: [
+      kCIInputRadiusKey: max(1, 0.22 * scale),
+    ])
+    guard let rendered = imageContext.createCGImage(bold, from: image.extent) else { return false }
+
+    // Union the rectangles first: overlapping holes in an even-odd path
+    // would otherwise restore the original ink in their intersections.
+    var remainder = [clip]
+    for region in visible {
+      remainder = remainder.flatMap { subtract(region, from: $0) }
+    }
+    context.saveGState()
+    context.clip(to: remainder)
+    source(context)
+    context.restoreGState()
+    context.saveGState()
+    context.clip(to: visible)
+    context.draw(rendered, in: area)
+    context.restoreGState()
+    return true
+  }
+
+  private static func subtract(_ hole: CGRect, from rect: CGRect) -> [CGRect] {
+    let cut = rect.intersection(hole)
+    guard !cut.isNull, !cut.isEmpty else { return [rect] }
+    return [
+      CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: cut.minY - rect.minY),
+      CGRect(x: rect.minX, y: cut.maxY, width: rect.width, height: rect.maxY - cut.maxY),
+      CGRect(x: rect.minX, y: cut.minY, width: cut.minX - rect.minX, height: cut.height),
+      CGRect(x: cut.maxX, y: cut.minY, width: rect.maxX - cut.maxX, height: cut.height),
+    ].filter { !$0.isEmpty }
   }
 }
 
