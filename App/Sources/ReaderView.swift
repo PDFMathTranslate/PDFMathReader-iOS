@@ -15,12 +15,22 @@ private enum ReaderSidebarMode: String, CaseIterable {
     case .annotations: L10n.string("sidebar.annotations")
     }
   }
+
+  var systemImage: String {
+    switch self {
+    case .thumbnails: "square.grid.2x2"
+    case .outline: "list.bullet"
+    case .annotations: "highlighter"
+    }
+  }
 }
 
 struct ReaderView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.scenePhase) private var scenePhase
   @StateObject private var model: ReaderViewModel
   @StateObject private var annotationModel: ReaderAnnotationViewModel
+  @StateObject private var drawingModel: ReaderDrawingModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var isLandscape: Bool?
   @State private var sidebarMode: ReaderSidebarMode = .thumbnails
@@ -33,6 +43,7 @@ struct ReaderView: View {
   init(session: DocumentSession, library: LibraryModel, onClose: (() -> Void)? = nil) {
     _model = StateObject(wrappedValue: ReaderViewModel(session: session, library: library))
     _annotationModel = StateObject(wrappedValue: ReaderAnnotationViewModel(session: session))
+    _drawingModel = StateObject(wrappedValue: ReaderDrawingModel(session: session))
     _columnVisibility = State(initialValue: Self.defaultColumnVisibility(landscape: Self.sceneIsLandscape()))
     self.onClose = onClose
   }
@@ -135,8 +146,21 @@ struct ReaderView: View {
       ReaderCommandRouter.shared.activate(model)
     }
     .onDisappear {
+      drawingModel.isDrawing = false
+      drawingModel.flush()
       ReaderCommandRouter.shared.deactivate(model)
       model.persistReadingState()
+    }
+    .onChange(of: scenePhase) { _, phase in
+      if phase != .active { drawingModel.flush() }
+    }
+    .alert(L10n.string("ios.drawingSaveFailed"), isPresented: Binding(
+      get: { drawingModel.lastError != nil },
+      set: { if !$0 { drawingModel.lastError = nil } }
+    )) {
+      Button(L10n.string("ios.ok")) { drawingModel.lastError = nil }
+    } message: {
+      Text(drawingModel.lastError ?? "")
     }
     .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { notification in
       guard notification.object as? ReaderViewModel === model else { return }
@@ -172,6 +196,7 @@ struct ReaderView: View {
     ReaderDetail(
       model: model,
       annotations: annotationModel,
+      drawings: drawingModel,
       regular: regular,
       onToggleSidebar: toggleSidebar,
       onSearch: { isSearchPresented = true },
@@ -186,8 +211,12 @@ struct ReaderView: View {
     .readerExport(
       document: document,
       originalName: model.session.title,
+      sourceData: annotationModel.exportSourceData,
       annotations: annotationModel.annotations,
+      quickLinks: annotationModel.quickLinks,
+      readingState: model.readingState,
       coordinator: model.translationCoordinator,
+      drawings: drawingModel,
       request: $exportRequest
     )
     .sheet(isPresented: $isComparePresented) {
@@ -229,6 +258,7 @@ struct ReaderView: View {
 private struct ReaderDetail: View {
   @ObservedObject var model: ReaderViewModel
   @ObservedObject var annotations: ReaderAnnotationViewModel
+  @ObservedObject var drawings: ReaderDrawingModel
   @Environment(\.readerPageOverlayProvider) private var environmentOverlayProvider
   @Environment(\.openWindow) private var openWindow
   @State private var isImporting = false
@@ -244,6 +274,7 @@ private struct ReaderDetail: View {
   init(
     model: ReaderViewModel,
     annotations: ReaderAnnotationViewModel,
+    drawings: ReaderDrawingModel,
     regular: Bool,
     onToggleSidebar: @escaping () -> Void,
     onSearch: @escaping () -> Void,
@@ -252,6 +283,7 @@ private struct ReaderDetail: View {
   ) {
     self.model = model
     self.annotations = annotations
+    self.drawings = drawings
     self.regular = regular
     self.onToggleSidebar = onToggleSidebar
     self.onSearch = onSearch
@@ -274,10 +306,16 @@ private struct ReaderDetail: View {
       reference: model.pdfViewReference,
       overlayProvider: ReaderPageOverlayCompositeProvider(providers: overlayProviders),
       annotationModel: annotations,
+      drawingModel: drawings,
       onStateChanged: model.receivePDFViewState,
       onScroll: pagerVisibility.show
     )
     .background(Color(uiColor: .secondarySystemBackground))
+    .background {
+      if let coordinator = model.translationCoordinator {
+        ReaderAppleTranslationPreparation(coordinator: coordinator)
+      }
+    }
     .overlay {
       ReaderPager(model: model, visibility: pagerVisibility, compact: !regular)
     }
@@ -322,6 +360,14 @@ private struct ReaderDetail: View {
       // Desktop order: annotation visibility, translation, search, then
       // everything else in one menu.
       ToolbarItemGroup(placement: .topBarTrailing) {
+        Button {
+          drawings.isDrawing.toggle()
+        } label: {
+          Label(L10n.string("ios.drawingTools"), systemImage: drawings.isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+        }
+        .tint(drawings.isDrawing ? .accentColor : .primary)
+        .accessibilityIdentifier("reader.drawingTools")
+        .accessibilityValue(drawings.isDrawing ? L10n.string("ios.drawingActive") : L10n.string("ios.drawingInactive"))
         if !annotations.annotations.isEmpty {
           Button {
             annotations.setShowsAnnotations(!annotations.showsAnnotations, in: model.pdfViewReference.view)
@@ -399,6 +445,14 @@ private struct ReaderDetail: View {
 
   @ViewBuilder
   private var moreMenu: some View {
+    Section(L10n.string("ios.drawingTools")) {
+      Toggle(L10n.string("ios.drawWithFinger"), isOn: $drawings.usesFinger)
+        .accessibilityIdentifier("reader.drawWithFinger")
+      Button(L10n.string("ios.undoDrawing"), systemImage: "arrow.uturn.backward") { drawings.undo() }
+        .disabled(!drawings.isDrawing)
+      Button(L10n.string("ios.redoDrawing"), systemImage: "arrow.uturn.forward") { drawings.redo() }
+        .disabled(!drawings.isDrawing)
+    }
     Section {
       Button {
         translateAll.isRunning ? translateAll.cancel() : translateAll.start()
@@ -456,6 +510,8 @@ private struct ReaderDetail: View {
     }
 
     Section {
+      Button(ReaderExportKind.airDrop.title, systemImage: "airdrop") { onExport(.airDrop) }
+        .accessibilityIdentifier("reader.airDropToComputer")
       Menu {
         Button(ReaderExportKind.original.title, systemImage: "doc") { onExport(.original) }
         Button(ReaderExportKind.translated.title, systemImage: "character.book.closed") { onExport(.translated) }
@@ -498,7 +554,9 @@ private struct ReaderSidebar: View {
     VStack(spacing: 0) {
       Picker(L10n.string("ios.readerSidebar"), selection: $mode) {
         ForEach(ReaderSidebarMode.allCases, id: \.self) { mode in
-          Text(mode.title).tag(mode)
+          Image(systemName: mode.systemImage)
+            .accessibilityLabel(mode.title)
+            .tag(mode)
         }
       }
       .pickerStyle(.segmented)
@@ -507,7 +565,7 @@ private struct ReaderSidebar: View {
 
       switch mode {
       case .thumbnails:
-        PDFThumbnailRepresentable(reference: model.pdfViewReference, horizontal: false)
+        ReaderThumbnailList(model: model)
       case .outline:
         OutlineList(model: model)
       case .annotations:
@@ -519,6 +577,108 @@ private struct ReaderSidebar: View {
       }
     }
     .background(.regularMaterial)
+  }
+}
+
+/// Own the sidebar layout rather than relying on PDFKit's intrinsic thumbnail
+/// strip size, which can overflow the split view's proposed width.
+private struct ReaderThumbnailList: View {
+  @ObservedObject var model: ReaderViewModel
+
+  var body: some View {
+    ScrollViewReader { proxy in
+      ScrollView {
+        LazyVStack(spacing: 16) {
+          ForEach(0..<model.pageCount, id: \.self) { index in
+            if let page = model.document?.page(at: index) {
+              Button {
+                model.goToPage(index + 1)
+              } label: {
+                ReaderThumbnail(
+                  page: page,
+                  number: index + 1,
+                  isSelected: model.readingState.page == index + 1
+                )
+              }
+              .buttonStyle(.plain)
+              .accessibilityLabel(L10n.string("sidebar.page", String(index + 1)))
+              .accessibilityAddTraits(model.readingState.page == index + 1 ? .isSelected : [])
+              .accessibilityIdentifier("reader.thumbnail.\(index + 1)")
+              .id(index + 1)
+            }
+          }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+      }
+      .task { proxy.scrollTo(model.readingState.page, anchor: .center) }
+      .onChange(of: model.readingState.page) { _, page in
+        proxy.scrollTo(page, anchor: .center)
+      }
+    }
+  }
+}
+
+private struct ReaderThumbnail: View {
+  let page: PDFPage
+  let number: Int
+  let isSelected: Bool
+  @State private var image: UIImage?
+  @ScaledMetric(relativeTo: .caption) private var labelHeight = 20
+
+  var body: some View {
+    VStack(spacing: 8) {
+      Group {
+        if let image {
+          ReaderAppearanceImage(image: image)
+        } else {
+          Rectangle().fill(.quaternary)
+        }
+      }
+      .frame(width: 140, height: 188)
+      .padding(6)
+      .background(isSelected ? Color.accentColor.opacity(0.12) : .clear,
+                  in: RoundedRectangle(cornerRadius: 8))
+      .overlay {
+        RoundedRectangle(cornerRadius: 8)
+          .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2)
+      }
+
+      Text(verbatim: "\(number)")
+        .font(.caption.monospacedDigit())
+        .fontWeight(isSelected ? .semibold : .regular)
+        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+        .frame(minHeight: labelHeight)
+    }
+    .contentShape(Rectangle())
+    .accessibilityElement(children: .ignore)
+    .task(id: ObjectIdentifier(page)) {
+      image = ReaderDarkPDF.appearanceImage(ReaderDarkPDF.thumbnail(
+        of: page, fitting: CGSize(width: 280, height: 376), box: .cropBox, inverted: false
+      ))
+    }
+  }
+}
+
+/// Shows an appearance-dependent image through UIKit. The split view keeps a
+/// second sidebar whose SwiftUI `colorScheme` can stay stale after a live
+/// appearance switch; `UIImageView` resolves the asset from its own traits.
+private struct ReaderAppearanceImage: UIViewRepresentable {
+  let image: UIImage
+
+  func makeUIView(context: Context) -> UIImageView {
+    let view = UIImageView()
+    view.contentMode = .scaleAspectFit
+    view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+    view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    view.setContentHuggingPriority(.defaultLow, for: .vertical)
+    return view
+  }
+
+  func updateUIView(_ view: UIImageView, context: Context) {
+    if view.image !== image { view.image = image }
   }
 }
 

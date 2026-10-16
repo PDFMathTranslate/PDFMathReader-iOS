@@ -19,6 +19,10 @@ final class ReaderAnnotationViewModel: ObservableObject {
   private var nativeRefs: [String] = []
   private var sourceData: Data?
 
+  /// The latest serialized annotation edits, independent of display visibility
+  /// and of the reader model's original PDFDocument instance.
+  var exportSourceData: Data? { sourceData }
+
   init(
     session: DocumentSession,
     store: ReaderAnnotationStore = ReaderAnnotationStore(),
@@ -37,7 +41,23 @@ final class ReaderAnnotationViewModel: ObservableObject {
       annotations = state.annotations
       nativeRefs = state.nativeRefs
     }
-    quickLinks = (try? quickLinkStore.load(session.id)) ?? []
+    do {
+      // Local sidecars are authoritative after the recipient edits the PDF,
+      // including an intentionally empty list after deleting every link.
+      let hasLocalLinks = FileManager.default.fileExists(
+        atPath: try quickLinkStore.url(for: session.id).path
+      )
+      if hasLocalLinks {
+        quickLinks = try quickLinkStore.load(session.id)
+      } else if let sourceData, let document = PDFDocument(data: sourceData),
+        let transferred = try ReaderTransferPDF.metadata(from: document)
+      {
+        quickLinks = transferred.quickLinks
+        try quickLinkStore.save(quickLinks, for: session.id)
+      }
+    } catch {
+      lastError = error.localizedDescription
+    }
   }
 
   func loadIfNeeded(from pdfView: PDFView) {
@@ -206,7 +226,9 @@ final class ReaderAnnotationViewModel: ObservableObject {
         nativeRefs: nativeRefs
       )
       sourceData = output
-      pdfView?.document = PDFDocument(data: output)
+      let updated = ReaderPDFDocument(data: output)
+      updated?.invertsPages = (pdfView?.document as? ReaderPDFDocument)?.invertsPages ?? false
+      pdfView?.document = updated
       if !showsAnnotations { applyVisibility(in: pdfView) }
       _ = try store.save(
         annotations,

@@ -3,13 +3,16 @@ import PDFKit
 import ReaderCore
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 enum ReaderExportKind {
+  case airDrop
   case original
   case translated
 
   var title: String {
     switch self {
+    case .airDrop: L10n.string("ios.airDropToComputer")
     case .original: L10n.string("ios.exportOriginalPDF")
     case .translated: L10n.string("ios.exportTranslatedPDF")
     }
@@ -21,6 +24,7 @@ private struct PreparedReaderExport: Identifiable {
   let url: URL
   let fileName: String
   let title: String
+  let shareImmediately: Bool
 }
 
 private enum ReaderExportError: Error, LocalizedError {
@@ -38,8 +42,12 @@ private enum ReaderExportError: Error, LocalizedError {
 struct ReaderExportModifier: ViewModifier {
   let document: PDFDocument
   let originalName: String
+  let sourceData: Data?
   let annotations: [ReaderAnnotation]
+  let quickLinks: [ReaderQuickLink]
+  let readingState: ReadingState
   let coordinator: ReaderTranslationCoordinator?
+  let drawings: ReaderDrawingModel?
   /// Set by the reader's menu; consumed here.
   @Binding var request: ReaderExportKind?
 
@@ -54,14 +62,22 @@ struct ReaderExportModifier: ViewModifier {
   init(
     document: PDFDocument,
     originalName: String,
+    sourceData: Data? = nil,
     annotations: [ReaderAnnotation] = [],
+    quickLinks: [ReaderQuickLink] = [],
+    readingState: ReadingState = ReadingState(),
     coordinator: ReaderTranslationCoordinator? = nil,
+    drawings: ReaderDrawingModel? = nil,
     request: Binding<ReaderExportKind?>
   ) {
     self.document = document
     self.originalName = originalName
+    self.sourceData = sourceData
     self.annotations = annotations
+    self.quickLinks = quickLinks
+    self.readingState = readingState
     self.coordinator = coordinator
+    self.drawings = drawings
     _request = request
   }
 
@@ -84,14 +100,22 @@ struct ReaderExportModifier: ViewModifier {
         }
       }
       .sheet(item: $preparedExport) { export in
-        PreparedReaderExportView(
-          export: export,
-          onSaveToFiles: {
-            fileDocument = ExportPDFFileDocument(data: (try? Data(contentsOf: export.url)) ?? Data())
-            fileName = export.fileName
-            isFileExporterPresented = true
-          }
-        )
+        if export.shareImmediately {
+          ReaderSystemShareSheet(url: export.url)
+        } else {
+          PreparedReaderExportView(
+            export: export,
+            onSaveToFiles: {
+              do {
+                fileDocument = ExportPDFFileDocument(data: try Data(contentsOf: export.url))
+                fileName = export.fileName
+                isFileExporterPresented = true
+              } catch {
+                errorMessage = error.localizedDescription
+              }
+            }
+          )
+        }
       }
       .fileExporter(
         isPresented: $isFileExporterPresented,
@@ -126,7 +150,7 @@ struct ReaderExportModifier: ViewModifier {
         let data: Data
         let outputName: String
         switch kind {
-        case .original:
+        case .airDrop, .original:
           progress = 0.35
           data = try originalPDFData()
           outputName = Self.originalFileName(for: originalName)
@@ -137,12 +161,19 @@ struct ReaderExportModifier: ViewModifier {
           outputName = ShareableDocument.translatedFileName(for: originalName)
         }
 
-        let url = try Self.writeTemporaryFile(data: data, fileName: outputName)
+        let annotatedData: Data
+        if let drawings {
+          annotatedData = try ReaderDrawingPDF.embed(drawings.exportDrawings(), in: data)
+        } else {
+          annotatedData = data
+        }
+        let url = try Self.writeTemporaryFile(data: annotatedData, fileName: outputName)
         progress = 1
         preparedExport = PreparedReaderExport(
           url: url,
           fileName: outputName,
-          title: kind.title
+          title: kind.title,
+          shareImmediately: kind == .airDrop
         )
       } catch {
         errorMessage = error.localizedDescription
@@ -151,11 +182,15 @@ struct ReaderExportModifier: ViewModifier {
   }
 
   private func originalPDFData() throws -> Data {
-    guard let data = document.dataRepresentation(), !data.isEmpty else {
+    guard let data = sourceData ?? document.dataRepresentation(), !data.isEmpty else {
       throw ReaderExportError.invalidDocument
     }
-    guard !annotations.isEmpty else { return data }
-    return try ReaderAnnotationPDF.embedAnnotations(annotations, in: data)
+    return try ReaderTransferPDF.export(
+      sourceData: data,
+      annotations: annotations,
+      quickLinks: quickLinks,
+      readingState: readingState
+    )
   }
 
   private func translatedPDFData() throws -> Data {
@@ -237,18 +272,38 @@ extension View {
   func readerExport(
     document: PDFDocument,
     originalName: String,
+    sourceData: Data? = nil,
     annotations: [ReaderAnnotation] = [],
+    quickLinks: [ReaderQuickLink] = [],
+    readingState: ReadingState = ReadingState(),
     coordinator: ReaderTranslationCoordinator? = nil,
+    drawings: ReaderDrawingModel? = nil,
     request: Binding<ReaderExportKind?>
   ) -> some View {
     modifier(
       ReaderExportModifier(
         document: document,
         originalName: originalName,
+        sourceData: sourceData,
         annotations: annotations,
+        quickLinks: quickLinks,
+        readingState: readingState,
         coordinator: coordinator,
+        drawings: drawings,
         request: request
       )
     )
   }
+}
+
+/// The system sheet owns AirDrop discovery, recipient selection, and transfer.
+/// Sharing a file URL transfers the PDF bytes, never a sandbox-local path.
+private struct ReaderSystemShareSheet: UIViewControllerRepresentable {
+  let url: URL
+
+  func makeUIViewController(context: Context) -> UIActivityViewController {
+    UIActivityViewController(activityItems: [url], applicationActivities: nil)
+  }
+
+  func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

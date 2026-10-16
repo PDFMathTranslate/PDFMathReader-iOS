@@ -99,6 +99,20 @@ private func temporaryLibraryDirectory() throws -> URL {
   #expect(try JSONDecoder().decode(ReaderPreferences.self, from: saved).interactionMode == .comparison)
 }
 
+@Test func translationFontsMigrateLegacyPreferencesAndPersist() throws {
+  let legacy = try JSONDecoder().decode(ReaderPreferences.self, from: Data("{}".utf8))
+  #expect(!legacy.translationSerif)
+  #expect(legacy.translationFont.isEmpty)
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let store = PreferencesStore(directory: directory)
+  let preferences = ReaderPreferences(translationSerif: true, translationFont: "  Georgia  ")
+  try store.save(preferences)
+  #expect(store.load().translationFont == "Georgia")
+  #expect(store.load().translationSerif)
+  #expect(store.load() == preferences)
+}
+
 @Test func glossaryStoreRoundTripsAndRejectsInvalidValues() throws {
   let directory = try temporaryLibraryDirectory()
   defer { try? FileManager.default.removeItem(at: directory) }

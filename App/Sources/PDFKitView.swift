@@ -35,9 +35,25 @@ public extension EnvironmentValues {
 @MainActor
 private final class PDFPageOverlayBridge: NSObject, @preconcurrency PDFPageOverlayViewProvider {
   var provider: (any ReaderPageOverlayProviding)?
+  var drawingModel: ReaderDrawingModel?
 
   func pdfView(_ view: PDFView, overlayViewFor page: PDFPage) -> UIView? {
-    provider?.overlayView(for: page, in: view)
+    let content = provider?.overlayView(for: page, in: view)
+    guard let drawingModel, let document = view.document else { return content }
+    let index = document.index(for: page)
+    guard index != NSNotFound else { return content }
+    return ReaderDrawingPageOverlay(
+      canvas: drawingModel.canvas(for: index, page: page),
+      pageSize: page.bounds(for: .cropBox).size,
+      content: content
+    )
+  }
+
+  func pdfView(_ pdfView: PDFView, willEndDisplayingOverlayView overlayView: UIView, for page: PDFPage) {
+    if let overlay = overlayView as? ReaderDrawingPageOverlay,
+       overlay.canvas.superview === overlay {
+      drawingModel?.release(overlay.canvas)
+    }
   }
 }
 
@@ -48,6 +64,7 @@ struct PDFKitView: UIViewRepresentable {
   @ObservedObject var reference: PDFViewReference
   let overlayProvider: (any ReaderPageOverlayProviding)?
   let annotationModel: ReaderAnnotationViewModel?
+  var drawingModel: ReaderDrawingModel? = nil
   let onStateChanged: (PDFView) -> Void
   var onScroll: (() -> Void)?
 
@@ -61,6 +78,9 @@ struct PDFKitView: UIViewRepresentable {
     view.pageShadowsEnabled = true
     view.minScaleFactor = 0.25
     view.maxScaleFactor = 5
+    context.coordinator.setDrawingModel(drawingModel)
+    // The view has no window yet, so take the appearance from SwiftUI.
+    (document as? ReaderPDFDocument)?.invertsPages = context.environment.colorScheme == .dark
     context.coordinator.attach(view, document: document, overlayProvider: overlayProvider)
     reference.attach(view)
     context.coordinator.apply(readingState)
@@ -71,9 +91,12 @@ struct PDFKitView: UIViewRepresentable {
     // Annotation actions replace the PDFDocument instance after writing its
     // managed markup. Keep that live document during SwiftUI updates.
     if view.document == nil || view.document?.pageCount != document.pageCount {
+      (document as? ReaderPDFDocument)?.invertsPages = context.environment.colorScheme == .dark
       view.document = document
     }
+    context.coordinator.setDarkAppearance(context.environment.colorScheme == .dark, in: view)
     context.coordinator.updateOverlayProvider(overlayProvider)
+    context.coordinator.setDrawingModel(drawingModel)
     context.coordinator.onScroll = onScroll
     context.coordinator.observeScrolling()
     context.coordinator.apply(readingState)
@@ -91,6 +114,7 @@ struct PDFKitView: UIViewRepresentable {
     var onScroll: (() -> Void)?
     private var scrollObservation: NSKeyValueObservation?
     private weak var observedScrollView: UIScrollView?
+    private var isReloadingAppearance = false
 
     init(
       onStateChanged: @escaping (PDFView) -> Void,
@@ -109,6 +133,9 @@ struct PDFKitView: UIViewRepresentable {
       overlayBridge.provider = overlayProvider
       view.pageOverlayViewProvider = overlayBridge
       view.document = document
+      view.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: PDFView, _) in
+        self?.setDarkAppearance(view.traitCollection.userInterfaceStyle == .dark, in: view)
+      }
       if let annotationView = view as? ReaderAnnotationPDFView, let annotationModel {
         let controller = ReaderAnnotationInteractionController(model: annotationModel, pdfView: view)
         annotationController = controller
@@ -150,12 +177,34 @@ struct PDFKitView: UIViewRepresentable {
       return nil
     }
 
+    /// Dark appearance inverts pages by 0.75, like the desktop reader.
+    /// PDFKit caches rendered tiles, so a flip reloads the document while
+    /// keeping the reading position and zoom.
+    func setDarkAppearance(_ dark: Bool, in view: PDFView) {
+      guard let document = view.document as? ReaderPDFDocument, document.invertsPages != dark else { return }
+      document.invertsPages = dark
+      let destination = view.currentDestination
+      let scale = view.scaleFactor
+      isReloadingAppearance = true
+      view.document = nil
+      view.document = document
+      view.scaleFactor = scale
+      if let destination { view.go(to: destination) }
+      isReloadingAppearance = false
+      onStateChanged(view)
+    }
+
     func updateOverlayProvider(_ provider: (any ReaderPageOverlayProviding)?) {
       overlayBridge.provider = provider
     }
 
+    func setDrawingModel(_ model: ReaderDrawingModel?) {
+      overlayBridge.drawingModel = model
+      pdfView?.isInMarkupMode = model?.isDrawing == true
+    }
+
     @objc private func handleViewChanged(_ notification: Notification) {
-      guard let view = pdfView else { return }
+      guard let view = pdfView, !isReloadingAppearance else { return }
       observeScrolling()
       onStateChanged(view)
     }
@@ -166,13 +215,13 @@ struct PDFKitView: UIViewRepresentable {
       view.displayDirection = state.scrollDirection == .vertical ? .vertical : .horizontal
       switch state.displayMode {
       case .singlePage:
-        view.displayMode = state.scrollDirection == .vertical ? .singlePageContinuous : .singlePage
+        view.displayMode = .singlePageContinuous
       case .twoPages:
-        view.displayMode = state.scrollDirection == .vertical ? .twoUpContinuous : .twoUp
+        view.displayMode = .twoUpContinuous
       case .fourPages:
         // PDFKit has no four-up mode. P1 uses two-up with a compact scale so four pages can
         // be scanned across two facing-page pairs without inventing a second page renderer.
-        view.displayMode = state.scrollDirection == .vertical ? .twoUpContinuous : .twoUp
+        view.displayMode = .twoUpContinuous
       }
 
       let baseScale: CGFloat

@@ -60,7 +60,21 @@ final class LibraryModel: ObservableObject {
     preferencesStore = PreferencesStore(directory: directory)
     recents = recentsStore.list()
     preferences = preferencesStore.load()
+    #if DEBUG
+    // UI tests pin the service with `-PMRTranslationService <raw value>`; the
+    // override stays in memory so the saved choice on the device is untouched.
+    let arguments = ProcessInfo.processInfo.arguments
+    if let flag = arguments.firstIndex(of: "-PMRTranslationService"), flag + 1 < arguments.count,
+       let service = ReaderTranslationService(rawValue: arguments[flag + 1]) {
+      preferences.translationService = service
+      translationServiceOverride = service
+    }
+    #endif
   }
+
+  #if DEBUG
+  private var translationServiceOverride: ReaderTranslationService?
+  #endif
 
   func makeSession(for url: URL) -> DocumentSession? {
     guard url.isFileURL else {
@@ -72,14 +86,36 @@ final class LibraryModel: ObservableObject {
     // otherwise outside the sandbox.
     let access = SecurityScopedAccess(url: url)
     let id: String
+    let transferredState: ReadingState?
     do {
-      id = try DocumentIdentity.contentHash(for: Self.coordinatedData(at: url))
+      let data = try Self.coordinatedData(at: url)
+      let transferred = try PDFDocument(data: data).flatMap {
+        try ReaderTransferPDF.metadata(from: $0)
+      }
+      // Transfer identity survives PDF annotation rewrites. Hashing the whole
+      // rewritten file would orphan local comments, links, and reading state.
+      if let transferID = transferred?.documentID {
+        id = DocumentIdentity.contentHash(for: Data("PDFMathReaderTransfer:\(transferID)".utf8))
+      } else {
+        id = DocumentIdentity.contentHash(for: data)
+      }
+      transferredState = transferred?.readingState
     } catch {
       lastError = L10n.string("ios.pdfReadFailed")
       return nil
     }
 
     let previous = recentsStore.document(id: id)
+    // A received PDF restores its reading position once. Reopening a local
+    // document must keep the recipient's more recent reading progress.
+    if previous == nil, let transferredState {
+      do {
+        try readingStateStore.save(transferredState, for: id)
+      } catch {
+        lastError = error.localizedDescription
+        return nil
+      }
+    }
     let bookmarkData = (try? recentsStore.bookmarkData(for: url)) ?? previous?.bookmarkData ?? Data()
     let title = url.lastPathComponent.isEmpty ? L10n.string("ios.pdfDocument") : url.lastPathComponent
     let thumbnailPath = previous?.thumbnailCachePath ?? recentsStore.thumbnailURL(for: id).path
@@ -210,7 +246,13 @@ final class LibraryModel: ObservableObject {
 
   func savePreferences(_ value: ReaderPreferences) {
     do {
-      try preferencesStore.save(value)
+      var stored = value
+      #if DEBUG
+      if let override = translationServiceOverride, value.translationService == override {
+        stored.translationService = preferencesStore.load().translationService
+      }
+      #endif
+      try preferencesStore.save(stored)
       preferences = value
     } catch {
       lastError = L10n.string("ios.preferencesSaveFailed")

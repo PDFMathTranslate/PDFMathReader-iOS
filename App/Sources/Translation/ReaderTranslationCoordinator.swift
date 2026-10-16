@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import NaturalLanguage
 import PDFKit
 import ReaderCore
 import UIKit
@@ -37,10 +38,27 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   private var overlays: [Int: ReaderTranslationPageOverlay] = [:]
   private var latestStates: [Int: PageTranslationState] = [:]
   private var remotePageDataByPage: [Int: Data] = [:]
+  private var pairingCodeObserver: AnyCancellable?
 
   @Published private(set) var showTranslations: Bool
   @Published private(set) var configurationMessage: String?
   @Published private(set) var translationRevision = 0
+  @Published private(set) var appleTranslationLanguages: AppleTranslationLanguages?
+
+  /// The installed-only provider cannot ask for downloads. The reader's
+  /// SwiftUI translation task prepares this exact pair before retrying pages.
+  func appleTranslationPrepared(_ languages: AppleTranslationLanguages) {
+    guard appleTranslationLanguages == languages else { return }
+    configure()
+  }
+
+  private var appleSourceLanguage: String {
+    let source = preferences.sourceLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !source.isEmpty { return source }
+    let sample = (0..<min(document.pageCount, 3)).compactMap { document.page(at: $0)?.string }
+      .joined(separator: "\n")
+    return NLLanguageRecognizer.dominantLanguage(for: String(sample.prefix(10_000)))?.rawValue ?? "en"
+  }
 
   init(document: PDFDocument, documentID: String, preferences: ReaderPreferences) {
     self.document = document
@@ -49,6 +67,16 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     self.preferences = preferences
     self.showTranslations = preferences.showTranslations
     configure()
+    // The pairing code lives in the Keychain, not in preferences, so a new
+    // code would otherwise leave pages on their Ultra fast fallback.
+    pairingCodeObserver = NotificationCenter.default
+      .publisher(for: .companionPairingCodeDidChange)
+      .sink { [weak self] _ in
+        MainActor.assumeIsolated {
+          guard let self, self.preferences.engine != .ultraFast else { return }
+          self.configure()
+        }
+      }
   }
 
   deinit {
@@ -67,7 +95,10 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     if visibilityChanged {
       overlays.values.forEach { $0.setTranslationsVisible(showTranslations) }
     }
-    overlays.values.forEach { $0.setInteractionMode(value.interactionMode) }
+    overlays.values.forEach {
+      $0.setInteractionMode(value.interactionMode)
+      $0.setTranslationFont(name: value.translationFont, serif: value.translationSerif)
+    }
     // UI-only changes (visibility, theme, reading aids) must not restart the
     // pipeline: a restart clears the page states the overlays rely on.
     if translationConfigurationID != previousConfigurationID
@@ -96,6 +127,9 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       preferences.openAIBaseURL,
       preferences.openAIModel,
       preferences.remoteKernelURL,
+      preferences.remoteKernelEnabled ? "remote-on" : "remote-off",
+      preferences.remoteKernelService,
+      preferences.companionURL,
       (try? JSONEncoder().encode(preferences.glossaries).base64EncodedString()) ?? ""
     ]
     return sha256Hex(Data(values.joined(separator: "\n").utf8))
@@ -233,6 +267,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       overlay = ReaderTranslationPageOverlay(pageIndex: index, page: page, pdfView: pdfView)
       overlays[index] = overlay
     }
+    overlay.setTranslationFont(name: preferences.translationFont, serif: preferences.translationSerif)
     overlay.setInteractionMode(preferences.interactionMode)
     if let state = currentState(for: index) {
       overlay.update(state: state, showTranslations: showTranslations)
@@ -242,6 +277,9 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   }
 
   private func configure() {
+    appleTranslationLanguages = preferences.translationService == .appleOnDevice
+      ? AppleTranslationLanguages(source: appleSourceLanguage, target: preferences.targetLanguage)
+      : nil
     generation += 1
     let currentGeneration = generation
     pageTasks.values.forEach { $0.cancel() }
@@ -314,7 +352,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       )
     case .appleOnDevice:
       return AppleTranslationProvider(
-        sourceLanguage: value.sourceLanguage.isEmpty ? nil : value.sourceLanguage,
+        sourceLanguage: appleSourceLanguage,
         targetLanguage: value.targetLanguage
       )
     }
@@ -325,12 +363,18 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     case .ultraFast:
       startUltraFast(for: pageIndex, overlay: overlay)
     case .fast, .precise:
-      guard !preferences.remoteKernelURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      guard usesRemotePreciseKernel(preferences) || !normalizeCompanionURL(preferences.companionURL).isEmpty else {
         startUltraFast(for: pageIndex, overlay: overlay)
         return
       }
-      startRemoteTranslation(for: pageIndex, overlay: overlay)
+      startMathKernelTranslation(for: pageIndex, overlay: overlay)
     }
+  }
+
+  /// Like the desktop, the zotero-pdf2zh server only replaces the Precise kernel.
+  private func usesRemotePreciseKernel(_ value: ReaderPreferences) -> Bool {
+    value.engine == .precise && value.remoteKernelEnabled
+      && !normalizeRemoteKernelUrl(value.remoteKernelURL).isEmpty
   }
 
   private func startUltraFast(for pageIndex: Int, overlay: ReaderTranslationPageOverlay) {
@@ -360,45 +404,79 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     }
   }
 
-  private func startRemoteTranslation(for pageIndex: Int, overlay: ReaderTranslationPageOverlay) {
+  /// Precise tries the remote server first, then PDFMathReader on the user's
+  /// computer; Fast only uses the computer. Anything else falls back to Ultra fast.
+  private func startMathKernelTranslation(for pageIndex: Int, overlay: ReaderTranslationPageOverlay) {
     guard remoteTasks[pageIndex] == nil else { return }
     remotePageDataByPage[pageIndex] = nil
     overlay.beginRemoteTranslation()
     let currentGeneration = generation
     let value = preferences
+    let kernel = value.engine == .fast ? CompanionKernel.fast : CompanionKernel.precise
+    let sourceLanguage = value.sourceLanguage.isEmpty ? nil : value.sourceLanguage
+    let onProgress: @Sendable (RemoteKernelProgress) -> Void = { [weak self] progress in
+      Task { @MainActor [weak self] in
+        self?.overlays[pageIndex]?.setRemoteProgress(progress.percent / 100)
+      }
+    }
     remoteTasks[pageIndex] = Task { @MainActor [weak self, weak overlay] in
       guard let self, let overlay else { return }
-      let health = await remoteClient.health(value.remoteKernelURL)
-      guard !Task.isCancelled, currentGeneration == generation else { return }
-      guard health.ok else {
-        startUltraFast(for: pageIndex, overlay: overlay)
-        remoteTasks[pageIndex] = nil
-        return
+      var result: Data?
+      if usesRemotePreciseKernel(value), await remoteClient.health(value.remoteKernelURL).ok {
+        do {
+          result = try await mathTranslator.translatePage(
+            document: document,
+            pageIndex: pageIndex,
+            serverURL: value.remoteKernelURL,
+            language: value.targetLanguage,
+            sourceLanguage: sourceLanguage,
+            service: value.remoteKernelService,
+            engine: kernel,
+            threads: 2,
+            cacheScope: documentID,
+            onProgress: onProgress
+          )
+        } catch {
+          guard !Task.isCancelled else { return }
+          await remoteClient.markUnhealthy(value.remoteKernelURL, reason: error.localizedDescription)
+        }
       }
-      do {
-        let data = try await mathTranslator.translatePage(
-          document: document,
-          pageIndex: pageIndex,
-          serverURL: value.remoteKernelURL,
-          language: value.targetLanguage,
-          sourceLanguage: value.sourceLanguage.isEmpty ? nil : value.sourceLanguage,
-          service: "",
-          engine: value.engine == .fast ? "pdf_math_fast" : "pdf_math_precise",
-          threads: 2,
-          cacheScope: documentID,
-          onProgress: { [weak self] progress in
-            Task { @MainActor [weak self] in
-              self?.overlays[pageIndex]?.setRemoteProgress(progress.percent / 100)
-            }
-          }
-        )
-        guard !Task.isCancelled, currentGeneration == generation else { return }
+      guard !Task.isCancelled, currentGeneration == generation else { return }
+
+      let companionURL = normalizeCompanionURL(value.companionURL)
+      let pairingCode = companionURL.isEmpty
+        ? ""
+        : (try? await credentialStore.read(account: companionPairingCodeAccount)) ?? ""
+      let companion = mathTranslator.companionClient
+      if result == nil, !pairingCode.isEmpty,
+        await companion.health(companionURL, pairingCode: pairingCode).isAvailable(kernel)
+      {
+        do {
+          result = try await mathTranslator.translatePage(
+            document: document,
+            pageIndex: pageIndex,
+            companionURL: companionURL,
+            pairingCode: pairingCode,
+            language: value.targetLanguage,
+            sourceLanguage: sourceLanguage,
+            engine: kernel,
+            service: value.translationService.companionService,
+            glossary: glossaryEntries(value.glossaries),
+            cacheScope: documentID,
+            onProgress: onProgress
+          )
+        } catch {
+          guard !Task.isCancelled else { return }
+          await companion.markUnhealthy(companionURL, pairingCode: pairingCode, reason: error.localizedDescription)
+        }
+      }
+      guard !Task.isCancelled, currentGeneration == generation else { return }
+
+      if let data = result {
         remotePageDataByPage[pageIndex] = data
         translationRevision &+= 1
         overlay.setRemotePageData(data)
-      } catch {
-        await remoteClient.markUnhealthy(value.remoteKernelURL, reason: error.localizedDescription)
-        guard !Task.isCancelled, currentGeneration == generation else { return }
+      } else {
         startUltraFast(for: pageIndex, overlay: overlay)
       }
       remoteTasks[pageIndex] = nil

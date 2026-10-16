@@ -36,7 +36,7 @@ final class ReaderViewModel: ObservableObject {
     self.session = session
     self.library = library
     self.readingState = library.readingState(for: session)
-    self.document = PDFDocument(url: session.url)
+    self.document = ReaderPDFDocument(url: session.url)
     self.translationCoordinator = nil
     if let document {
       library.updateDocumentMetadata(for: session, document: document)

@@ -35,9 +35,15 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
   public var openAIBaseURL: String
   public var openAIModel: String
   public var remoteKernelURL: String
+  public var remoteKernelEnabled: Bool
+  public var remoteKernelService: String
+  /// PDFMathReader on the user's computer, which serves its Fast and Precise kernels.
+  public var companionURL: String
   public var showTranslations: Bool
   public var translateFullDocument: Bool
   public var interactionMode: ReaderInteractionMode
+  public var translationSerif: Bool
+  public var translationFont: String
   public var theme: ReaderTheme
   public var glossaries: [GlossaryLibrary]
   public var bionicReading: BionicReadingMode
@@ -62,9 +68,14 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     openAIBaseURL: String = "https://api.openai.com/v1",
     openAIModel: String = "gpt-4.1-mini",
     remoteKernelURL: String = "",
+    remoteKernelEnabled: Bool = false,
+    remoteKernelService: String = "",
+    companionURL: String = "",
     showTranslations: Bool = true,
     translateFullDocument: Bool = false,
     interactionMode: ReaderInteractionMode = .reading,
+    translationSerif: Bool = false,
+    translationFont: String = "",
     theme: ReaderTheme = .system,
     glossaries: [GlossaryLibrary] = [],
     bionicReading: BionicReadingMode = .off,
@@ -88,9 +99,14 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     self.openAIBaseURL = openAIBaseURL
     self.openAIModel = openAIModel
     self.remoteKernelURL = remoteKernelURL
+    self.remoteKernelEnabled = remoteKernelEnabled
+    self.remoteKernelService = String(remoteKernelService.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
+    self.companionURL = companionURL
     self.showTranslations = showTranslations
     self.translateFullDocument = translateFullDocument
     self.interactionMode = interactionMode
+    self.translationSerif = translationSerif
+    self.translationFont = String(translationFont.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
     self.theme = theme
     self.glossaries = cloneGlossaries(glossaries)
     let normalizedBionic = BionicReading.normalize(
@@ -120,9 +136,14 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     case openAIBaseURL
     case openAIModel
     case remoteKernelURL
+    case remoteKernelEnabled
+    case remoteKernelService
+    case companionURL
     case showTranslations
     case translateFullDocument
     case interactionMode
+    case translationSerif
+    case translationFont
     case theme
     case glossaries
     case bionicReading
@@ -141,6 +162,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
+    let remoteKernelURL = try container.decodeIfPresent(String.self, forKey: .remoteKernelURL) ?? ""
     self.init(
       uiLanguage: try container.decodeIfPresent(String.self, forKey: .uiLanguage) ?? "system",
       sourceLanguage: try container.decodeIfPresent(String.self, forKey: .sourceLanguage) ?? "",
@@ -149,10 +171,17 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
       translationService: try container.decodeIfPresent(ReaderTranslationService.self, forKey: .translationService) ?? .siliconFlowFree,
       openAIBaseURL: try container.decodeIfPresent(String.self, forKey: .openAIBaseURL) ?? "https://api.openai.com/v1",
       openAIModel: try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? "gpt-4.1-mini",
-      remoteKernelURL: try container.decodeIfPresent(String.self, forKey: .remoteKernelURL) ?? "",
+      remoteKernelURL: remoteKernelURL,
+      // Earlier versions used the remote kernel whenever a URL was saved.
+      remoteKernelEnabled: try container.decodeIfPresent(Bool.self, forKey: .remoteKernelEnabled)
+        ?? !remoteKernelURL.isEmpty,
+      remoteKernelService: try container.decodeIfPresent(String.self, forKey: .remoteKernelService) ?? "",
+      companionURL: try container.decodeIfPresent(String.self, forKey: .companionURL) ?? "",
       showTranslations: try container.decodeIfPresent(Bool.self, forKey: .showTranslations) ?? true,
       translateFullDocument: try container.decodeIfPresent(Bool.self, forKey: .translateFullDocument) ?? false,
       interactionMode: (try? container.decodeIfPresent(ReaderInteractionMode.self, forKey: .interactionMode)) ?? .reading,
+      translationSerif: try container.decodeIfPresent(Bool.self, forKey: .translationSerif) ?? false,
+      translationFont: try container.decodeIfPresent(String.self, forKey: .translationFont) ?? "",
       theme: try container.decodeIfPresent(ReaderTheme.self, forKey: .theme) ?? .system,
       glossaries: try container.decodeIfPresent([GlossaryLibrary].self, forKey: .glossaries) ?? [],
       bionicReading: try container.decodeIfPresent(BionicReadingMode.self, forKey: .bionicReading) ?? .off,

@@ -19,7 +19,7 @@ Recommended shape:
 | DOM paragraph overlays / reading text layer | `PDFPageOverlayViewProvider` per-page SwiftUI/UIKit overlays |
 | Express backend (`server/`) | In-process Swift actors in a `ReaderCore` Swift package |
 | Ultra fast: PDF Inspector / pdf.js text items -> `paragraphs()` | PDFKit glyph extraction -> Swift port of `server/documents/layout.mjs` |
-| Fast / Precise Python kernels | Remote only: zotero-pdf2zh protocol (port `server/kernels/remote-kernel.mjs`), later a paired desktop "companion kernel" |
+| Fast / Precise Python kernels | Paired desktop companion kernel (Fast and Precise over the LAN), plus remote zotero-pdf2zh for Precise (port `server/kernels/remote-kernel.mjs`) |
 | macOS local translation helper (`local-translation.swift`) | Apple `Translation` framework directly (`TranslationSession`) |
 | `safeStorage` / Keychain | Keychain (`kSecAttrAccessibleAfterFirstUnlock`) |
 | Translation/layout caches in Application Support | Same layout under app container `Library/Caches` + `Application Support` |
@@ -106,9 +106,6 @@ TF-IDF emphasis, topic sentences, glossary editor, interface localization (port
 compare view on iPad. *Exit:* bionic/emphasis fixtures pass; all 16+ locales build.
 
 **P6. Optional / later.**
-- Desktop companion kernel: add an opt-in LAN listener with a pairing token to the
-  desktop backend so iOS can call `/api/math-page` on the user's Mac. This needs a
-  desktop change; the current backend binds to `127.0.0.1` with per-window auth.
 - Formula OCR: convert `breezedeus/pix2text-mfr-1.5` ONNX encoder/decoder to Core ML,
   downloaded on demand (about 120 MB) rather than bundled.
 - ChatGPT Subscription sign-in through `ASWebAuthenticationSession`. Check the token
@@ -153,14 +150,18 @@ ReaderCore has 58 Swift Testing tests, all green, most driven by fixtures export
   free proxy, OpenAI-compatible (Keychain key), Apple Translation (iOS 26+). Desktop cache keys.
 - **P3** done: desktop-compatible `PDFMathReader:` highlights/comments (round-trip fixtures,
   compressed object streams), quick links, export original/translated PDF via share sheet and Files.
-- **P4** done in code: remote zotero-pdf2zh client, health check, page substitution, fallback.
+- **P4** done in code: remote zotero-pdf2zh client (Precise only, enable toggle, server-side
+  service), health check, page substitution, fallback.
+- Desktop companion kernel done in code: the desktop app's "Share Kernels with iPhone and
+  iPad…" opens an opt-in LAN listener (`/companion/v1`, port 8891, pairing-code bearer auth
+  with lockout). iOS routes Fast to the computer and Precise to the remote server or the
+  computer, falling back to Ultra fast.
 - **P5** done: bionic (fixed/root), TF-IDF emphasis, topic sentences, link detection, glossary
   editor, iPad compare view, 16-locale String Catalog generated from desktop locales.
 - **P6** partial: "Translate all pages" via `BGContinuedProcessingTask` (iOS 26) with
   `beginBackgroundTask` fallback; EPUB design note in `docs/EPUB.md`.
 
-Not yet done: desktop companion kernel (needs a desktop change), formula OCR via Core ML,
-ChatGPT subscription sign-in, EPUB implementation.
+Not yet done: formula OCR via Core ML, ChatGPT subscription sign-in, EPUB implementation.
 
 Not yet verified: no simulator runtime or device was available, so nothing has been run
 interactively; no live network translation or remote-kernel call has been made.

@@ -47,7 +47,10 @@ func readingAidsAttributedString(
 
   let shouldApplyBionic = isOriginal || !configuration.bionicOriginalOnly
   if shouldApplyBionic {
-    let boldFont = UIFont.systemFont(ofSize: font.pointSize, weight: .bold)
+    let descriptor = font.fontDescriptor.withSymbolicTraits(
+      font.fontDescriptor.symbolicTraits.union(.traitBold)
+    )
+    let boldFont = descriptor.map { UIFont(descriptor: $0, size: font.pointSize) } ?? font
     for match in BionicReading.ranges(in: text, options: configuration.bionicOptions) {
       addAttribute(
         .font,

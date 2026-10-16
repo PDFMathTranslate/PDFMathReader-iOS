@@ -8,10 +8,119 @@ final class ReaderSmokeUITests: XCTestCase {
     continueAfterFailure = false
   }
 
+  /// Pins the free proxy so translation tests do not depend on the service
+  /// saved on the device; the app keeps the saved choice on disk.
+  private let freeService = ["-PMRTranslationService", "siliconFlowFree"]
+
+  /// Apple on-device translation either translates or names the missing
+  /// language download, never the framework's bare "Unable to Translate".
+  @MainActor
+  func testAppleTranslationReportsMissingLanguages() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe", "-PMRTranslationService", "appleOnDevice"]
+    app.launch()
+    XCTAssertTrue(translationProbes(in: app).firstMatch.waitForExistence(timeout: 30), "Reader did not open")
+
+    let status = app.descendants(matching: .any).matching(identifier: "debug.pipelineStatus")
+      .matching(NSPredicate(format: "value MATCHES %@", "(?s).*page [0-9]+: (error|ready).*")).firstMatch
+    let translated = translatedProbe(in: app)
+    let deadline = Date().addingTimeInterval(60)
+    while !translated.exists && !status.exists && Date() < deadline { usleep(500_000) }
+    attachPipelineStatus(app)
+    attachScreenshot(app, name: "apple-reader")
+    if translated.exists { return }
+    let value = status.value as? String ?? ""
+    XCTAssertTrue(value.contains("Download Languages") || value.contains("Apple on-device translation failed"),
+                  "No actionable Apple Translation message: \(value)")
+
+    // Settings shows the language status row with the download action.
+    // Relaunching on iPad restores the reader window, so close it instead.
+    closeReaderToLibrary(app)
+    let settings = app.buttons["library.settings"].firstMatch
+    XCTAssertTrue(settings.waitForExistence(timeout: 15), "No Settings button in the library")
+    settings.tap()
+    let row = app.descendants(matching: .any)["settings.appleTranslationLanguages"].firstMatch
+    if !row.waitForExistence(timeout: 5) {
+      app.swipeUp()
+    }
+    XCTAssertTrue(row.waitForExistence(timeout: 10), "No Apple Translation language row in Settings")
+    attachScreenshot(app, name: "apple-settings-row")
+  }
+
+  /// Dark appearance dims pages like the desktop's `invert(0.75)`: white
+  /// paper renders as 25% gray (about 64 of 255), not white.
+  @MainActor
+  func testDarkModeInvertsPages() throws {
+    XCUIDevice.shared.appearance = .dark
+    defer { XCUIDevice.shared.appearance = .light }
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe"] + freeService
+    app.launch()
+    XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30), "Reader did not open")
+    // Translation covers must match the dimmed paper under them.
+    XCTAssertTrue(translatedProbe(in: app).waitForExistence(timeout: 120), "No translated paragraph appeared")
+    setTranslationsVisible(true, in: app)
+    sleep(2)
+    let screenshot = app.screenshot()
+    let attachment = XCTAttachment(screenshot: screenshot)
+    attachment.name = "dark-page"
+    attachment.lifetime = .keepAlways
+    add(attachment)
+
+    let paper = try XCTUnwrap(dominantGray(in: screenshot.image), "Could not read the screenshot")
+    XCTAssertTrue((52...76).contains(paper), "Dominant page gray is \(paper), expected about 64")
+  }
+
+  /// Switching appearance with a document open re-renders the pages in
+  /// place, including the sidebar thumbnails and the library recents.
+  @MainActor
+  func testAppearanceSwitchWhileReading() throws {
+    XCUIDevice.shared.appearance = .light
+    XCUIDevice.shared.orientation = .landscapeLeft
+    defer {
+      XCUIDevice.shared.appearance = .light
+      XCUIDevice.shared.orientation = .portrait
+    }
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe"] + freeService
+    app.launch()
+    XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30), "Reader did not open")
+    sleep(2)
+    let light = app.screenshot()
+    attachScreenshot(app, name: "1-light")
+    XCTAssertGreaterThan(try XCTUnwrap(dominantGray(in: light.image)), 200, "Light page is not white")
+    // The split view keeps two sidebar instances in one place; the element
+    // screenshot shows whichever is on screen.
+    let thumbnail = app.buttons.matching(identifier: "reader.thumbnail.1").firstMatch
+    XCTAssertTrue(thumbnail.waitForExistence(timeout: 10), "Sidebar thumbnail missing in landscape")
+    let lightThumb = try XCTUnwrap(dominantGray(in: thumbnail.screenshot().image))
+    XCTAssertGreaterThan(lightThumb, 200, "Light thumbnail is not white")
+
+    XCUIDevice.shared.appearance = .dark
+    sleep(3)
+    XCTAssertTrue(pageLine(in: app).exists, "Page text vanished after switching to dark")
+    let darkThumb = try XCTUnwrap(dominantGray(in: thumbnail.screenshot().image))
+    XCTAssertTrue((52...76).contains(darkThumb), "Thumbnail gray is \(darkThumb) after a live switch")
+    let dark = app.screenshot()
+    attachScreenshot(app, name: "2-dark-live")
+    let paper = try XCTUnwrap(dominantGray(in: dark.image))
+    XCTAssertTrue((52...76).contains(paper), "Dominant page gray is \(paper) after a live switch")
+
+    closeReaderToLibrary(app)
+    sleep(2)
+    attachScreenshot(app, name: "3-dark-library")
+
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30), "Reader did not reopen")
+    sleep(2)
+    attachScreenshot(app, name: "4-dark-launch")
+  }
+
   @MainActor
   func testOpenTranslateAndHighlight() {
     let app = XCUIApplication()
-    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe"]
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe"] + freeService
     app.launch()
 
     XCTAssertTrue(translationProbes(in: app).firstMatch.waitForExistence(timeout: 30), "Reader did not open")
@@ -48,7 +157,7 @@ final class ReaderSmokeUITests: XCTestCase {
   @MainActor
   func testReadingModeAnnotatesUnderTranslation() {
     let app = XCUIApplication()
-    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe"]
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe"] + freeService
     app.launch()
 
     XCTAssertTrue(translationProbes(in: app).firstMatch.waitForExistence(timeout: 30), "Reader did not open")
@@ -260,7 +369,11 @@ final class ReaderSmokeUITests: XCTestCase {
     for item in ["Zoom", "Layout", "Export"] {
       XCTAssertTrue(app.buttons[item].firstMatch.waitForExistence(timeout: 3), "\(item) missing from the menu")
     }
-    XCTAssertTrue(app.buttons["reader.translateAllPages"].firstMatch.exists, "Translate all pages missing from the menu")
+    // iOS 27 devices drop the identifier on menu items, so accept the label too.
+    let translateAll = app.buttons.matching(
+      NSPredicate(format: "identifier == %@ OR label BEGINSWITH %@", "reader.translateAllPages", "Translate all pages")
+    ).firstMatch
+    XCTAssertTrue(translateAll.waitForExistence(timeout: 3), "Translate all pages missing from the menu")
     attachScreenshot(app, name: "3-menu")
   }
 
@@ -306,7 +419,7 @@ final class ReaderSmokeUITests: XCTestCase {
   func testOpenFromFilesPicker() {
     let fileName = "PMR-Files-Test"
     let app = XCUIApplication()
-    app.launchArguments = ["-PMRUITestProbe"]
+    app.launchArguments = ["-PMRUITestProbe"] + freeService
     app.launch()
 
     let importButton = app.buttons["Import PDF"].firstMatch
@@ -341,14 +454,23 @@ final class ReaderSmokeUITests: XCTestCase {
       return
     }
     attachScreenshot(app, name: "picker-result")
-    // The iPhone picker can report the result before its search transition
-    // ends; give it a moment, then tap by coordinate if it is still covered.
-    let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: result)
-    if XCTWaiter().wait(for: [hittable], timeout: 5) == .completed {
-      result.tap()
-    } else {
-      result.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    // The picker can report the result before its search transition ends and
+    // then rebuild the cell, so re-query until a live cell can take the tap.
+    let tapDeadline = Date().addingTimeInterval(10)
+    var tapped = false
+    while !tapped && Date() < tapDeadline {
+      let cell = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", fileName)).firstMatch
+      if cell.exists && cell.isHittable {
+        cell.tap()
+        tapped = true
+      } else if cell.exists && Date().addingTimeInterval(5) > tapDeadline {
+        cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        tapped = true
+      } else {
+        usleep(250_000)
+      }
     }
+    XCTAssertTrue(tapped, "\(fileName) result never became tappable")
     // Some picker layouts select first and need an explicit Open.
     let open = app.buttons["Open"].firstMatch
     if open.waitForExistence(timeout: 2), open.isHittable { open.tap() }
@@ -370,6 +492,33 @@ final class ReaderSmokeUITests: XCTestCase {
     setTranslationsVisible(true, in: app)
     sleep(1)
     attachScreenshot(app, name: "files-translated")
+  }
+
+  /// Closes the front reader through the sidebar's close button so the
+  /// library is in front.
+  @MainActor
+  private func closeReaderToLibrary(_ app: XCUIApplication) {
+    guard UIDevice.current.userInterfaceIdiom == .pad else {
+      // iPhone does not restore the reader, so a plain relaunch shows the library.
+      let arguments = app.launchArguments.filter { $0 != "-PMROpenPDF" && $0 != "sample.pdf" }
+      app.terminate()
+      app.launchArguments = arguments
+      app.launch()
+      return
+    }
+    let close = app.buttons["reader.closeDocument"].firstMatch
+    if !(close.exists && close.isHittable) {
+      app.buttons.matching(
+        NSPredicate(format: "identifier == %@ OR label CONTAINS[c] %@", "ToggleSidebar", "Sidebar")
+      ).firstMatch.tap()
+    }
+    XCTAssertTrue(close.waitForExistence(timeout: 10), "No close button in the sidebar")
+    close.tap()
+    let front = XCTNSPredicateExpectation(
+      predicate: NSPredicate(format: "exists == true AND isHittable == true"),
+      object: app.buttons["library.settings"].firstMatch
+    )
+    XCTAssertEqual(XCTWaiter().wait(for: [front], timeout: 10), .completed, "Library did not come back")
   }
 
   /// iPad restores earlier reader windows, so several probes can exist; a
@@ -438,5 +587,32 @@ final class ReaderSmokeUITests: XCTestCase {
     attachment.name = name
     attachment.lifetime = .keepAlways
     add(attachment)
+  }
+
+  /// The most common gray level (0-255) in the middle of the screen, where
+  /// the page sits; colored pixels are skipped.
+  private func dominantGray(in image: UIImage) -> Int? {
+    guard let cgImage = image.cgImage else { return nil }
+    let crop = CGRect(
+      x: CGFloat(cgImage.width) * 0.3, y: CGFloat(cgImage.height) * 0.3,
+      width: CGFloat(cgImage.width) * 0.4, height: CGFloat(cgImage.height) * 0.4
+    ).integral
+    guard let region = cgImage.cropping(to: crop) else { return nil }
+    let side = 120
+    var pixels = [UInt8](repeating: 0, count: side * side * 4)
+    guard let context = CGContext(
+      data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+    context.interpolationQuality = .none
+    context.draw(region, in: CGRect(x: 0, y: 0, width: side, height: side))
+    var counts = [Int](repeating: 0, count: 256)
+    for index in stride(from: 0, to: pixels.count, by: 4) {
+      let red = Int(pixels[index]), green = Int(pixels[index + 1]), blue = Int(pixels[index + 2])
+      guard max(red, green, blue) - min(red, green, blue) < 8 else { continue }
+      counts[(red + green + blue) / 3] += 1
+    }
+    return counts.indices.max { counts[$0] < counts[$1] }
   }
 }

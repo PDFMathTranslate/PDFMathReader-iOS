@@ -18,6 +18,9 @@ struct LibraryView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 28) {
+        Text(L10n.string("ios.library"))
+          .font(.largeTitle.bold())
+          .accessibilityAddTraits(.isHeader)
         header
         if library.recents.isEmpty {
           emptyState
@@ -38,8 +41,7 @@ struct LibraryView: View {
       .frame(maxWidth: .infinity, alignment: .center)
     }
     .background(Color(uiColor: .systemGroupedBackground))
-    .navigationTitle(L10n.string("ios.library"))
-    .navigationBarTitleDisplayMode(.large)
+    .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Button {
@@ -47,6 +49,7 @@ struct LibraryView: View {
         } label: {
           Label(L10n.string("settings.title"), systemImage: "gearshape")
         }
+        .accessibilityIdentifier("library.settings")
         Button {
           isImporting = true
         } label: {
@@ -151,11 +154,13 @@ private struct RecentDocumentCard: View {
 
 private struct RecentThumbnail: View {
   let path: String?
+  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     Group {
       if let path, let image = UIImage(contentsOfFile: path) {
-        Image(uiImage: image)
+        // Cached previews are drawn uninverted; dim them like open pages.
+        Image(uiImage: colorScheme == .dark ? ReaderDarkPDF.inverted(image) : image)
           .resizable()
           .scaledToFit()
           .padding(6)

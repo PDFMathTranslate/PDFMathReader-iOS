@@ -37,9 +37,11 @@ final class ReaderTranslationLabel: UILabel {
 
   override func drawText(in rect: CGRect) {
     if !marks.isEmpty, let context = UIGraphicsGetCurrentContext() {
-      let alpha = traitCollection.userInterfaceStyle == .dark ? 0.4 : 0.5
+      // Match PDFKit's highlights on the dimmed page in dark appearance.
+      let dark = traitCollection.userInterfaceStyle == .dark
       for mark in marks {
-        context.setFillColor(mark.color.withAlphaComponent(alpha).cgColor)
+        let color = dark ? ReaderDarkPDF.markOnDimmedPaper(mark.color) : mark.color.withAlphaComponent(0.5)
+        context.setFillColor(color.cgColor)
         context.fill(mark.rect)
       }
     }
@@ -83,9 +85,13 @@ final class ReaderTranslationMarkupView: UIView {
     context.saveGState()
     context.addRects(covers)
     context.clip()
-    let alpha = traitCollection.userInterfaceStyle == .dark ? 0.3 : 0.35
+    let dark = traitCollection.userInterfaceStyle == .dark
     for highlight in highlights {
-      context.setFillColor(highlight.color.withAlphaComponent(alpha).cgColor)
+      // This view sits above the translated image, so stay translucent.
+      let color = dark
+        ? ReaderDarkPDF.markOnDimmedPaper(highlight.color).withAlphaComponent(0.6)
+        : highlight.color.withAlphaComponent(0.35)
+      context.setFillColor(color.cgColor)
       context.fill(highlight.rect)
     }
     if !comments.isEmpty {
@@ -107,6 +113,8 @@ final class ReaderTranslationPageOverlay: UIView {
   private var showTranslations = true
   private var interactionMode: ReaderInteractionMode = .reading
   private var readingAidsConfiguration = ReadingAidsConfiguration()
+  private var translationFontName = ""
+  private var translationSerif = false
   private var originalOverrides = Set<Int>()
   private var labels: [Int: ReaderTranslationLabel] = [:]
   private var remotePageData: Data?
@@ -128,6 +136,9 @@ final class ReaderTranslationPageOverlay: UIView {
     addSubview(progressView)
     addSubview(markupView)
     isAccessibilityElement = false
+    registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (overlay: Self, _) in
+      overlay.setNeedsLayout()
+    }
     // Applying a highlight clears the selection; refresh the covered marks then.
     NotificationCenter.default.addObserver(
       self,
@@ -180,6 +191,15 @@ final class ReaderTranslationPageOverlay: UIView {
     setNeedsLayout()
   }
 
+  func setTranslationFont(name: String, serif: Bool) {
+    guard name != translationFontName || serif != translationSerif else { return }
+    translationFontName = name
+    translationSerif = serif
+    for item in state.paragraphs {
+      if let label = labels[item.paragraph.id] { updateLabel(label, item: item) }
+    }
+  }
+
   func setInteractionMode(_ mode: ReaderInteractionMode) {
     guard mode != interactionMode else { return }
     interactionMode = mode
@@ -228,7 +248,7 @@ final class ReaderTranslationPageOverlay: UIView {
       imageView.contentMode = .scaleAspectFit
       imageView.backgroundColor = paperColor
       imageView.isOpaque = true
-      imageView.image = translated.thumbnail(of: bounds.size, for: .cropBox)
+      imageView.image = remoteImage(for: translated)
       imageView.isHidden = !showTranslations
       addSubview(imageView)
       remoteImageView = imageView
@@ -271,7 +291,7 @@ final class ReaderTranslationPageOverlay: UIView {
        bounds.width > 0,
        bounds.height > 0,
        let translated = PDFDocument(data: remotePageData)?.page(at: 0) {
-      remoteImageView?.image = translated.thumbnail(of: bounds.size, for: .cropBox)
+      remoteImageView?.image = remoteImage(for: translated)
     }
     markupView.frame = bounds
     bringSubviewToFront(markupView)
@@ -379,7 +399,7 @@ final class ReaderTranslationPageOverlay: UIView {
       label.tag = item.paragraph.id
       label.numberOfLines = 0
       label.lineBreakMode = .byWordWrapping
-      label.textColor = .label
+      label.textColor = ReaderDarkPDF.pageColor(.black)
       // Square cover, like the desktop box-shadow.
       label.coverColor = paperColor
       label.isUserInteractionEnabled = interactionMode == .comparison
@@ -423,7 +443,8 @@ final class ReaderTranslationPageOverlay: UIView {
       baseSize: max(6, min(36, CGFloat(paragraph.fontSize))) * scale,
       minimumSize: 6 * scale,
       available: CGSize(width: box.width, height: box.height + cover),
-      bold: paragraph.bold
+      bold: paragraph.bold,
+      useOriginal: useOriginal
     )
     label.font = font
     label.attributedText = readingAidsAttributedString(
@@ -480,14 +501,19 @@ final class ReaderTranslationPageOverlay: UIView {
     baseSize: CGFloat,
     minimumSize: CGFloat,
     available: CGSize,
-    bold: Bool
+    bold: Bool,
+    useOriginal: Bool
   ) -> UIFont {
-    let weight: UIFont.Weight = bold ? .semibold : .regular
+    let selectedFont = ReaderTranslationFont.resolve(
+      name: useOriginal ? "" : translationFontName,
+      serif: !useOriginal && translationSerif,
+      size: baseSize, bold: bold
+    )
     let available = CGSize(width: max(1, available.width), height: max(1, available.height))
     let step = max(0.25, baseSize / 40)
     var size = baseSize
     while size > minimumSize {
-      let font = UIFont.systemFont(ofSize: size, weight: weight)
+      let font = selectedFont.withSize(size)
       let measured = (text as NSString).boundingRect(
         with: CGSize(width: available.width, height: .greatestFiniteMagnitude),
         options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -499,7 +525,7 @@ final class ReaderTranslationPageOverlay: UIView {
       }
       size -= step
     }
-    return UIFont.systemFont(ofSize: max(1, minimumSize), weight: weight)
+    return selectedFont.withSize(max(1, minimumSize))
   }
 
   private func textAlignment(for value: String?) -> NSTextAlignment {
@@ -516,11 +542,13 @@ final class ReaderTranslationPageOverlay: UIView {
     progressView.alpha = active && showTranslations ? 1 : 0
   }
 
+  /// Covers match the page under them, which dark appearance inverts.
   private var paperColor: UIColor {
-    UIColor { traits in
-      traits.userInterfaceStyle == .dark
-        ? UIColor(white: 0.14, alpha: 1)
-        : .white
-    }
+    ReaderDarkPDF.pageColor(.white)
+  }
+
+  private func remoteImage(for page: PDFPage) -> UIImage {
+    let image = page.thumbnail(of: bounds.size, for: .cropBox)
+    return traitCollection.userInterfaceStyle == .dark ? ReaderDarkPDF.inverted(image) : image
   }
 }

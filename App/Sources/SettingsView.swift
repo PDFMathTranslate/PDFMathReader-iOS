@@ -45,8 +45,6 @@ struct SettingsView: View {
   @State private var draft = ReaderPreferences()
   @State private var apiKey = ""
   @State private var didLoadAPIKey = false
-  @State private var kernelHealth: RemoteKernelHealth?
-  @State private var isCheckingKernel = false
   private let credentialStore = KeychainCredentialStore()
 
   var body: some View {
@@ -87,6 +85,12 @@ struct SettingsView: View {
               Text(service.displayName).tag(service)
             }
           }
+          if draft.translationService == .appleOnDevice {
+            AppleTranslationLanguagesRow(
+              sourceLanguage: draft.sourceLanguage,
+              targetLanguage: draft.targetLanguage
+            )
+          }
           Toggle(L10n.string("toolbar.showTranslatedText"), isOn: $draft.showTranslations)
           Picker(L10n.string("settings.interactionMode"), selection: $draft.interactionMode) {
             Text(L10n.string("settings.readingMode")).tag(ReaderInteractionMode.reading)
@@ -117,43 +121,16 @@ struct SettingsView: View {
             }
           }
 
-          Section {
-            TextField(L10n.string("ios.serverURL"), text: $draft.remoteKernelURL)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-              .keyboardType(.URL)
-            HStack {
-              Button {
-                checkRemoteKernel()
-              } label: {
-                if isCheckingKernel {
-                  ProgressView()
-                    .controlSize(.small)
-                } else {
-                  Text(L10n.string("ios.check"))
-                }
-              }
-              .disabled(isCheckingKernel)
-              if let kernelHealth {
-                Label(
-                  kernelHealth.ok ? L10n.string("engine.ready") : kernelHealth.reason,
-                  systemImage: kernelHealth.ok ? "checkmark.circle.fill" : "xmark.circle"
-                )
-                .foregroundStyle(kernelHealth.ok ? .green : .secondary)
-                .font(.footnote)
-                .lineLimit(1)
-              }
-            }
-          } header: {
-            Text(L10n.string("ios.remoteKernel"))
-          } footer: {
-            Text(L10n.string("ios.remoteKernelDescription"))
-          }
+          ComputerKernelSettingsSection(preferences: $draft)
+
+          RemoteKernelSettingsSection(preferences: $draft)
         } header: {
           Text(L10n.string("settings.translation"))
         } footer: {
           Text(translationDataDisclosure)
         }
+
+        TranslationFontSettingsSection(preferences: $draft)
 
         ReadingAidsSettingsSection(preferences: $draft)
       }
@@ -217,15 +194,5 @@ struct SettingsView: View {
       lines.append(L10n.string("ios.disclosureRemoteKernel"))
     }
     return lines.joined(separator: " ")
-  }
-
-  private func checkRemoteKernel() {
-    isCheckingKernel = true
-    let url = draft.remoteKernelURL
-    Task {
-      let health = await RemoteKernelClient().health(url, force: true)
-      kernelHealth = health
-      isCheckingKernel = false
-    }
   }
 }

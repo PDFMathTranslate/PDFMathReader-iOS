@@ -20,24 +20,28 @@ public enum MathPageTranslatorError: Error, LocalizedError, Sendable, Equatable 
   }
 }
 
-/// Translates and caches a single PDF page through a remote math kernel.
+/// Translates and caches a single PDF page through a remote math kernel: a
+/// zotero-pdf2zh server, or PDFMathReader on the user's computer.
 ///
 /// PDFKit is main-actor bound by the app, so page extraction and cache I/O are
 /// kept on the main actor while the network work remains isolated in the
-/// RemoteKernelClient actor.
+/// kernel client actors.
 @MainActor
 public final class MathPageTranslator {
   public let client: RemoteKernelClient
+  public let companionClient: CompanionKernelClient
   public let cacheDirectory: URL
 
   private let fileManager: FileManager
 
   public init(
     client: RemoteKernelClient,
+    companionClient: CompanionKernelClient = CompanionKernelClient(),
     cacheDirectory: URL? = nil,
     fileManager: FileManager = .default
   ) {
     self.client = client
+    self.companionClient = companionClient
     self.fileManager = fileManager
     self.cacheDirectory =
       cacheDirectory
@@ -59,6 +63,100 @@ public final class MathPageTranslator {
     forceRetranslation: Bool = false,
     onProgress: (@Sendable (RemoteKernelProgress) -> Void)? = nil
   ) async throws -> Data {
+    let normalizedURL = normalizeRemoteKernelUrl(serverURL)
+    guard !normalizedURL.isEmpty else { throw RemoteKernelError.invalidServerURL }
+    let client = client
+    return try await translate(
+      document: document,
+      pageIndex: pageIndex,
+      forceRetranslation: forceRetranslation,
+      descriptor: { pageNumber in
+        Self.remoteDescriptor(
+          serverURL: normalizedURL,
+          pageNumber: pageNumber,
+          language: language,
+          sourceLanguage: sourceLanguage,
+          service: service,
+          engine: engine,
+          cacheScope: cacheScope
+        )
+      },
+      run: { onePage in
+        try await client.translatePage(
+          url: normalizedURL,
+          bytes: onePage,
+          page: 1,
+          language: language,
+          sourceLanguage: sourceLanguage,
+          service: service,
+          threads: threads,
+          onProgress: onProgress
+        )
+      }
+    )
+  }
+
+  /// Translates a page with the Fast or Precise kernel of PDFMathReader on
+  /// the user's computer. pageIndex is zero-based. The pairing code is not part
+  /// of the cache key, so re-pairing keeps translated pages.
+  public func translatePage(
+    document: PDFDocument,
+    pageIndex: Int,
+    companionURL: String,
+    pairingCode: String,
+    language: String,
+    sourceLanguage: String? = nil,
+    engine: String,
+    service: String = "auto",
+    glossary: [GlossaryEntry] = [],
+    cacheScope: String = "",
+    forceRetranslation: Bool = false,
+    onProgress: (@Sendable (RemoteKernelProgress) -> Void)? = nil
+  ) async throws -> Data {
+    let normalizedURL = normalizeCompanionURL(companionURL)
+    guard !normalizedURL.isEmpty else { throw CompanionKernelError.invalidServerURL }
+    let companionClient = companionClient
+    return try await translate(
+      document: document,
+      pageIndex: pageIndex,
+      forceRetranslation: forceRetranslation,
+      descriptor: { pageNumber in
+        [
+          "companion": 1,
+          "id": engine,
+          "url": normalizedURL,
+          "page": pageNumber,
+          "language": language,
+          "sourceLanguage": sourceLanguage ?? "",
+          "service": service,
+          "glossary": glossary.map { [$0.source, $0.target] },
+          "layoutSchema": 1,
+          "cacheScope": cacheScope,
+        ]
+      },
+      run: { onePage in
+        try await companionClient.translatePage(
+          url: normalizedURL,
+          pairingCode: pairingCode,
+          bytes: onePage,
+          engine: engine,
+          language: language,
+          sourceLanguage: sourceLanguage,
+          service: service,
+          glossary: glossary,
+          onProgress: onProgress
+        )
+      }
+    )
+  }
+
+  private func translate(
+    document: PDFDocument,
+    pageIndex: Int,
+    forceRetranslation: Bool,
+    descriptor: (Int) -> [String: Any],
+    run: (Data) async throws -> Data
+  ) async throws -> Data {
     try Task.checkCancellation()
     guard pageIndex >= 0, pageIndex < document.pageCount else {
       throw MathPageTranslatorError.invalidPage
@@ -69,18 +167,7 @@ public final class MathPageTranslator {
       throw MathPageTranslatorError.invalidDocument
     }
     let onePage = try makeSinglePage(sourcePage)
-    let normalizedURL = normalizeRemoteKernelUrl(serverURL)
-    guard !normalizedURL.isEmpty else { throw RemoteKernelError.invalidServerURL }
-    let key = try cacheKey(
-      sourceData: sourceData,
-      serverURL: normalizedURL,
-      pageNumber: pageIndex + 1,
-      language: language,
-      sourceLanguage: sourceLanguage,
-      service: service,
-      engine: engine,
-      cacheScope: cacheScope
-    )
+    let key = try cacheKey(sourceData: sourceData, descriptor: descriptor(pageIndex + 1))
     let resultURL = cacheDirectory.appendingPathComponent(key).appendingPathExtension("pdf")
 
     if !forceRetranslation {
@@ -93,16 +180,7 @@ public final class MathPageTranslator {
       }
     }
     try Task.checkCancellation()
-    let result = try await client.translatePage(
-      url: normalizedURL,
-      bytes: onePage,
-      page: 1,
-      language: language,
-      sourceLanguage: sourceLanguage,
-      service: service,
-      threads: threads,
-      onProgress: onProgress
-    )
+    let result = try await run(onePage)
     try Task.checkCancellation()
     guard PDFDocument(data: result)?.pageCount == 1 else {
       throw RemoteKernelError.invalidPDF
@@ -160,13 +238,15 @@ public final class MathPageTranslator {
     guard !normalizedURL.isEmpty else { throw RemoteKernelError.invalidServerURL }
     let key = try cacheKey(
       sourceData: sourceData,
-      serverURL: normalizedURL,
-      pageNumber: pageIndex + 1,
-      language: language,
-      sourceLanguage: sourceLanguage,
-      service: service,
-      engine: engine,
-      cacheScope: cacheScope
+      descriptor: Self.remoteDescriptor(
+        serverURL: normalizedURL,
+        pageNumber: pageIndex + 1,
+        language: language,
+        sourceLanguage: sourceLanguage,
+        service: service,
+        engine: engine,
+        cacheScope: cacheScope
+      )
     )
     return cacheDirectory.appendingPathComponent(key).appendingPathExtension("pdf")
   }
@@ -197,8 +277,7 @@ public final class MathPageTranslator {
     return data
   }
 
-  private func cacheKey(
-    sourceData: Data,
+  private static func remoteDescriptor(
     serverURL: String,
     pageNumber: Int,
     language: String,
@@ -206,8 +285,8 @@ public final class MathPageTranslator {
     service: String,
     engine: String,
     cacheScope: String
-  ) throws -> String {
-    let descriptor: [String: Any] = [
+  ) -> [String: Any] {
+    [
       "remote": 1,
       "id": engine,
       "url": serverURL,
@@ -218,6 +297,9 @@ public final class MathPageTranslator {
       "layoutSchema": 3,
       "cacheScope": cacheScope,
     ]
+  }
+
+  private func cacheKey(sourceData: Data, descriptor: [String: Any]) throws -> String {
     let descriptorData = try JSONSerialization.data(withJSONObject: descriptor, options: [.sortedKeys])
     var input = Data()
     input.append(Self.stablePDFData(sourceData))
