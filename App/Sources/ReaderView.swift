@@ -232,10 +232,13 @@ private struct ReaderDetail: View {
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItemGroup(placement: .topBarLeading) {
-        Button(action: onToggleSidebar) {
-          Label(L10n.string("sidebar.thumbnails"), systemImage: "sidebar.left")
+        // NavigationSplitView supplies its own sidebar button in regular width.
+        if !regular {
+          Button(action: onToggleSidebar) {
+            Label(L10n.string("sidebar.thumbnails"), systemImage: "sidebar.left")
+          }
+          .labelStyle(.iconOnly)
         }
-        .labelStyle(.iconOnly)
 
         // iPad can relaunch straight into reader windows with no library
         // scene, so readers need their own way to open another PDF.
@@ -294,6 +297,11 @@ private struct ReaderDetail: View {
               Label(directionTitle(direction), systemImage: model.readingState.scrollDirection == direction ? "checkmark" : "")
             }
           }
+          if regular {
+            Divider()
+            Button(L10n.string("ios.compare"), systemImage: "rectangle.split.2x1", action: onCompare)
+              .disabled(model.translationCoordinator == nil)
+          }
         } label: {
           Label(L10n.string("menu.extra.messages.Layout"), systemImage: "rectangle.split.2x1")
         }
@@ -315,13 +323,6 @@ private struct ReaderDetail: View {
           )
         }
         .accessibilityIdentifier("reader.toggleTranslations")
-
-        if regular {
-          Button(action: onCompare) {
-            Label(L10n.string("ios.compare"), systemImage: "rectangle.split.2x1")
-          }
-          .disabled(model.translationCoordinator == nil)
-        }
 
         if let coordinator = model.translationCoordinator {
           TranslateAllPagesButton(coordinator: coordinator)

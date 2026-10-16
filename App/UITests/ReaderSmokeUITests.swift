@@ -14,12 +14,10 @@ final class ReaderSmokeUITests: XCTestCase {
     app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-PMRUITestProbe"]
     app.launch()
 
-    let probe = app.descendants(matching: .any)["debug.translationStatus"]
-    XCTAssertTrue(probe.waitForExistence(timeout: 30), "Reader did not open")
+    XCTAssertTrue(translationProbes(in: app).firstMatch.waitForExistence(timeout: 30), "Reader did not open")
     // The probe lists every translated paragraph; wait until one is Chinese.
-    let translated = NSPredicate(format: "value MATCHES %@", "(?s).*\\p{Han}.*")
-    let expectation = XCTNSPredicateExpectation(predicate: translated, object: probe)
-    if XCTWaiter().wait(for: [expectation], timeout: 120) != .completed {
+    let probe = translatedProbe(in: app)
+    if !probe.waitForExistence(timeout: 120) {
       attachScreenshot(app, name: "translation-missing")
       XCTFail("No translated paragraph appeared")
       return
@@ -149,10 +147,7 @@ final class ReaderSmokeUITests: XCTestCase {
     XCTAssertTrue(opened, "Reader did not open the picked PDF")
 
     // A file opened from Files must translate like one in the app's Documents.
-    let probe = app.descendants(matching: .any)["debug.translationStatus"].firstMatch
-    let translated = NSPredicate(format: "value MATCHES %@", "(?s).*\\p{Han}.*")
-    let expectation = XCTNSPredicateExpectation(predicate: translated, object: probe)
-    if XCTWaiter().wait(for: [expectation], timeout: 120) != .completed {
+    if !translatedProbe(in: app).waitForExistence(timeout: 120) {
       attachScreenshot(app, name: "files-translation-missing")
       XCTFail("No translated paragraph appeared for the picked PDF")
       return
@@ -160,6 +155,20 @@ final class ReaderSmokeUITests: XCTestCase {
     setTranslationsVisible(true, in: app)
     sleep(1)
     attachScreenshot(app, name: "files-translated")
+  }
+
+  /// iPad restores earlier reader windows, so several probes can exist; a
+  /// bare identifier query then has no single value to read.
+  @MainActor
+  private func translationProbes(in app: XCUIApplication) -> XCUIElementQuery {
+    app.descendants(matching: .any).matching(identifier: "debug.translationStatus")
+  }
+
+  @MainActor
+  private func translatedProbe(in app: XCUIApplication) -> XCUIElement {
+    translationProbes(in: app)
+      .matching(NSPredicate(format: "value MATCHES %@", "(?s).*\\p{Han}.*"))
+      .firstMatch
   }
 
   @MainActor
