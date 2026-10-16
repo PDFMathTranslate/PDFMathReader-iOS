@@ -52,10 +52,31 @@
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>
 			</dict>
+			<key>fd7a:115c:a1e0::/48</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+			<key>ts.net</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
 		</dict>
 	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_pdfmathreader._tcp</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>PDFMathReader connects to translation kernels you add on your local network.</string>
+	<string>PDFMathReader discovers nearby computers and connects to their shared translation kernels on your local network.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>NotoSerifCJKtc-Regular.otf</string>
+		<string>NotoSerifCJKtc-Bold.otf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

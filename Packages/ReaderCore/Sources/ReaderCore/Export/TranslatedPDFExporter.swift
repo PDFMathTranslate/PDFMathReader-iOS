@@ -75,15 +75,15 @@ public enum TranslatedPDFExporterError: Error, Equatable, LocalizedError, Sendab
   public var errorDescription: String? {
     switch self {
     case .invalidDocument:
-      return "The source PDF could not be opened."
+      return ReaderLocalization.resolve("The source PDF could not be opened.")
     case .invalidReplacementPage(let index):
-      return "The replacement PDF for page \(index + 1) is not a single-page PDF."
+      return ReaderLocalization.string("The replacement PDF for page {0} is not a single-page PDF.", String(index + 1))
     case .invalidParagraph(let page, let index):
-      return "The translated paragraph at page \(page + 1), index \(index) has invalid geometry."
+      return ReaderLocalization.string("The translated paragraph at page {0}, index {1} has invalid geometry.", String(page + 1), String(index))
     case .unableToRenderPage(let index):
-      return "The translated PDF page \(index + 1) could not be rendered."
+      return ReaderLocalization.string("The translated PDF page {0} could not be rendered.", String(index + 1))
     case .unableToSerialize:
-      return "The translated PDF could not be serialized."
+      return ReaderLocalization.resolve("The translated PDF could not be serialized.")
     }
   }
 }
@@ -102,7 +102,9 @@ public final class TranslatedPDFExporter {
   public func export(
     originalPDFData: Data,
     paragraphsByPage: [[ExportParagraphBlock]] = [],
-    replacementPDFDataByPage: [Data?] = []
+    replacementPDFDataByPage: [Data?] = [],
+    fontName: String = "",
+    serif: Bool = false
   ) throws -> Data {
     let hasTranslatedBlocks = paragraphsByPage.contains {
       $0.contains { !$0.translation.isEmpty }
@@ -149,7 +151,9 @@ public final class TranslatedPDFExporter {
         let page = try renderTranslatedPage(
           sourcePage,
           blocks: translatedBlocks,
-          index: index
+          index: index,
+          fontName: fontName,
+          serif: serif
         )
         output.insert(page, at: output.pageCount)
       }
@@ -173,19 +177,25 @@ public final class TranslatedPDFExporter {
   public func export(
     originalData: Data,
     translatedBlocksByPage: [[ExportParagraphBlock]] = [],
-    replacementPagesByPage: [Data?] = []
+    replacementPagesByPage: [Data?] = [],
+    fontName: String = "",
+    serif: Bool = false
   ) throws -> Data {
     try export(
       originalPDFData: originalData,
       paragraphsByPage: translatedBlocksByPage,
-      replacementPDFDataByPage: replacementPagesByPage
+      replacementPDFDataByPage: replacementPagesByPage,
+      fontName: fontName,
+      serif: serif
     )
   }
 
   private func renderTranslatedPage(
     _ sourcePage: PDFPage,
     blocks: [ExportParagraphBlock],
-    index: Int
+    index: Int,
+    fontName: String,
+    serif: Bool
   ) throws -> PDFPage {
     guard let pageRef = sourcePage.pageRef else {
       throw TranslatedPDFExporterError.unableToRenderPage(index: index)
@@ -210,7 +220,14 @@ public final class TranslatedPDFExporter {
     context.drawPDFPage(pageRef)
     context.restoreGState()
 
-    try draw(blocks, for: sourcePage, in: context, pageIndex: index)
+    try draw(
+      blocks,
+      for: sourcePage,
+      in: context,
+      pageIndex: index,
+      fontName: fontName,
+      serif: serif
+    )
     context.endPDFPage()
     context.closePDF()
 
@@ -240,7 +257,9 @@ public final class TranslatedPDFExporter {
     _ blocks: [ExportParagraphBlock],
     for page: PDFPage,
     in context: CGContext,
-    pageIndex: Int
+    pageIndex: Int,
+    fontName: String,
+    serif: Bool
   ) throws {
     let cropBox = page.bounds(for: .cropBox)
     let rotation = normalizedRotation(page.rotation)
@@ -286,7 +305,9 @@ public final class TranslatedPDFExporter {
         fontSize: fontSize,
         bold: block.bold,
         alignment: block.textAlign,
-        context: context
+        context: context,
+        fontName: fontName,
+        serif: serif
       )
     }
     context.restoreGState()
@@ -298,7 +319,9 @@ public final class TranslatedPDFExporter {
     fontSize: CGFloat,
     bold: Bool,
     alignment: String?,
-    context: CGContext
+    context: CGContext,
+    fontName: String,
+    serif: Bool
   ) {
     guard !text.isEmpty, rect.width > 0, rect.height > 0 else { return }
 
@@ -307,7 +330,9 @@ public final class TranslatedPDFExporter {
       text: text,
       fontSize: size,
       bold: bold,
-      alignment: alignment
+      alignment: alignment,
+      fontName: fontName,
+      serif: serif
     )
     while size > 0.5 {
       let suggested = CTFramesetterSuggestFrameSizeWithConstraints(
@@ -323,7 +348,9 @@ public final class TranslatedPDFExporter {
         text: text,
         fontSize: size,
         bold: bold,
-        alignment: alignment
+        alignment: alignment,
+        fontName: fontName,
+        serif: serif
       )
     }
 
@@ -341,31 +368,16 @@ public final class TranslatedPDFExporter {
     text: String,
     fontSize: CGFloat,
     bold: Bool,
-    alignment: String?
+    alignment: String?,
+    fontName: String,
+    serif: Bool
   ) -> CTFramesetter {
-    // Prefer a known CJK font so the generated PDF keeps Unicode mappings. CoreText
-    // still supplies fallback glyphs for scripts outside the selected font.
-    let baseFont: CTFont
-    if let name = Self.preferredCJKFontName {
-      baseFont = CTFontCreateWithName(name as CFString, fontSize, nil)
-    } else {
-      baseFont = CTFontCreateUIFontForLanguage(.system, fontSize, nil)
-        ?? CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
-    }
-    let font: CTFont
-    if bold,
-      let boldFont = CTFontCreateCopyWithSymbolicTraits(
-        baseFont,
-        fontSize,
-        nil,
-        .traitBold,
-        .traitBold
-      )
-    {
-      font = boldFont
-    } else {
-      font = baseFont
-    }
+    let font = Self.resolveFont(
+      name: fontName,
+      serif: serif,
+      size: fontSize,
+      bold: bold
+    )
 
     var textAlignment: CTTextAlignment
     switch alignment?.lowercased() {
@@ -491,6 +503,60 @@ public final class TranslatedPDFExporter {
     .trimBox,
     .artBox,
   ]
+
+  /// Resolves saved names without importing UIKit: a saved name may be either an installed
+  /// family name or an installed PostScript name. CoreText silently substitutes Helvetica
+  /// for unknown names, so availability is checked before creation.
+  private static func resolveFont(
+    name: String,
+    serif: Bool,
+    size: CGFloat,
+    bold: Bool
+  ) -> CTFont {
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let fallbackName: String
+    if serif {
+      fallbackName = ["Iowan Old Style", "Georgia", "Times New Roman", "TimesNewRomanPSMT"]
+        .first { Self.availableFontFamilies.contains($0) || Self.availablePostScriptNames.contains($0) }
+        ?? Self.preferredCJKFontName
+        ?? "Helvetica"
+    } else {
+      fallbackName = Self.preferredCJKFontName ?? "Helvetica"
+    }
+
+    let resolvedName: String
+    if let family = Self.availableFontFamilies.first(where: {
+      $0.caseInsensitiveCompare(trimmedName) == .orderedSame
+    }) {
+      resolvedName = family
+    } else if let postScript = Self.availablePostScriptNames.first(where: {
+      $0.caseInsensitiveCompare(trimmedName) == .orderedSame
+    }) {
+      resolvedName = postScript
+    } else {
+      resolvedName = fallbackName
+    }
+
+    let baseFont = CTFontCreateWithName(resolvedName as CFString, size, nil)
+    guard bold,
+      let boldFont = CTFontCreateCopyWithSymbolicTraits(
+        baseFont,
+        size,
+        nil,
+        .traitBold,
+        .traitBold
+      )
+    else {
+      return baseFont
+    }
+    return boldFont
+  }
+
+  private static let availableFontFamilies: [String] =
+    (CTFontManagerCopyAvailableFontFamilyNames() as? [String]) ?? []
+
+  private static let availablePostScriptNames: [String] =
+    (CTFontManagerCopyAvailablePostScriptNames() as? [String]) ?? []
 
   private static let preferredCJKFontName: String? = {
     let available = Set(

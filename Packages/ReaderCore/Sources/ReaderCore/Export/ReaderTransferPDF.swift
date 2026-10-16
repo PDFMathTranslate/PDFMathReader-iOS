@@ -38,21 +38,21 @@ public enum ReaderTransferPDFError: Error, Equatable, LocalizedError, Sendable {
   public var errorDescription: String? {
     switch self {
     case .invalidPDF:
-      return "The PDF could not be opened."
+      return ReaderLocalization.resolve("The PDF could not be opened.")
     case .malformedMetadata:
-      return "The PDF contains malformed transfer metadata."
+      return ReaderLocalization.resolve("The PDF contains malformed transfer metadata.")
     case .unsupportedMetadataVersion(let version):
-      return "The PDF uses unsupported transfer metadata version \(version)."
+      return ReaderLocalization.string("The PDF uses unsupported transfer metadata version {0}.", String(version))
     case .metadataTooLarge:
-      return "The PDF transfer metadata is too large."
+      return ReaderLocalization.resolve("The PDF transfer metadata is too large.")
     case .missingPage(let page):
-      return "Transfer data references missing PDF page \(page)."
+      return ReaderLocalization.string("Transfer data references missing PDF page {0}.", String(page))
     case .impossibleBox(let value):
-      return "Transfer data contains an impossible box for \(value)."
+      return ReaderLocalization.string("Transfer data contains an impossible box for {0}.", value)
     case .couldNotSerialize:
-      return "The transferred PDF could not be serialized."
+      return ReaderLocalization.resolve("The transferred PDF could not be serialized.")
     case .metadataNotPersisted:
-      return "The transferred PDF did not preserve its metadata."
+      return ReaderLocalization.resolve("The transferred PDF did not preserve its metadata.")
     }
   }
 }

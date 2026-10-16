@@ -3,6 +3,12 @@ import Foundation
 import PDFKit
 import Testing
 
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
+
 @testable import ReaderCore
 
 @Suite(.serialized)
@@ -36,6 +42,45 @@ struct TranslatedPDFExporterTests {
     #expect((0..<5).allSatisfy { exported.page(at: $0)?.rotation == [0, 90, 180, 270, 0][$0] })
     #expect((0..<4).allSatisfy { exported.page(at: $0)?.string?.contains("中文译文") == true })
     #expect(exported.page(at: 4)?.string == original.page(at: 4)?.string)
+  }
+
+  @Test
+  func exportsParagraphWithSelectedFontAndPreservesText() throws {
+    let originalData = makeTextPDF(rotations: [0])
+    let data = try TranslatedPDFExporter().export(
+      originalData: originalData,
+      translatedBlocksByPage: [[
+        ExportParagraphBlock(
+          x: 10,
+          y: 20,
+          width: 160,
+          height: 40,
+          translation: "Selected font text",
+          fontSize: 18,
+          bold: true
+        )
+      ]],
+      fontName: "Georgia",
+      serif: false
+    )
+    let document = try #require(PDFDocument(data: data))
+    let page = try #require(document.page(at: 0))
+    let pageText = try #require(page.string)
+    #expect(pageText.contains("Selected font text"))
+
+    let attributed = try #require(page.attributedString)
+    let range = (pageText as NSString).range(of: "Selected font text")
+    let value = attributed.attribute(.font, at: range.location, effectiveRange: nil)
+
+    #if os(macOS)
+    let font = try #require(value as? NSFont)
+    #expect(font.familyName == "Georgia")
+    #expect(font.fontName.localizedCaseInsensitiveContains("bold"))
+    #else
+    let font = try #require(value as? UIFont)
+    #expect(font.familyName == "Georgia")
+    #expect(font.fontDescriptor.symbolicTraits.contains(.traitBold))
+    #endif
   }
 
   @Test

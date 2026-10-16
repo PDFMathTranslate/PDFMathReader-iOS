@@ -61,10 +61,48 @@ struct ReaderAnnotationsSidebar: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
-              Button(L10n.string("ios.editComment"), systemImage: "pencil") {
+              Button(
+                L10n.string(annotation.kind == .comment ? "ios.editComment" : "ios.addComment"),
+                systemImage: annotation.kind == .comment ? "pencil" : "text.bubble"
+              ) {
                 editing = annotation
               }
-              .disabled(annotation.kind != .comment)
+              Menu(L10n.string("annotationBrowser.color"), systemImage: "paintpalette") {
+                Button(L10n.string("ios.highlightYellow")) {
+                  model.updateColor(
+                    for: annotation,
+                    color: "#fff36a",
+                    pdfView: pdfViewReference.view
+                  )
+                }
+                Button(L10n.string("ios.highlightPink")) {
+                  model.updateColor(
+                    for: annotation,
+                    color: "#ffb6c1",
+                    pdfView: pdfViewReference.view
+                  )
+                }
+                Button(L10n.string("ios.highlightBlue")) {
+                  model.updateColor(
+                    for: annotation,
+                    color: "#9bd7ff",
+                    pdfView: pdfViewReference.view
+                  )
+                }
+                Button(L10n.string("ios.highlightGreen")) {
+                  model.updateColor(
+                    for: annotation,
+                    color: "#b8e986",
+                    pdfView: pdfViewReference.view
+                  )
+                }
+              }
+              let text = annotation.text.isEmpty ? annotation.comment : annotation.text
+              if !text.isEmpty {
+                Button(L10n.string("menu.extra.messages.Copy"), systemImage: "doc.on.doc") {
+                  UIPasteboard.general.string = text
+                }
+              }
               Button(L10n.string("ios.delete"), systemImage: "trash", role: .destructive) {
                 model.delete(annotation, pdfView: pdfViewReference.view)
               }
@@ -227,14 +265,15 @@ private struct AnnotationCommentEditor: View {
         TextField(L10n.string("sidebar.comment"), text: $comment, axis: .vertical)
           .lineLimit(4...8)
       }
-      .navigationTitle(L10n.string("ios.editComment"))
+      .navigationTitle(
+        L10n.string(annotation.kind == .comment ? "ios.editComment" : "ios.addComment")
+      )
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button(L10n.string("ios.cancel"), action: onCancel)
         }
         ToolbarItem(placement: .confirmationAction) {
           Button(L10n.string("ios.save")) { onSave(comment) }
-            .disabled(comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
       }
     }

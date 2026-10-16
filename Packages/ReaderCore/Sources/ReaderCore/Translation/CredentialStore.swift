@@ -16,8 +16,8 @@ public enum CredentialStoreError: Error, LocalizedError, Sendable, Equatable {
 
   public var errorDescription: String? {
     switch self {
-    case .unavailable: return "Secure credential storage is unavailable."
-    case let .keychainStatus(status): return "Keychain operation failed (status \(status))."
+    case .unavailable: return ReaderLocalization.resolve("Secure credential storage is unavailable.")
+    case let .keychainStatus(status): return ReaderLocalization.string("Keychain operation failed (status {0}).", String(status))
     }
   }
 }

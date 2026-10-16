@@ -220,8 +220,8 @@ public enum ReaderQuickLinkValidationError: Error, Equatable, LocalizedError, Se
 
   public var errorDescription: String? {
     switch self {
-    case .invalidLinks: "Invalid quick links."
-    case .invalidDocumentKey: "Invalid quick-link document key."
+    case .invalidLinks: ReaderLocalization.resolve("Invalid quick links.")
+    case .invalidDocumentKey: ReaderLocalization.resolve("Invalid quick-link document key.")
     }
   }
 }

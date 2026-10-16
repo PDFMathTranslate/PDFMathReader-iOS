@@ -40,4 +40,43 @@ final class ReaderDarkPDFTests: XCTestCase {
     }
     XCTAssertEqual(try centerGray(ReaderDarkPDF.inverted(white)), 0.25, accuracy: 0.03)
   }
+
+  @MainActor
+  func testTranslatedPDFTilesKeepFineVectorDetailWhenZoomed() throws {
+    let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 100, height: 100))
+      .pdfData { renderer in
+        renderer.beginPage()
+        UIColor.black.setFill()
+        // One device pixel at 4x; a page-sized 1x bitmap cannot retain it.
+        renderer.cgContext.fill(CGRect(x: 50, y: 0, width: 0.25, height: 100))
+      }
+    let view = ReaderTiledPDFView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+    view.setPDFData(data)
+    let layer = try XCTUnwrap(view.layer as? ReaderPDFTileLayer)
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 4
+    format.opaque = true
+    let image = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { renderer in
+      layer.draw(in: renderer.cgContext)
+    }
+    let cgImage = try XCTUnwrap(image.cgImage)
+    var pixels = [UInt8](repeating: 0, count: 3 * 4)
+    let context = try XCTUnwrap(CGContext(
+      data: &pixels, width: 3, height: 1, bitsPerComponent: 8, bytesPerRow: 12,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ))
+    context.draw(cgImage, in: CGRect(x: -199, y: -200, width: 400, height: 400))
+    XCTAssertGreaterThan(pixels[0], 240)
+    XCTAssertLessThan(pixels[4], 15)
+    XCTAssertGreaterThan(pixels[8], 240)
+
+    view.setInverted(true)
+    let dark = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { renderer in
+      layer.draw(in: renderer.cgContext)
+    }
+    // The center is the fine black line, which becomes light in dark mode.
+    XCTAssertEqual(try centerGray(dark), 0.75, accuracy: 0.04)
+  }
+
 }

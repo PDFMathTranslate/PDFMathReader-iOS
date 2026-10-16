@@ -58,10 +58,10 @@ public enum TranslationServiceError: Error, LocalizedError, Sendable, Equatable 
 
   public var errorDescription: String? {
     switch self {
-    case .invalidConcurrency: return "Invalid concurrency"
-    case .invalidGlossary: return "Invalid glossary"
-    case .invalidParagraphOrLanguage: return "Invalid paragraph or language"
-    case .invalidSourceLanguage: return "Invalid source language"
+    case .invalidConcurrency: return ReaderLocalization.resolve("Invalid concurrency")
+    case .invalidGlossary: return ReaderLocalization.resolve("Invalid glossary")
+    case .invalidParagraphOrLanguage: return ReaderLocalization.resolve("Invalid paragraph or language")
+    case .invalidSourceLanguage: return ReaderLocalization.resolve("Invalid source language")
     case .cacheOnlyMiss: return nil
     case let .provider(message): return message
     }
@@ -74,12 +74,57 @@ private struct PendingTranslation: @unchecked Sendable {
   var waiters: Set<UUID>
 }
 
+/// A write ticket prevents an older in-flight request from replacing a newer
+/// result in the same cache destination. The registry is shared by paragraph
+/// and page translation so their cache writes use the same ordering rule.
+struct TranslationCacheWriteTicket: Sendable {
+  let versions: [String: UInt64]
+}
+
+final class TranslationCacheWriteTickets: @unchecked Sendable {
+  static let shared = TranslationCacheWriteTickets()
+
+  private let lock = NSLock()
+  private var versions: [String: UInt64] = [:]
+
+  func issue(destinations: [String]) -> TranslationCacheWriteTicket {
+    lock.lock()
+    defer { lock.unlock() }
+    var ticketVersions: [String: UInt64] = [:]
+    for destination in Set(destinations.map(Self.canonicalDestination)) {
+      let version = (versions[destination] ?? 0) &+ 1
+      versions[destination] = version
+      ticketVersions[destination] = version
+    }
+    return TranslationCacheWriteTicket(versions: ticketVersions)
+  }
+
+  @discardableResult
+  func withCurrentTicket(
+    _ ticket: TranslationCacheWriteTicket,
+    destinations: [String],
+    write: () -> Void
+  ) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    let isCurrent = destinations
+      .map(Self.canonicalDestination)
+      .allSatisfy { ticket.versions[$0] == versions[$0] }
+    guard isCurrent else { return false }
+    write()
+    return true
+  }
+
+  private static func canonicalDestination(_ destination: String) -> String {
+    URL(fileURLWithPath: destination).standardizedFileURL.path
+  }
+}
+
 public actor TranslationService {
   public let engine: String
   public let provider: any TranslationProvider
   public let cacheDirectory: URL
   private let cache: TranslationCacheStore
-  private var pending: [String: PendingTranslation] = [:]
 
   public init(
     provider: any TranslationProvider,
@@ -159,16 +204,25 @@ public actor TranslationService {
             TranslationMessage(role: "user", content: protected.text),
           ]
     )
-    let task: Task<TranslationResult, Error>
-    let pendingID: UUID
-    if let existing = pending[exactKey] {
-      task = existing.task
-      pendingID = existing.id
-    } else {
-      let provider = self.provider
-      let model = provider.model
-      task = Task { [provider, providerRequest, protected, exactKey] in
+    let provider = self.provider
+    let model = provider.model
+    let result = try await TranslationFlights.shared.translate(
+      key: cache.directory.path + ":" + (request.reuseTranslations ? compatibleKey : exactKey)
+        + (request.forceRetranslation ? ":force" : ""),
+      writeDestinations: [
+        cache.directory.appendingPathComponent(exactKey).appendingPathExtension("json").path,
+        cache.directory.appendingPathComponent(compatibleKey)
+          .appendingPathExtension("translation.json").path,
+      ]
+    ) { [provider, providerRequest, protected, exactKey] ticket in
         try Task.checkCancellation()
+        if !request.forceRetranslation, let hit = cache.read(exactKey) {
+          return TranslationResult(translation: hit.translation, key: hit.key, model: hit.model, cached: true)
+        }
+        if !request.forceRetranslation, request.reuseTranslations,
+          let pointer = cache.readPointer(compatibleKey), let hit = cache.read(pointer.key) {
+          return TranslationResult(translation: hit.translation, key: hit.key, model: hit.model, cached: true)
+        }
         let response = try await provider.complete(providerRequest)
         guard response.isOK else {
           throw TranslationServiceError.provider(
@@ -176,7 +230,7 @@ public actor TranslationService {
           )
         }
         guard let raw = response.translationContent() else {
-          throw TranslationServiceError.provider("Empty translation")
+          throw TranslationServiceError.provider(ReaderLocalization.resolve("Empty translation"))
         }
         let translation: String
         do {
@@ -185,31 +239,22 @@ public actor TranslationService {
           throw TranslationServiceError.provider(error.localizedDescription)
         }
         guard !translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-          throw TranslationServiceError.provider("Empty translation")
+          throw TranslationServiceError.provider(ReaderLocalization.resolve("Empty translation"))
+        }
+        try Task.checkCancellation()
+        let writeDestinations = [
+          cache.directory.appendingPathComponent(exactKey).appendingPathExtension("json").path,
+          cache.directory.appendingPathComponent(compatibleKey)
+            .appendingPathExtension("translation.json").path,
+        ]
+        TranslationCacheWriteTickets.shared.withCurrentTicket(ticket, destinations: writeDestinations) {
+          cache.write(CachedTranslation(translation: translation, key: exactKey, model: model))
+          cache.writePointer(CachePointer(model: model, key: exactKey), key: compatibleKey)
         }
         return TranslationResult(translation: translation, key: exactKey, model: model, cached: false)
-      }
-      pendingID = UUID()
-      pending[exactKey] = PendingTranslation(id: pendingID, task: task, waiters: [])
     }
-    let waiter = UUID()
-    pending[exactKey]?.waiters.insert(waiter)
-    do {
-      let result = try await withTaskCancellationHandler(operation: {
-        let value = try await task.value
-        try Task.checkCancellation()
-        return value
-      }, onCancel: {
-        Task { await self.releasePending(key: exactKey, waiter: waiter, pendingID: pendingID) }
-      })
-      releasePending(key: exactKey, waiter: waiter, pendingID: pendingID)
-      cache.write(CachedTranslation(translation: result.translation, key: result.key, model: result.model))
-      cache.writePointer(CachePointer(model: result.model, key: result.key), key: compatibleKey)
-      return result
-    } catch {
-      releasePending(key: exactKey, waiter: waiter, pendingID: pendingID)
-      throw error
-    }
+    try Task.checkCancellation()
+    return result
   }
 
   public func requestMessages(for request: TranslationRequest) throws -> TranslationProviderRequest {
@@ -278,6 +323,43 @@ public actor TranslationService {
       .appendingPathComponent("paragraphs", isDirectory: true)
       .appendingPathComponent(components[1], isDirectory: true)
     return TranslationCacheStore(directory: directory)
+  }
+
+}
+
+/// Coalesces identical paragraph requests across readers and pipeline rebuilds.
+private actor TranslationFlights {
+  static let shared = TranslationFlights()
+  private var pending: [String: PendingTranslation] = [:]
+
+  func translate(
+    key: String,
+    writeDestinations: [String],
+    operation: @escaping @Sendable (TranslationCacheWriteTicket) async throws -> TranslationResult
+  ) async throws -> TranslationResult {
+    try Task.checkCancellation()
+    let value: PendingTranslation
+    if let existing = pending[key] {
+      value = existing
+    } else {
+      let ticket = TranslationCacheWriteTickets.shared.issue(destinations: writeDestinations)
+      value = PendingTranslation(
+        id: UUID(),
+        task: Task { try await operation(ticket) },
+        waiters: []
+      )
+      pending[key] = value
+    }
+    let waiter = UUID()
+    pending[key]?.waiters.insert(waiter)
+    defer { releasePending(key: key, waiter: waiter, pendingID: value.id) }
+    return try await withTaskCancellationHandler {
+      let result = try await value.task.value
+      try Task.checkCancellation()
+      return result
+    } onCancel: {
+      Task { await self.releasePending(key: key, waiter: waiter, pendingID: value.id) }
+    }
   }
 
   private func releasePending(

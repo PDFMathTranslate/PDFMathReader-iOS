@@ -11,11 +11,11 @@ public enum MathPageTranslatorError: Error, LocalizedError, Sendable, Equatable 
   public var errorDescription: String? {
     switch self {
     case .invalidPage:
-      return "Page is out of range"
+      return ReaderLocalization.resolve("Page is out of range")
     case .invalidDocument:
-      return "The PDF document cannot be serialized"
+      return ReaderLocalization.resolve("The PDF document cannot be serialized")
     case .cacheMiss:
-      return "No cached translated page exists"
+      return ReaderLocalization.resolve("No cached translated page exists")
     }
   }
 }
@@ -32,6 +32,12 @@ public final class MathPageTranslator {
   public let companionClient: CompanionKernelClient
   public let cacheDirectory: URL
 
+  private struct PendingPage {
+    let id: UUID
+    let task: Task<Data, Error>
+    var waiters: Set<UUID>
+  }
+  private static var pending: [String: PendingPage] = [:]
   private let fileManager: FileManager
 
   public init(
@@ -61,6 +67,8 @@ public final class MathPageTranslator {
     threads: Int = 2,
     cacheScope: String = "",
     forceRetranslation: Bool = false,
+    reuseTranslations: Bool = false,
+    cacheOnly: Bool = false,
     onProgress: (@Sendable (RemoteKernelProgress) -> Void)? = nil
   ) async throws -> Data {
     let normalizedURL = normalizeRemoteKernelUrl(serverURL)
@@ -70,6 +78,9 @@ public final class MathPageTranslator {
       document: document,
       pageIndex: pageIndex,
       forceRetranslation: forceRetranslation,
+      reuseTranslations: reuseTranslations,
+      cacheOnly: cacheOnly,
+      cacheScope: cacheScope,
       descriptor: { pageNumber in
         Self.remoteDescriptor(
           serverURL: normalizedURL,
@@ -111,6 +122,8 @@ public final class MathPageTranslator {
     glossary: [GlossaryEntry] = [],
     cacheScope: String = "",
     forceRetranslation: Bool = false,
+    reuseTranslations: Bool = false,
+    cacheOnly: Bool = false,
     onProgress: (@Sendable (RemoteKernelProgress) -> Void)? = nil
   ) async throws -> Data {
     let normalizedURL = normalizeCompanionURL(companionURL)
@@ -120,6 +133,9 @@ public final class MathPageTranslator {
       document: document,
       pageIndex: pageIndex,
       forceRetranslation: forceRetranslation,
+      reuseTranslations: reuseTranslations,
+      cacheOnly: cacheOnly,
+      cacheScope: cacheScope,
       descriptor: { pageNumber in
         [
           "companion": 1,
@@ -127,7 +143,7 @@ public final class MathPageTranslator {
           "url": normalizedURL,
           "page": pageNumber,
           "language": language,
-          "sourceLanguage": sourceLanguage ?? "",
+          "sourceLanguage": sourceLanguage ?? "English",
           "service": service,
           "glossary": glossary.map { [$0.source, $0.target] },
           "layoutSchema": 1,
@@ -154,40 +170,119 @@ public final class MathPageTranslator {
     document: PDFDocument,
     pageIndex: Int,
     forceRetranslation: Bool,
+    reuseTranslations: Bool,
+    cacheOnly: Bool,
+    cacheScope: String,
     descriptor: (Int) -> [String: Any],
-    run: (Data) async throws -> Data
+    run: @escaping @MainActor (Data) async throws -> Data
   ) async throws -> Data {
     try Task.checkCancellation()
     guard pageIndex >= 0, pageIndex < document.pageCount else {
       throw MathPageTranslatorError.invalidPage
     }
-    guard let sourceData = document.dataRepresentation(),
-      let sourcePage = document.page(at: pageIndex)
-    else {
+    guard let sourcePage = document.page(at: pageIndex) else {
       throw MathPageTranslatorError.invalidDocument
     }
-    let onePage = try makeSinglePage(sourcePage)
-    let key = try cacheKey(sourceData: sourceData, descriptor: descriptor(pageIndex + 1))
-    let resultURL = cacheDirectory.appendingPathComponent(key).appendingPathExtension("pdf")
+    // A stable document identity avoids PDFKit's regenerated metadata and
+    // annotation changes invalidating translations on each open.
+    let sourceData: Data
+    if cacheScope.isEmpty {
+      guard let data = document.dataRepresentation() else {
+        throw MathPageTranslatorError.invalidDocument
+      }
+      sourceData = data
+    } else {
+      sourceData = Data(cacheScope.utf8)
+    }
+    let options = descriptor(pageIndex + 1)
+    let key = try cacheKey(sourceData: sourceData, descriptor: options)
+    var compatible = options
+    for field in ["url", "service", "remote", "companion", "layoutSchema"] {
+      compatible.removeValue(forKey: field)
+    }
+    compatible["compatibleSchema"] = 1
+    let compatibleKey = try cacheKey(sourceData: sourceData, descriptor: compatible)
+    let directory = cacheScope.isEmpty ? cacheDirectory : cacheDirectory
+      .appendingPathComponent("documents", isDirectory: true)
+      .appendingPathComponent(sha256Hex(Data(cacheScope.utf8)), isDirectory: true)
+      .appendingPathComponent(sha256Hex(Data((options["id"] as? String ?? "math").utf8)), isDirectory: true)
+    let resultURL = directory.appendingPathComponent(key).appendingPathExtension("pdf")
+    let compatibleURL = directory.appendingPathComponent(compatibleKey).appendingPathExtension("pdf")
 
     if !forceRetranslation {
-      do {
-        if let cached = try readCachedPDF(at: resultURL) {
+      let candidates = reuseTranslations ? [resultURL, compatibleURL] : [resultURL]
+      for url in candidates {
+        if let cached = try? readCachedPDF(at: url) { return cached }
+      }
+      // Import pre-document-directory entries once; a cache upgrade must not
+      // repeat a translation that has already completed.
+      if !cacheScope.isEmpty, let serialized = document.dataRepresentation() {
+        var legacy = options
+        if legacy["remote"] != nil { legacy.removeValue(forKey: "glossary") }
+        if legacy["companion"] != nil, legacy["sourceLanguage"] as? String == "English" {
+          legacy["sourceLanguage"] = ""
+        }
+        let legacyKey = try cacheKey(sourceData: serialized, descriptor: legacy)
+        let legacyURL = cacheDirectory.appendingPathComponent(legacyKey).appendingPathExtension("pdf")
+        if let cached = try? readCachedPDF(at: legacyURL) {
+          try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+          try? cached.write(to: resultURL, options: .atomic)
+          try? cached.write(to: compatibleURL, options: .atomic)
           return cached
         }
-      } catch {
-        try? fileManager.removeItem(at: resultURL)
       }
     }
+    if cacheOnly { throw MathPageTranslatorError.cacheMiss }
     try Task.checkCancellation()
-    let result = try await run(onePage)
-    try Task.checkCancellation()
-    guard PDFDocument(data: result)?.pageCount == 1 else {
-      throw RemoteKernelError.invalidPDF
+    let flightKey = (reuseTranslations ? compatibleURL.path : resultURL.path)
+      + (forceRetranslation ? ":force" : "")
+    let waiter = UUID()
+    let pending: PendingPage
+    if let existing = Self.pending[flightKey] {
+      pending = existing
+    } else {
+      let onePage = try makeSinglePage(sourcePage)
+      let writeDestinations = [resultURL.path, compatibleURL.path]
+      let ticket = TranslationCacheWriteTickets.shared.issue(destinations: writeDestinations)
+      let task = Task { @MainActor in
+        let result = try await run(onePage)
+        try Task.checkCancellation()
+        guard PDFDocument(data: result)?.pageCount == 1 else {
+          throw RemoteKernelError.invalidPDF
+        }
+        // Cache failures must never discard a successful paid request.
+        TranslationCacheWriteTickets.shared.withCurrentTicket(ticket, destinations: writeDestinations) {
+          try? self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+          try? result.write(to: resultURL, options: .atomic)
+          try? result.write(to: compatibleURL, options: .atomic)
+        }
+        return result
+      }
+      pending = PendingPage(id: UUID(), task: task, waiters: [])
+      Self.pending[flightKey] = pending
     }
-    try fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-    try result.write(to: resultURL, options: .atomic)
-    return result
+    Self.pending[flightKey]?.waiters.insert(waiter)
+    defer { Self.releasePending(flightKey, id: pending.id, waiter: waiter) }
+    return try await withTaskCancellationHandler {
+      let result = try await pending.task.value
+      try Task.checkCancellation()
+      return result
+    } onCancel: {
+      Task { @MainActor in
+        Self.releasePending(flightKey, id: pending.id, waiter: waiter)
+      }
+    }
+  }
+
+  private static func releasePending(_ key: String, id: UUID, waiter: UUID) {
+    guard var value = pending[key], value.id == id,
+      value.waiters.remove(waiter) != nil else { return }
+    if value.waiters.isEmpty {
+      pending.removeValue(forKey: key)
+      value.task.cancel()
+    } else {
+      pending[key] = value
+    }
   }
 
   /// One-based convenience overload for parity with the desktop request API.
@@ -202,6 +297,8 @@ public final class MathPageTranslator {
     threads: Int = 2,
     cacheScope: String = "",
     forceRetranslation: Bool = false,
+    reuseTranslations: Bool = false,
+    cacheOnly: Bool = false,
     onProgress: (@Sendable (RemoteKernelProgress) -> Void)? = nil
   ) async throws -> Data {
     try await translatePage(
@@ -215,6 +312,8 @@ public final class MathPageTranslator {
       threads: threads,
       cacheScope: cacheScope,
       forceRetranslation: forceRetranslation,
+      reuseTranslations: reuseTranslations,
+      cacheOnly: cacheOnly,
       onProgress: onProgress
     )
   }
@@ -237,7 +336,7 @@ public final class MathPageTranslator {
     let normalizedURL = normalizeRemoteKernelUrl(serverURL)
     guard !normalizedURL.isEmpty else { throw RemoteKernelError.invalidServerURL }
     let key = try cacheKey(
-      sourceData: sourceData,
+      sourceData: cacheScope.isEmpty ? sourceData : Data(cacheScope.utf8),
       descriptor: Self.remoteDescriptor(
         serverURL: normalizedURL,
         pageNumber: pageIndex + 1,
@@ -248,7 +347,11 @@ public final class MathPageTranslator {
         cacheScope: cacheScope
       )
     )
-    return cacheDirectory.appendingPathComponent(key).appendingPathExtension("pdf")
+    let directory = cacheScope.isEmpty ? cacheDirectory : cacheDirectory
+      .appendingPathComponent("documents", isDirectory: true)
+      .appendingPathComponent(sha256Hex(Data(cacheScope.utf8)), isDirectory: true)
+      .appendingPathComponent(sha256Hex(Data(engine.utf8)), isDirectory: true)
+    return directory.appendingPathComponent(key).appendingPathExtension("pdf")
   }
 
   public func removeCachedPage(at url: URL) throws {
@@ -288,6 +391,7 @@ public final class MathPageTranslator {
   ) -> [String: Any] {
     [
       "remote": 1,
+      "glossary": [[String]](),
       "id": engine,
       "url": serverURL,
       "service": service.trimmingCharacters(in: .whitespacesAndNewlines),

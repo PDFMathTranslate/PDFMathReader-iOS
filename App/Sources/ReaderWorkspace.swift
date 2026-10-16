@@ -27,6 +27,8 @@ struct ReaderWorkspace: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @StateObject private var tabs = ReaderTabsModel()
   @State private var showingLibrary = false
+  @State private var isClosingComputerDocument = false
+  @Environment(\.scenePhase) private var scenePhase
   let initialSession: DocumentSession?
   let onEmpty: (() -> Void)?
 
@@ -39,6 +41,8 @@ struct ReaderWorkspace: View {
     VStack(spacing: 0) {
       if let selected = tabs.selectedTab {
         reader(for: selected).id(selected.id)
+          .modifier(ComputerSessionGuard(manager: library.computerDocuments,
+            documentID: selected.id, retry: { close(selected.id) }))
       } else {
         NavigationStack {
           LibraryView { open($0) }
@@ -46,7 +50,37 @@ struct ReaderWorkspace: View {
       }
     }
     .environment(\.openReaderTab, { session in open(session) })
-    .environment(\.readerTabStrip, { AnyView(tabStrip) })
+    .environment(\.readerTabStrip, {
+      AnyView(Group {
+        if tabs.tabs.count > 1 { tabStrip }
+      })
+    })
+    .disabled(isClosingComputerDocument)
+    .overlay {
+      if isClosingComputerDocument {
+        ProgressView(L10n.string("ios.computerSaving"))
+          .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+      }
+    }
+    .modifier(ComputerDocumentToast(manager: library.computerDocuments))
+    .task {
+      while !Task.isCancelled {
+        do { try await Task.sleep(for: .seconds(20)) } catch { break }
+        for tab in tabs.tabs where library.computerDocuments.isManaged(tab.session) {
+          _ = await library.computerDocuments.sync(tab, release: false)
+        }
+      }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      guard phase != .active else { return }
+      Task {
+        let background = UIApplication.shared.beginBackgroundTask(withName: "Sync computer document")
+        defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+        for tab in tabs.tabs where library.computerDocuments.isManaged(tab.session) {
+          _ = await library.computerDocuments.sync(tab, release: false)
+        }
+      }
+    }
     .preferredColorScheme(library.preferences.theme.colorScheme)
     .sheet(isPresented: $showingLibrary) {
       NavigationStack {
@@ -62,14 +96,16 @@ struct ReaderWorkspace: View {
       }
     }
     .onOpenURL { url in
-      guard let session = library.receiveExternalPDF(at: url) else { return }
-      showingLibrary = false
-      open(session)
+      Task {
+        guard let session = await library.receiveExternalPDF(at: url) else { return }
+        showingLibrary = false
+        open(session)
+      }
     }
     .task {
       if tabs.tabs.isEmpty, let initialSession { open(initialSession) }
       #if DEBUG
-      if let url = library.consumeLaunchArgumentPDF(), let session = library.makeSession(for: url) {
+      if let url = library.consumeLaunchArgumentPDF(), let session = await library.makeSession(for: url) {
         open(session)
       }
       let arguments = ProcessInfo.processInfo.arguments
@@ -78,7 +114,7 @@ struct ReaderWorkspace: View {
           let url = path.hasPrefix("/")
             ? URL(fileURLWithPath: path)
             : URL.documentsDirectory.appendingPathComponent(path)
-          if let session = library.makeSession(for: url) { open(session) }
+          if let session = await library.makeSession(for: url) { open(session) }
         }
       }
       #endif
@@ -174,7 +210,44 @@ struct ReaderWorkspace: View {
   }
 
   private func close(_ id: String) {
-    tabs.close(id)
-    if tabs.tabs.isEmpty { onEmpty?() }
+    guard !isClosingComputerDocument else { return }
+    guard let tab = tabs.tabs.first(where: { $0.id == id }) else { return }
+    if library.computerDocuments.isManaged(tab.session) {
+      isClosingComputerDocument = true
+      Task {
+        defer { isClosingComputerDocument = false }
+        guard await library.computerDocuments.sync(tab, release: true) else { return }
+        tabs.close(id)
+        if tabs.tabs.isEmpty { onEmpty?() }
+      }
+    } else {
+      tabs.close(id)
+      if tabs.tabs.isEmpty { onEmpty?() }
+    }
+  }
+}
+
+/// An uncertain unlock acknowledgement freezes editing until the exact save
+/// is acknowledged. The document may already be available on another device.
+private struct ComputerSessionGuard: ViewModifier {
+  @ObservedObject var manager: CompanionDocumentManager
+  let documentID: String
+  let retry: () -> Void
+
+  func body(content: Content) -> some View {
+    content
+      .disabled(manager.uncertainSessions.contains(documentID))
+      .overlay {
+        if manager.uncertainSessions.contains(documentID) {
+          VStack(spacing: 16) {
+            Text(L10n.string("ios.computerReleasePending"))
+              .multilineTextAlignment(.center)
+            Button(L10n.string("companion.retry"), action: retry).buttonStyle(.borderedProminent)
+          }
+          .padding(24)
+          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+          .padding()
+        }
+      }
   }
 }

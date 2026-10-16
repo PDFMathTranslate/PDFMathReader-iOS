@@ -4,7 +4,7 @@ const source = JSON.parse(await readFile(new URL('./ios-strings.json', import.me
 const locales = ['en', 'ar', 'arz', 'bn', 'de', 'es', 'fr', 'hi', 'ja', 'ko', 'pcm', 'pt', 'ru', 'ur', 'zh-CN', 'zh-TW'];
 const placeholders = (value) => {
   const counts = new Map();
-  for (const name of value.matchAll(/\{[^}]+\}/g)) counts.set(name[0], (counts.get(name[0]) || 0) + 1);
+  for (const name of value.matchAll(/\{[^}]+\}|%(?:\d+\$)?@/g)) counts.set(name[0], (counts.get(name[0]) || 0) + 1);
   return [...counts.entries()].sort();
 };
 

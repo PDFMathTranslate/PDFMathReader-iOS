@@ -88,6 +88,29 @@ private func temporaryLibraryDirectory() throws -> URL {
   #expect(store.load() == preferences)
 }
 
+@Test func translationCachePreferencesDefaultFalseAndRoundTrip() throws {
+  let defaults = ReaderPreferences()
+  #expect(!defaults.reuseTranslations)
+  #expect(!defaults.ignoreCache)
+
+  let decodedDefaults = try JSONDecoder().decode(
+    ReaderPreferences.self,
+    from: Data("{}".utf8)
+  )
+  #expect(!decodedDefaults.reuseTranslations)
+  #expect(!decodedDefaults.ignoreCache)
+
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let store = PreferencesStore(directory: directory)
+  let preferences = ReaderPreferences(reuseTranslations: true, ignoreCache: true)
+  try store.save(preferences)
+  let loaded = store.load()
+  #expect(loaded.reuseTranslations)
+  #expect(loaded.ignoreCache)
+  #expect(loaded == preferences)
+}
+
 @Test func interactionModeDefaultsToReadingAndKeepsSavedComparison() throws {
   let legacy = Data(#"{"targetLanguage":"de"}"#.utf8)
   #expect(try JSONDecoder().decode(ReaderPreferences.self, from: legacy).interactionMode == .reading)
@@ -97,6 +120,53 @@ private func temporaryLibraryDirectory() throws -> URL {
 
   let saved = try JSONEncoder().encode(ReaderPreferences(interactionMode: .comparison))
   #expect(try JSONDecoder().decode(ReaderPreferences.self, from: saved).interactionMode == .comparison)
+}
+
+@Test func translationModeMigratesLegacyBoolAndRoundTripsEveryMode() throws {
+  let legacyFull = try JSONDecoder().decode(
+    ReaderPreferences.self,
+    from: Data(#"{"translateFullDocument":true,"targetLanguage":"de"}"#.utf8)
+  )
+  #expect(legacyFull.translationMode == .full)
+  #expect(legacyFull.translateFullDocument)
+  #expect(legacyFull.targetLanguage == "de")
+
+  let legacyReadingAhead = try JSONDecoder().decode(
+    ReaderPreferences.self,
+    from: Data(#"{"translateFullDocument":false}"#.utf8)
+  )
+  #expect(legacyReadingAhead.translationMode == .readingAhead)
+  #expect(!legacyReadingAhead.translateFullDocument)
+
+  let missingLegacyValue = try JSONDecoder().decode(
+    ReaderPreferences.self,
+    from: Data("{}".utf8)
+  )
+  #expect(missingLegacyValue.translationMode == .readingAhead)
+
+  let unknownMode = try JSONDecoder().decode(
+    ReaderPreferences.self,
+    from: Data(#"{"translationMode":"futureMode","translateFullDocument":true}"#.utf8)
+  )
+  #expect(unknownMode.translationMode == .readingAhead)
+
+  for mode in TranslationMode.allCases {
+    let preferences = ReaderPreferences(translationMode: mode)
+    let encoded = try JSONEncoder().encode(preferences)
+    let persisted = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(persisted["translationMode"] as? String == mode.rawValue)
+    #expect(persisted["translateFullDocument"] == nil)
+    let decoded = try JSONDecoder().decode(ReaderPreferences.self, from: encoded)
+    #expect(decoded.translationMode == mode)
+    #expect(decoded == preferences)
+  }
+
+  var alias = ReaderPreferences(translationMode: .reading)
+  #expect(!alias.translateFullDocument)
+  alias.translateFullDocument = true
+  #expect(alias.translationMode == .full)
+  alias.translateFullDocument = false
+  #expect(alias.translationMode == .readingAhead)
 }
 
 @Test func translationFontsMigrateLegacyPreferencesAndPersist() throws {
@@ -141,4 +211,27 @@ private func temporaryLibraryDirectory() throws -> URL {
   #expect(throws: GlossaryStoreError.invalidGlossary) {
     try store.save(invalid)
   }
+}
+
+@Test func accentColorMigratesAndPersistsWithoutResettingOtherPreferences() throws {
+  let legacy = try JSONDecoder().decode(ReaderPreferences.self, from: Data(#"{"targetLanguage":"de"}"#.utf8))
+  #expect(legacy.accentColor == "system")
+  #expect(legacy.targetLanguage == "de")
+
+  for value in ["invalid", "#123", "#gggggg"] {
+    let data = Data("{\"accentColor\":\"\(value)\",\"targetLanguage\":\"de\"}".utf8)
+    let decoded = try JSONDecoder().decode(ReaderPreferences.self, from: data)
+    #expect(decoded.accentColor == "system")
+    #expect(decoded.targetLanguage == "de")
+  }
+
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let store = PreferencesStore(directory: directory)
+  let preferences = ReaderPreferences(targetLanguage: "de", accentColor: "#AF52DE")
+  try store.save(preferences)
+  #expect(store.load().accentColor == "#af52de")
+  #expect(store.load() == preferences)
+  try store.save(ReaderPreferences(accentColor: "system"))
+  #expect(store.load().accentColor == "system")
 }

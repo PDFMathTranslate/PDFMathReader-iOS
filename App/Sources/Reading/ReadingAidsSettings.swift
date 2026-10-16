@@ -3,6 +3,7 @@ import ReaderCore
 
 /// The presentation settings shared by original-page and translation overlays.
 public struct ReadingAidsConfiguration: Equatable, Sendable {
+  public var accentColor: String
   public var bionicOptions: BionicReadingOptions
   public var bionicOriginalOnly: Bool
   public var emphasizeInformation: Bool
@@ -23,8 +24,10 @@ public struct ReadingAidsConfiguration: Equatable, Sendable {
     ],
     emphasizeTopicSentences: Bool = false,
     tfidfWeightingEnabled: Bool = false,
-    readingLinksEnabled: Bool = true
+    readingLinksEnabled: Bool = true,
+    accentColor: String = "system"
   ) {
+    self.accentColor = ReaderPreferences.normalizedAccentColor(accentColor)
     self.bionicOptions = BionicReading.normalize(bionicOptions)
     self.bionicOriginalOnly = bionicOriginalOnly
     self.emphasizeInformation = emphasizeInformation
@@ -50,7 +53,8 @@ public struct ReadingAidsConfiguration: Equatable, Sendable {
       ],
       emphasizeTopicSentences: preferences.emphasizeTopicSentences,
       tfidfWeightingEnabled: preferences.tfidfWeightingEnabled,
-      readingLinksEnabled: preferences.readingLinksEnabled
+      readingLinksEnabled: preferences.readingLinksEnabled,
+      accentColor: preferences.accentColor
     )
   }
 

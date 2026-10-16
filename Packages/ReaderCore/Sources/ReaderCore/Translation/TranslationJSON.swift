@@ -87,7 +87,7 @@ public enum TranslationJSONError: Error, LocalizedError, Sendable {
   case invalidValue
 
   public var errorDescription: String? {
-    "The value is not valid JSON."
+    ReaderLocalization.resolve("The value is not valid JSON.")
   }
 }
 

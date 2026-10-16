@@ -3,7 +3,6 @@ import PDFKit
 import ReaderCore
 
 /// Generates an outline only when the PDF does not provide one.
-@MainActor
 public func generatedTOCFallback(
   for document: PDFDocument,
   enabled: Bool = true

@@ -12,6 +12,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
 
   @Published private(set) var annotations: [ReaderAnnotation] = []
   @Published private(set) var quickLinks: [ReaderQuickLink] = []
+  @Published private(set) var isPrepared = false
   @Published var lastError: String?
   /// Per window, like the desktop: every opened document starts visible.
   @Published private(set) var showsAnnotations = true
@@ -23,6 +24,15 @@ final class ReaderAnnotationViewModel: ObservableObject {
   /// and of the reader model's original PDFDocument instance.
   var exportSourceData: Data? { sourceData }
 
+  private struct PreparedStartup: Sendable {
+    let sourceData: Data?
+    let annotationState: ReaderAnnotationState
+    let quickLinks: [ReaderQuickLink]
+    let errorDescription: String?
+  }
+
+  private var preparationTask: Task<PreparedStartup, Never>?
+
   init(
     session: DocumentSession,
     store: ReaderAnnotationStore = ReaderAnnotationStore(),
@@ -31,43 +41,99 @@ final class ReaderAnnotationViewModel: ObservableObject {
     self.session = session
     self.store = store
     self.quickLinkStore = quickLinkStore
-    sourceData = try? Data(contentsOf: session.url, options: [.mappedIfSafe])
-    if let sourceData,
-      let state = try? store.loadOrImport(session.id, sourceData: sourceData)
-    {
-      annotations = state.annotations
-      nativeRefs = state.nativeRefs
-    } else if let state = try? store.load(session.id) {
-      annotations = state.annotations
-      nativeRefs = state.nativeRefs
+  }
+
+  /// Loads annotation sidecars and embedded transfer state away from the main
+  /// actor. The display PDF can therefore render while this independent PDF
+  /// document is being parsed.
+  func prepare() async {
+    if isPrepared { return }
+
+    let task: Task<PreparedStartup, Never>
+    if let preparationTask {
+      task = preparationTask
+    } else {
+      let documentID = session.id
+      let sourceURL = session.url
+      let access = session.access
+      let annotationStore = store
+      let linkStore = quickLinkStore
+      task = Task.detached(priority: .utility) {
+        withExtendedLifetime(access) {
+          Self.prepareStartup(
+            documentID: documentID,
+            sourceURL: sourceURL,
+            annotationStore: annotationStore,
+            linkStore: linkStore
+          )
+        }
+      }
+      preparationTask = task
     }
+
+    let prepared = await task.value
+    guard !isPrepared else { return }
+    preparationTask = nil
+    sourceData = prepared.sourceData
+    annotations = prepared.annotationState.annotations
+    nativeRefs = prepared.annotationState.nativeRefs
+    quickLinks = prepared.quickLinks
+    if let errorDescription = prepared.errorDescription {
+      lastError = errorDescription
+    }
+    isPrepared = true
+  }
+
+  private nonisolated static func prepareStartup(
+    documentID: String,
+    sourceURL: URL,
+    annotationStore: ReaderAnnotationStore,
+    linkStore: ReaderQuickLinkStore
+  ) -> PreparedStartup {
+    let sourceData = try? Data(contentsOf: sourceURL, options: [.mappedIfSafe])
+    let annotationState: ReaderAnnotationState
+    if let sourceData,
+      let imported = try? annotationStore.loadOrImport(documentID, sourceData: sourceData)
+    {
+      annotationState = imported
+    } else {
+      annotationState = (try? annotationStore.load(documentID))
+        ?? ReaderAnnotationState(annotations: [])
+    }
+
+    var quickLinks: [ReaderQuickLink] = []
+    var errorDescription: String?
     do {
       // Local sidecars are authoritative after the recipient edits the PDF,
       // including an intentionally empty list after deleting every link.
-      let hasLocalLinks = FileManager.default.fileExists(
-        atPath: try quickLinkStore.url(for: session.id).path
-      )
-      if hasLocalLinks {
-        quickLinks = try quickLinkStore.load(session.id)
-      } else if let sourceData, let document = PDFDocument(data: sourceData),
+      let localURL = try linkStore.url(for: documentID)
+      if FileManager.default.fileExists(atPath: localURL.path) {
+        quickLinks = try linkStore.load(documentID)
+      } else if let sourceData,
+        let document = PDFDocument(data: sourceData),
         let transferred = try ReaderTransferPDF.metadata(from: document)
       {
         quickLinks = transferred.quickLinks
-        try quickLinkStore.save(quickLinks, for: session.id)
+        try linkStore.save(quickLinks, for: documentID)
       }
     } catch {
-      lastError = error.localizedDescription
+      errorDescription = error.localizedDescription
     }
+
+    return PreparedStartup(
+      sourceData: sourceData,
+      annotationState: annotationState,
+      quickLinks: quickLinks,
+      errorDescription: errorDescription
+    )
   }
 
-  func loadIfNeeded(from pdfView: PDFView) {
-    guard (try? store.hasMetadata(for: session.id)) != true,
-      let data = pdfView.document?.dataRepresentation(),
-      let imported = try? ReaderAnnotationPDF.importAnnotations(from: data)
-    else { return }
-    sourceData = data
-    annotations = imported.annotations
-    nativeRefs = imported.nativeRefs
+  /// The interaction controller is installed before SwiftUI starts
+  /// `prepare()`. Importing from PDFView here would reintroduce a synchronous
+  /// full-PDF read and could race the background result, so preparation owns
+  /// all startup imports.
+  func loadIfNeeded(from _: PDFView) {
+    // Kept as a compatibility hook for the controller's installation path.
   }
 
   func addSelection(
@@ -76,6 +142,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
     color: String,
     comment: String = ""
   ) {
+    guard isPrepared else { return }
     let text = selection.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     let createdAt = ISO8601DateFormatter().string(from: Date())
     let pages = selection.pages
@@ -124,6 +191,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
   }
 
   func delete(_ annotation: ReaderAnnotation, pdfView: PDFView?) {
+    guard isPrepared else { return }
     annotations.removeAll { $0.id == annotation.id }
     commit(to: pdfView)
   }
@@ -133,10 +201,41 @@ final class ReaderAnnotationViewModel: ObservableObject {
     comment: String,
     pdfView: PDFView?
   ) {
+    guard isPrepared else { return }
     guard let index = annotations.firstIndex(where: { $0.id == annotation.id }) else { return }
     annotations[index].comment = comment
+    annotations[index].kind = comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      ? .highlight : .comment
     annotations[index].modifiedAt = ISO8601DateFormatter().string(from: Date())
     commit(to: pdfView)
+  }
+
+  func updateColor(for annotation: ReaderAnnotation, color: String, pdfView: PDFView?) {
+    guard isPrepared else { return }
+    guard let index = annotations.firstIndex(where: { $0.id == annotation.id }) else { return }
+    annotations[index].color = color
+    annotations[index].modifiedAt = ISO8601DateFormatter().string(from: Date())
+    commit(to: pdfView)
+  }
+
+  /// Hit-test the individual lines, rather than the enclosing multiline box.
+  func annotation(at point: CGPoint, in pdfView: PDFView) -> ReaderAnnotation? {
+    guard showsAnnotations, !pdfView.isInMarkupMode,
+      let document = pdfView.document,
+      let page = pdfView.page(for: point, nearest: false)
+    else { return nil }
+    let pageIndex = document.index(for: page)
+    guard pageIndex != NSNotFound else { return nil }
+    let pagePoint = pdfView.convert(point, to: page)
+    let hit = ReaderAnnotationPDF.viewportRect(
+      for: CGRect(origin: pagePoint, size: CGSize(width: 1, height: 1)), on: page
+    )
+    return annotations.reversed().first { annotation in
+      annotation.page == pageIndex + 1 && annotation.rects.contains { rect in
+        CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+          .insetBy(dx: -2, dy: -2).contains(CGPoint(x: hit.x, y: hit.y))
+      }
+    }
   }
 
   func quickLinkOrigin(
@@ -176,6 +275,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
     origin: ReaderQuickLinkEndpoint,
     result: ReaderQuickLinkEndpoint
   ) -> Bool {
+    guard isPrepared else { return false }
     let link = ReaderQuickLink(id: UUID().uuidString, origin: origin, result: result)
     guard !quickLinks.contains(where: { $0.origin == origin && $0.result == result }) else {
       lastError = L10n.string("ios.quickLinkAlreadyExists")
@@ -194,6 +294,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
   }
 
   func deleteQuickLink(_ link: ReaderQuickLink) {
+    guard isPrepared else { return }
     let updated = quickLinks.filter { $0.id != link.id }
     do {
       try quickLinkStore.save(updated, for: session.id)
@@ -219,6 +320,9 @@ final class ReaderAnnotationViewModel: ObservableObject {
 
   private func commit(to pdfView: PDFView?) {
     do {
+      let destination = pdfView?.currentDestination
+      let pageIndex = destination?.page.flatMap { pdfView?.document?.index(for: $0) }
+      let scale = pdfView?.scaleFactor
       let input = pdfView?.document?.dataRepresentation() ?? sourceData
       let output = try ReaderAnnotationPDF.embedAnnotations(
         annotations,
@@ -229,6 +333,10 @@ final class ReaderAnnotationViewModel: ObservableObject {
       let updated = ReaderPDFDocument(data: output)
       updated?.invertsPages = (pdfView?.document as? ReaderPDFDocument)?.invertsPages ?? false
       pdfView?.document = updated
+      if let scale { pdfView?.scaleFactor = scale }
+      if let destination, let pageIndex, let page = updated?.page(at: pageIndex) {
+        pdfView?.go(to: PDFDestination(page: page, at: destination.point))
+      }
       if !showsAnnotations { applyVisibility(in: pdfView) }
       _ = try store.save(
         annotations,
@@ -245,6 +353,7 @@ final class ReaderAnnotationViewModel: ObservableObject {
 }
 
 extension Notification.Name {
+  static let readerSearchSelectedText = Notification.Name("PDFMathReader.readerSearchSelectedText")
   /// Object: the PDFView whose markup annotations were shown or hidden.
   static let readerAnnotationVisibilityChanged = Notification.Name(
     "PDFMathReader.readerAnnotationVisibilityChanged"
@@ -331,14 +440,23 @@ private func readerTopViewController(for view: UIView) -> UIViewController? {
 }
 
 @MainActor
-final class ReaderAnnotationInteractionController: NSObject {
+final class ReaderAnnotationInteractionController: NSObject, UIGestureRecognizerDelegate, @preconcurrency UIEditMenuInteractionDelegate,
+  UIContextMenuInteractionDelegate {
   weak var pdfView: PDFView?
   let model: ReaderAnnotationViewModel
+  private var activeAnnotation: ReaderAnnotation?
+  private lazy var annotationMenu = UIEditMenuInteraction(delegate: self)
 
   init(model: ReaderAnnotationViewModel, pdfView: PDFView) {
     self.model = model
     self.pdfView = pdfView
     super.init()
+    let tap = UITapGestureRecognizer(target: self, action: #selector(annotationTapped(_:)))
+    tap.delegate = self
+    tap.cancelsTouchesInView = false
+    pdfView.addGestureRecognizer(tap)
+    pdfView.addInteraction(annotationMenu)
+    pdfView.addInteraction(UIContextMenuInteraction(delegate: self))
     model.loadIfNeeded(from: pdfView)
     NotificationCenter.default.addObserver(
       self,
@@ -351,6 +469,108 @@ final class ReaderAnnotationInteractionController: NSObject {
 
   deinit {
     NotificationCenter.default.removeObserver(self)
+  }
+
+  func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard let view = pdfView, view.currentSelection == nil else { return false }
+    return model.annotation(at: gestureRecognizer.location(in: view), in: view) != nil
+  }
+
+  @objc private func annotationTapped(_ gesture: UITapGestureRecognizer) {
+    guard let view = pdfView else { return }
+    let point = gesture.location(in: view)
+    guard let annotation = model.annotation(at: point, in: view) else { return }
+    activeAnnotation = annotation
+    annotationMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: annotation.id as NSString, sourcePoint: point))
+  }
+
+  func editMenuInteraction(
+    _ interaction: UIEditMenuInteraction,
+    menuFor configuration: UIEditMenuConfiguration,
+    suggestedActions: [UIMenuElement]
+  ) -> UIMenu? {
+    activeAnnotation.map { menu(for: $0) }
+  }
+
+  func contextMenuInteraction(
+    _ interaction: UIContextMenuInteraction,
+    configurationForMenuAtLocation location: CGPoint
+  ) -> UIContextMenuConfiguration? {
+    guard let view = pdfView, view.currentSelection == nil,
+      let annotation = model.annotation(at: location, in: view)
+    else { return nil }
+    return UIContextMenuConfiguration(identifier: annotation.id as NSString, previewProvider: nil) { [weak self] _ in
+      self?.menu(for: annotation)
+    }
+  }
+
+  private func menu(for annotation: ReaderAnnotation) -> UIMenu {
+    let colors = [("ios.highlightYellow", "#fff36a"), ("ios.highlightPink", "#ffb6c1"),
+                  ("ios.highlightBlue", "#9bd7ff"), ("ios.highlightGreen", "#b8e986")]
+    let colorActions = colors.map { key, hex in
+      UIAction(title: L10n.string(key), image: Self.swatch(hex: hex),
+               state: annotation.color.lowercased() == hex ? .on : .off) { [weak self] _ in
+        guard let self else { return }
+        self.model.updateColor(for: annotation, color: hex, pdfView: self.pdfView)
+      }
+    }
+    var actions: [UIMenuElement] = [
+      UIAction(title: L10n.string(annotation.kind == .comment ? "ios.editComment" : "ios.addComment"),
+               image: UIImage(systemName: "square.and.pencil")) { [weak self] _ in
+        self?.editComment(for: annotation)
+      },
+      UIMenu(title: L10n.string("annotationBrowser.color"), children: colorActions),
+    ]
+    let text = annotation.text.isEmpty ? annotation.comment : annotation.text
+    if !text.isEmpty {
+      actions.append(UIAction(title: L10n.string("menu.extra.messages.Copy"), image: UIImage(systemName: "doc.on.doc")) { _ in
+        UIPasteboard.general.string = text
+      })
+      actions += textActions(for: text)
+    }
+    actions.append(UIAction(title: L10n.string("ios.delete"), image: UIImage(systemName: "trash"),
+                            attributes: .destructive) { [weak self] _ in
+      guard let self else { return }
+      self.model.delete(annotation, pdfView: self.pdfView)
+    })
+    return UIMenu(children: actions)
+  }
+
+  private func textActions(for text: String) -> [UIMenuElement] {
+    [
+      UIAction(title: L10n.string("ios.share"), image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
+        guard let view = self?.pdfView else { return }
+        let sheet = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        sheet.popoverPresentationController?.sourceView = view
+        sheet.popoverPresentationController?.sourceRect = CGRect(
+          x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1
+        )
+        readerTopViewController(for: view)?.present(sheet, animated: true)
+      },
+      UIAction(title: L10n.string("menu.extra.messages.Search in Document"), image: UIImage(systemName: "magnifyingglass")) { [weak self] _ in
+        guard let view = self?.pdfView else { return }
+        NotificationCenter.default.post(name: .readerSearchSelectedText, object: view, userInfo: ["text": text])
+      },
+    ]
+  }
+
+  private func editComment(for annotation: ReaderAnnotation) {
+    guard let view = pdfView else { return }
+    let alert = UIAlertController(
+      title: L10n.string(annotation.kind == .comment ? "ios.editComment" : "ios.addComment"),
+      message: annotation.text.isEmpty ? nil : annotation.text, preferredStyle: .alert
+    )
+    alert.addTextField { field in
+      field.text = annotation.comment
+      field.placeholder = L10n.string("sidebar.comment")
+      field.autocapitalizationType = .sentences
+    }
+    alert.addAction(UIAlertAction(title: L10n.string("ios.cancel"), style: .cancel))
+    alert.addAction(UIAlertAction(title: L10n.string("ios.save"), style: .default) { [weak self, weak alert] _ in
+      guard let self, let comment = alert?.textFields?.first?.text else { return }
+      self.model.updateComment(for: annotation, comment: comment, pdfView: self.pdfView)
+    })
+    readerTopViewController(for: view)?.present(alert, animated: true)
   }
 
   func canPerform(_ action: Selector) -> Bool {
@@ -452,6 +672,10 @@ final class ReaderAnnotationInteractionController: NSObject {
           action: #selector(copyEmail(_:))
         )
       )
+    }
+    if let text = pdfView?.currentSelection?.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !text.isEmpty {
+      commands += textActions(for: text)
     }
     return commands
   }

@@ -255,6 +255,160 @@ struct TranslationServiceTests {
   }
 
   @Test
+  func concurrentIdenticalRequestsAcrossServicesShareOneProviderCall() async throws {
+    let recorder = TranslationRequestRecorder()
+    TranslationURLProtocol.install { request in
+      recorder.record(request.url?.path ?? "")
+      return TranslationMockHTTPResponse(
+        body: try! JSONSerialization.data(withJSONObject: [
+          "choices": [["message": ["role": "assistant", "content": "Bonjour"]]],
+        ]),
+        delayNanoseconds: 150_000_000
+      )
+    }
+    let cacheDirectory = translationCacheDirectory()
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let providerA = try OpenAICompatibleProvider(
+      baseURL: URL(string: "https://example.test/v1")!,
+      apiKey: "test-key",
+      session: translationTestSession()
+    )
+    let providerB = try OpenAICompatibleProvider(
+      baseURL: URL(string: "https://example.test/v1")!,
+      apiKey: "test-key",
+      session: translationTestSession()
+    )
+    let serviceA = TranslationService(provider: providerA, cacheDirectory: cacheDirectory)
+    let serviceB = TranslationService(provider: providerB, cacheDirectory: cacheDirectory)
+    let request = TranslationRequest(text: "Hello", language: "French")
+    let first = Task { try await serviceA.translate(request) }
+    let second = Task { try await serviceB.translate(request) }
+    let firstResult = try await first.value
+    let secondResult = try await second.value
+
+    #expect(firstResult?.translation == "Bonjour")
+    #expect(secondResult?.translation == "Bonjour")
+    #expect(recorder.count("/v1/chat/completions") == 1)
+  }
+
+  @Test
+  func cacheHitSurvivesTranslationServiceRecreation() async throws {
+    let recorder = TranslationRequestRecorder()
+    TranslationURLProtocol.install { request in
+      recorder.record(request.url?.path ?? "")
+      return openAIResponse("Bonjour")
+    }
+    let cacheDirectory = translationCacheDirectory()
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let request = TranslationRequest(text: "Hello", language: "French")
+    let firstProvider = try OpenAICompatibleProvider(
+      baseURL: URL(string: "https://example.test/v1")!,
+      apiKey: "test-key",
+      session: translationTestSession()
+    )
+    let firstService = TranslationService(provider: firstProvider, cacheDirectory: cacheDirectory)
+    let first = try await firstService.translate(request)
+
+    let secondProvider = try OpenAICompatibleProvider(
+      baseURL: URL(string: "https://example.test/v1")!,
+      apiKey: "test-key",
+      session: translationTestSession()
+    )
+    let secondService = TranslationService(provider: secondProvider, cacheDirectory: cacheDirectory)
+    let second = try await secondService.translate(request)
+
+    #expect(first?.cached == false)
+    #expect(second?.translation == "Bonjour")
+    #expect(second?.cached == true)
+    #expect(recorder.count("/v1/chat/completions") == 1)
+  }
+
+  @Test
+  func reuseTranslationsHitsCompatibleCacheAcrossProviderModels() async throws {
+    let recorder = TranslationRequestRecorder()
+    TranslationURLProtocol.install { request in
+      recorder.record(request.url?.path ?? "")
+      return openAIResponse("Bonjour")
+    }
+    let cacheDirectory = translationCacheDirectory()
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let firstProvider = try OpenAICompatibleProvider(
+      baseURL: URL(string: "https://example.test/v1")!,
+      apiKey: "test-key",
+      model: "model-a",
+      session: translationTestSession()
+    )
+    let firstService = TranslationService(provider: firstProvider, cacheDirectory: cacheDirectory)
+    let first = try await firstService.translate(
+      TranslationRequest(text: "Hello", language: "French")
+    )
+
+    let secondProvider = try OpenAICompatibleProvider(
+      baseURL: URL(string: "https://example.test/v1")!,
+      apiKey: "test-key",
+      model: "model-b",
+      session: translationTestSession()
+    )
+    let secondService = TranslationService(provider: secondProvider, cacheDirectory: cacheDirectory)
+    let second = try await secondService.translate(
+      TranslationRequest(text: "Hello", language: "French", reuseTranslations: true)
+    )
+
+    #expect(first?.cached == false)
+    #expect(first?.model == "model-a")
+    #expect(second?.translation == "Bonjour")
+    #expect(second?.cached == true)
+    #expect(second?.model == "model-a")
+    #expect(recorder.count("/v1/chat/completions") == 1)
+  }
+
+  @Test
+  func concurrentCompatibleRequestsAcrossProviderModelsShareOneProviderCall() async throws {
+    let recorder = TranslationRequestRecorder()
+    TranslationURLProtocol.install { request in
+      recorder.record(request.url?.path ?? "")
+      return TranslationMockHTTPResponse(
+        body: try! JSONSerialization.data(withJSONObject: [
+          "choices": [["message": ["role": "assistant", "content": "Bonjour"]]],
+        ]),
+        delayNanoseconds: 150_000_000
+      )
+    }
+    let cacheDirectory = translationCacheDirectory()
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let firstProvider = try OpenAICompatibleProvider(
+      baseURL: URL(string: "https://example.test/v1")!,
+      apiKey: "test-key",
+      model: "model-a",
+      session: translationTestSession()
+    )
+    let secondProvider = try OpenAICompatibleProvider(
+      baseURL: URL(string: "https://example.test/v1")!,
+      apiKey: "test-key",
+      model: "model-b",
+      session: translationTestSession()
+    )
+    let firstService = TranslationService(provider: firstProvider, cacheDirectory: cacheDirectory)
+    let secondService = TranslationService(provider: secondProvider, cacheDirectory: cacheDirectory)
+    let first = Task {
+      try await firstService.translate(
+        TranslationRequest(text: "Hello", language: "French", reuseTranslations: true)
+      )
+    }
+    let second = Task {
+      try await secondService.translate(
+        TranslationRequest(text: "Hello", language: "French", reuseTranslations: true)
+      )
+    }
+    let firstResult = try await first.value
+    let secondResult = try await second.value
+
+    #expect(firstResult?.translation == "Bonjour")
+    #expect(secondResult?.translation == "Bonjour")
+    #expect(recorder.count("/v1/chat/completions") == 1)
+  }
+
+  @Test
   func freeProxyRetries429AndStripsThinkBlock() async throws {
     let recorder = TranslationRequestRecorder()
     TranslationURLProtocol.install { request in
@@ -289,6 +443,51 @@ struct TranslationServiceTests {
     #expect(recorder.count("/chatproxy") == 2)
     #expect(recorder.count("/chatproxy/check") == 1)
     #expect(recorder.count("/chatproxy/config") == 1)
+  }
+
+  @Test
+  func forcedTranslationCannotBeOverwrittenByEarlierOrdinaryCompletion() async throws {
+    let recorder = TranslationRequestRecorder()
+    TranslationURLProtocol.install { request in
+      let path = request.url?.path ?? ""
+      recorder.record(path)
+      if path == "/v1/chat/completions", recorder.count(path) == 1 {
+        var response = openAIResponse("ordinary")
+        response.delayNanoseconds = 300_000_000
+        return response
+      }
+      return openAIResponse("forced")
+    }
+    let cacheDirectory = translationCacheDirectory()
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let provider = try OpenAICompatibleProvider(
+      baseURL: URL(string: "https://example.test/v1")!,
+      apiKey: "test-key",
+      session: translationTestSession()
+    )
+    let service = TranslationService(provider: provider, cacheDirectory: cacheDirectory)
+    let ordinaryRequest = TranslationRequest(text: "Hello", language: "French")
+    let ordinary = Task { try await service.translate(ordinaryRequest) }
+
+    for _ in 0..<100 where recorder.count("/v1/chat/completions") == 0 {
+      try await Task.sleep(nanoseconds: 5_000_000)
+    }
+    #expect(recorder.count("/v1/chat/completions") == 1)
+
+    let forced = Task {
+      try await service.translate(
+        TranslationRequest(text: "Hello", language: "French", forceRetranslation: true)
+      )
+    }
+    let forcedResult = try await forced.value
+    let ordinaryResult = try await ordinary.value
+    #expect(forcedResult?.translation == "forced")
+    #expect(ordinaryResult?.translation == "ordinary")
+
+    let cached = try await service.translate(ordinaryRequest)
+    #expect(cached?.translation == "forced")
+    #expect(cached?.cached == true)
+    #expect(recorder.count("/v1/chat/completions") == 2)
   }
 
   @Test

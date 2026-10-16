@@ -21,16 +21,50 @@ extension ReaderTranslationService {
 
 /// PDFMathReader on the user's computer, which shares its Fast and Precise kernels.
 struct ComputerKernelSettingsSection: View {
+  @Environment(\.scenePhase) private var scenePhase
   @Binding var preferences: ReaderPreferences
   @State private var pairingCode = ""
   @State private var savedPairingCode = ""
   @State private var didLoad = false
   @State private var health: CompanionHealth?
   @State private var isChecking = false
+  @StateObject private var discovery = CompanionDiscovery()
   private let credentialStore = KeychainCredentialStore()
 
   var body: some View {
     Section {
+      Button {
+        if discovery.isSearching { discovery.stop() } else { discovery.start() }
+      } label: {
+        Label(L10n.string(discovery.isSearching ? "ios.stopComputerSearch" : "ios.findComputers"), systemImage: "network")
+      }
+      if discovery.isSearching {
+        HStack {
+          ProgressView().controlSize(.small)
+          Text(L10n.string(discovery.computers.isEmpty ? "ios.searchingComputers" : "ios.nearbyComputers"))
+            .font(.footnote).foregroundStyle(.secondary)
+        }
+      }
+      if discovery.failed {
+        Text(L10n.string("ios.computerSearchFailed"))
+          .font(.footnote).foregroundStyle(.secondary)
+      }
+      ForEach(discovery.computers) { computer in
+        Button {
+          preferences.companionURL = computer.address
+          health = nil
+          discovery.stop()
+        } label: {
+          VStack(alignment: .leading) {
+            Label(computer.name, systemImage: "desktopcomputer")
+            Text(computer.address).font(.caption).foregroundStyle(.secondary)
+          }
+        }
+        .accessibilityIdentifier("companionComputer.\(computer.id)")
+      }
+      if discovery.hasRememberedComputers {
+        Button(L10n.string("ios.forgetComputers"), role: .destructive) { discovery.forgetComputers() }
+      }
       TextField(L10n.string("ios.computerAddress"), text: $preferences.companionURL, prompt: Text(verbatim: "my-mac.local"))
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
@@ -74,7 +108,15 @@ struct ComputerKernelSettingsSection: View {
       savedPairingCode = stored
       didLoad = true
     }
-    .onDisappear { savePairingCode() }
+    .onDisappear {
+      discovery.stop()
+      savePairingCode()
+    }
+    .onChange(of: preferences.companionURL) { _, _ in health = nil }
+    .onChange(of: pairingCode) { _, _ in health = nil }
+    .onChange(of: scenePhase) { _, phase in
+      if phase == .background { discovery.stop() }
+    }
   }
 
   private func check() {
@@ -83,7 +125,11 @@ struct ComputerKernelSettingsSection: View {
     let url = preferences.companionURL
     let code = pairingCode
     Task {
-      health = await CompanionKernelClient().health(url, pairingCode: code, force: true)
+      let result = await CompanionKernelClient().health(url, pairingCode: code, force: true)
+      if preferences.companionURL == url, pairingCode == code {
+        health = result
+        if result.ok { discovery.rememberConnection(address: url, computer: result.computer) }
+      }
       isChecking = false
     }
   }

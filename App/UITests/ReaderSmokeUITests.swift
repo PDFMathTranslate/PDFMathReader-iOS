@@ -379,8 +379,8 @@ final class ReaderSmokeUITests: XCTestCase {
     attachScreenshot(app, name: "pager-hidden")
   }
 
-  /// Top-right toolbar matches the desktop: annotation visibility,
-  /// translation, search, and one menu for everything else. Expects
+  /// Top-right toolbar keeps translation and search directly accessible,
+  /// with annotation visibility in the menu. Expects
   /// `sample.pdf` to carry at least one highlight.
   @MainActor
   func testTrailingToolbarLayout() {
@@ -390,15 +390,14 @@ final class ReaderSmokeUITests: XCTestCase {
     XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30), "Reader did not open")
 
     let bar = app.navigationBars.firstMatch
-    let eye = bar.buttons["reader.toggleAnnotations"]
     let translation = bar.buttons["reader.toggleTranslations"]
     let search = bar.buttons["Search document"]
     let more = bar.buttons["reader.moreMenu"]
-    for (button, name) in [(eye, "annotations"), (translation, "translation"), (search, "search"), (more, "menu")] {
+    for (button, name) in [(translation, "translation"), (search, "search"), (more, "menu")] {
       XCTAssertTrue(button.waitForExistence(timeout: 5), "No \(name) button in the toolbar")
       XCTAssertTrue(button.isHittable, "\(name) button is not directly in the toolbar")
     }
-    XCTAssertLessThan(eye.frame.minX, translation.frame.minX)
+    XCTAssertFalse(bar.buttons["reader.toggleAnnotations"].exists, "Annotation visibility should live in the menu")
     XCTAssertLessThan(translation.frame.minX, search.frame.minX)
     XCTAssertLessThan(search.frame.minX, more.frame.minX)
     for moved in ["Zoom", "Layout", "Export PDF"] {
@@ -406,15 +405,19 @@ final class ReaderSmokeUITests: XCTestCase {
     }
     attachScreenshot(app, name: "1-toolbar")
 
-    XCTAssertEqual(eye.label, "Hide highlights and comments")
-    eye.tap()
-    XCTAssertEqual(eye.label, "Show highlights and comments")
+    more.tap()
+    let hideAnnotations = app.buttons["Hide highlights and comments"].firstMatch
+    XCTAssertTrue(hideAnnotations.waitForExistence(timeout: 3))
+    hideAnnotations.tap()
+    more.tap()
+    let showAnnotations = app.buttons["Show highlights and comments"].firstMatch
+    XCTAssertTrue(showAnnotations.waitForExistence(timeout: 3))
     sleep(1)
     attachScreenshot(app, name: "2-annotations-hidden")
-    eye.tap()
-    XCTAssertEqual(eye.label, "Hide highlights and comments")
+    showAnnotations.tap()
 
     more.tap()
+    XCTAssertTrue(hideAnnotations.waitForExistence(timeout: 3))
     for item in ["Zoom", "Layout", "Export"] {
       XCTAssertTrue(app.buttons[item].firstMatch.waitForExistence(timeout: 3), "\(item) missing from the menu")
     }

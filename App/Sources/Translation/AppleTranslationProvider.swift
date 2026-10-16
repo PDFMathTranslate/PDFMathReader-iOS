@@ -124,6 +124,6 @@ struct AppleTranslationLanguages: Hashable {
 
   private static func name(_ language: Locale.Language) -> String {
     let code = language.minimalIdentifier
-    return Locale.current.localizedString(forIdentifier: code) ?? code
+    return L10n.locale.localizedString(forIdentifier: code) ?? code
   }
 }

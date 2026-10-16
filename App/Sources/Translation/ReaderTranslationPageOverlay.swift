@@ -1,4 +1,5 @@
 import PDFKit
+import CoreImage.CIFilterBuiltins
 import ReaderCore
 import UIKit
 
@@ -115,12 +116,17 @@ final class ReaderTranslationPageOverlay: UIView {
   private var readingAidsConfiguration = ReadingAidsConfiguration()
   private var translationFontName = ""
   private var translationSerif = false
+  private var translationLanguage = ""
   private var originalOverrides = Set<Int>()
   private var labels: [Int: ReaderTranslationLabel] = [:]
   private var remotePageData: Data?
-  private var remoteImageView: UIImageView?
+  private var remotePDFView: ReaderTiledPDFView?
+  private var remoteFontRenderer: ReaderRemoteTranslationFont?
   private let progressView = UIProgressView(progressViewStyle: .bar)
   private let markupView = ReaderTranslationMarkupView()
+  private var refocusView: UIView?
+  private var refocusBounds: CGRect = .zero
+  private static let refocusContext = CIContext()
 
   init(pageIndex: Int, page: PDFPage, pdfView: PDFView) {
     self.pageIndex = pageIndex
@@ -137,6 +143,8 @@ final class ReaderTranslationPageOverlay: UIView {
     addSubview(markupView)
     isAccessibilityElement = false
     registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (overlay: Self, _) in
+      overlay.cancelRefocus()
+      overlay.remotePDFView?.setInverted(overlay.traitCollection.userInterfaceStyle == .dark)
       overlay.setNeedsLayout()
     }
     // Applying a highlight clears the selection; refresh the covered marks then.
@@ -162,12 +170,13 @@ final class ReaderTranslationPageOverlay: UIView {
     state: PageTranslationState,
     showTranslations: Bool
   ) {
+    cancelRefocus()
     self.state = state
     self.showTranslations = showTranslations
     if remotePageData == nil {
       rebuildLabels()
     } else {
-      remoteImageView?.isHidden = !showTranslations
+      remotePDFView?.isHidden = !showTranslations
     }
     updateProgress()
     setNeedsLayout()
@@ -186,15 +195,25 @@ final class ReaderTranslationPageOverlay: UIView {
   /// page's overlay with the new document's page object.
   func rebind(page: PDFPage, pdfView: PDFView) {
     guard page !== self.page || pdfView !== self.pdfView else { return }
+    cancelRefocus()
     self.page = page
     self.pdfView = pdfView
     setNeedsLayout()
   }
 
-  func setTranslationFont(name: String, serif: Bool) {
-    guard name != translationFontName || serif != translationSerif else { return }
+  func setTranslationFont(name: String, serif: Bool, language: String = "") {
+    guard name != translationFontName
+      || serif != translationSerif
+      || language != translationLanguage
+    else { return }
     translationFontName = name
     translationSerif = serif
+    translationLanguage = language
+    if remotePageData != nil {
+      updateRemotePDF()
+      setNeedsLayout()
+      return
+    }
     for item in state.paragraphs {
       if let label = labels[item.paragraph.id] { updateLabel(label, item: item) }
     }
@@ -215,7 +234,11 @@ final class ReaderTranslationPageOverlay: UIView {
   /// Applies visibility with the last known state, even if the coordinator
   /// has no state for this page right now (e.g. during a pipeline restart).
   func setTranslationsVisible(_ visible: Bool) {
+    guard visible != showTranslations else { return }
+    let previous = refocusSnapshot(in: bounds)
     update(state: state, showTranslations: visible)
+    layoutIfNeeded()
+    refocus(from: previous)
   }
 
   // Reading mode: nothing here takes touches, so a long press on a
@@ -238,20 +261,21 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   func setRemotePageData(_ data: Data) {
+    cancelRefocus()
     remotePageData = data
     labels.values.forEach { $0.removeFromSuperview() }
     labels.removeAll()
-    remoteImageView?.removeFromSuperview()
-    remoteImageView = nil
-    if let translated = PDFDocument(data: data)?.page(at: 0) {
-      let imageView = UIImageView()
-      imageView.contentMode = .scaleAspectFit
-      imageView.backgroundColor = paperColor
-      imageView.isOpaque = true
-      imageView.image = remoteImage(for: translated)
-      imageView.isHidden = !showTranslations
-      addSubview(imageView)
-      remoteImageView = imageView
+    remotePDFView?.removeFromSuperview()
+    remotePDFView = nil
+    remoteFontRenderer = nil
+    if let provider = CGDataProvider(data: data as CFData),
+       CGPDFDocument(provider)?.page(at: 1) != nil {
+      let pdfContent = ReaderTiledPDFView(frame: bounds)
+      pdfContent.backgroundColor = paperColor
+      pdfContent.isHidden = !showTranslations
+      addSubview(pdfContent)
+      remotePDFView = pdfContent
+      updateRemotePDF()
     }
     progressView.progress = 1
     progressView.alpha = 0
@@ -259,9 +283,11 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   func clearRemotePageData() {
+    cancelRefocus()
     remotePageData = nil
-    remoteImageView?.removeFromSuperview()
-    remoteImageView = nil
+    remoteFontRenderer = nil
+    remotePDFView?.removeFromSuperview()
+    remotePDFView = nil
     rebuildLabels()
     updateProgress()
     setNeedsLayout()
@@ -273,29 +299,29 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   func beginRemoteTranslation() {
+    cancelRefocus()
     remotePageData = nil
+    remoteFontRenderer = nil
+    remotePDFView?.removeFromSuperview()
+    remotePDFView = nil
     progressView.progress = 0
     progressView.alpha = showTranslations ? 1 : 0
   }
 
   override func layoutSubviews() {
     super.layoutSubviews()
+    if refocusView != nil, refocusBounds != bounds { cancelRefocus() }
     progressView.frame = CGRect(
       x: 8,
       y: 4,
       width: max(1, min(120, bounds.width - 16)),
       height: 2
     )
-    remoteImageView?.frame = bounds
-    if let remotePageData,
-       bounds.width > 0,
-       bounds.height > 0,
-       let translated = PDFDocument(data: remotePageData)?.page(at: 0) {
-      remoteImageView?.image = remoteImage(for: translated)
-    }
+    remotePDFView?.frame = bounds
     markupView.frame = bounds
     bringSubviewToFront(markupView)
     bringSubviewToFront(progressView)
+    if let refocusView { bringSubviewToFront(refocusView) }
     guard remotePageData == nil else {
       updateMarkup()
       return
@@ -317,8 +343,8 @@ final class ReaderTranslationPageOverlay: UIView {
     var labelCovers = false
     if !showTranslations {
       covers = []
-    } else if let remoteImageView, !remoteImageView.isHidden {
-      covers = [remoteImageView.frame]
+    } else if let remotePDFView, !remotePDFView.isHidden {
+      covers = [remotePDFView.frame]
     } else {
       covers = labels.values.map(\.frame)
       labelCovers = true
@@ -473,6 +499,7 @@ final class ReaderTranslationPageOverlay: UIView {
 
   @objc private func toggleParagraph(_ recognizer: UITapGestureRecognizer) {
     guard interactionMode == .comparison, let label = recognizer.view as? ReaderTranslationLabel else { return }
+    let previous = refocusSnapshot(in: label.frame)
     if originalOverrides.contains(label.tag) {
       originalOverrides.remove(label.tag)
     } else {
@@ -480,6 +507,108 @@ final class ReaderTranslationPageOverlay: UIView {
     }
     guard let item = state.paragraphs.first(where: { $0.paragraph.id == label.tag }) else { return }
     updateLabel(label, item: item)
+    refocus(from: previous)
+  }
+
+  /// Use public Core Image filters on a temporary, visible-region snapshot.
+  /// UIKit's live text and PDFKit selection stay intact beneath the effect.
+  private func cancelRefocus() {
+    refocusView?.removeFromSuperview()
+    refocusView = nil
+  }
+
+  private func refocusSnapshot(in region: CGRect) -> (rect: CGRect, image: UIImage)? {
+    cancelRefocus()
+    guard !UIAccessibility.isReduceMotionEnabled, let window, let pdfView else { return nil }
+    layoutIfNeeded()
+    let visible = convert(pdfView.bounds, from: pdfView)
+      .intersection(convert(window.bounds, from: window))
+    let rect = region.intersection(bounds).intersection(visible).integral
+    guard !rect.isNull, rect.width > 0, rect.height > 0 else { return nil }
+    // Map the view's basis vectors rather than an axis-aligned rectangle,
+    // preserving PDFKit's zoom and rotated-page transforms.
+    let origin = convert(CGPoint.zero, from: pdfView)
+    let x = convert(CGPoint(x: 1, y: 0), from: pdfView)
+    let y = convert(CGPoint(x: 0, y: 1), from: pdfView)
+    let transform = CGAffineTransform(
+      a: x.x - origin.x, b: x.y - origin.y,
+      c: y.x - origin.x, d: y.y - origin.y, tx: origin.x, ty: origin.y
+    )
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = min(2, traitCollection.displayScale)
+    var captured = false
+    let image = UIGraphicsImageRenderer(size: rect.size, format: format).image { context in
+      context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
+      context.cgContext.concatenate(transform)
+      captured = pdfView.drawHierarchy(in: pdfView.bounds, afterScreenUpdates: true)
+    }
+    guard captured else { return nil }
+    return (rect, image)
+  }
+
+  private func refocus(from previous: (rect: CGRect, image: UIImage)?) {
+    guard let previous, let current = refocusSnapshot(in: previous.rect) else { return }
+    let effect = UIView(frame: current.rect)
+    effect.isUserInteractionEnabled = false
+    effect.accessibilityElementsHidden = true
+    effect.clipsToBounds = true
+    effect.backgroundColor = paperColor
+
+    func imageView(_ image: UIImage, in container: UIView) -> UIImageView {
+      let view = UIImageView(image: image)
+      view.frame = container.bounds
+      container.addSubview(view)
+      return view
+    }
+    func opacity(_ view: UIView, values: [Double], times: [Double], duration: Double, outgoing: Bool = false) {
+      let animation = CAKeyframeAnimation(keyPath: "opacity")
+      animation.values = values
+      animation.keyTimes = times.map { NSNumber(value: $0) }
+      animation.duration = duration
+      animation.timingFunctions = (1..<values.count).map { _ in
+        outgoing ? CAMediaTimingFunction(name: .easeOut)
+          : CAMediaTimingFunction(controlPoints: 0.22, 0.75, 0.2, 1)
+      }
+      view.layer.opacity = Float(values.last ?? 1)
+      view.layer.add(animation, forKey: "digitalRefocus")
+    }
+
+    let incoming = UIView(frame: effect.bounds)
+    effect.addSubview(incoming)
+    _ = imageView(current.image, in: incoming)
+    let soft = imageView(refocusImage(current.image, blur: 3, contrast: 1.06), in: incoming)
+    let blurred = imageView(refocusImage(current.image, blur: 7, contrast: 1.12), in: incoming)
+    let outgoing = imageView(refocusImage(previous.image, blur: 9, contrast: 1), in: effect)
+    let sharpOutgoing = imageView(previous.image, in: outgoing)
+    addSubview(effect)
+    refocusView = effect
+    refocusBounds = bounds
+
+    // Desktop: incoming blur 7 → 3 → 0 and opacity .45 → .85 → 1
+    // over 520 ms; the previous text blurs away over 260 ms.
+    opacity(incoming, values: [0.45, 0.85, 1], times: [0, 0.4, 1], duration: 0.52)
+    opacity(blurred, values: [1, 0, 0], times: [0, 0.4, 1], duration: 0.52)
+    opacity(soft, values: [1, 1, 0], times: [0, 0.4, 1], duration: 0.52)
+    opacity(outgoing, values: [1, 0], times: [0, 1], duration: 0.26, outgoing: true)
+    opacity(sharpOutgoing, values: [1, 0], times: [0, 1], duration: 0.26, outgoing: true)
+    Task { @MainActor [weak self, weak effect] in
+      try? await Task.sleep(for: .milliseconds(520))
+      effect?.removeFromSuperview()
+      if self?.refocusView === effect { self?.refocusView = nil }
+    }
+  }
+
+  private func refocusImage(_ image: UIImage, blur: Double, contrast: Float) -> UIImage {
+    guard let input = CIImage(image: image) else { return image }
+    let color = CIFilter.colorControls()
+    color.inputImage = input.clampedToExtent()
+    color.contrast = contrast
+    let filter = CIFilter.gaussianBlur()
+    filter.inputImage = color.outputImage
+    filter.radius = Float(blur * image.scale)
+    guard let output = filter.outputImage,
+      let rendered = Self.refocusContext.createCGImage(output, from: input.extent) else { return image }
+    return UIImage(cgImage: rendered, scale: image.scale, orientation: image.imageOrientation)
   }
 
   private func overlayRect(for paragraph: LayoutParagraph) -> CGRect {
@@ -507,7 +636,9 @@ final class ReaderTranslationPageOverlay: UIView {
     let selectedFont = ReaderTranslationFont.resolve(
       name: useOriginal ? "" : translationFontName,
       serif: !useOriginal && translationSerif,
-      size: baseSize, bold: bold
+      size: baseSize,
+      bold: bold,
+      language: useOriginal ? "" : translationLanguage
     )
     let available = CGSize(width: max(1, available.width), height: max(1, available.height))
     let step = max(0.25, baseSize / 40)
@@ -547,8 +678,22 @@ final class ReaderTranslationPageOverlay: UIView {
     ReaderDarkPDF.pageColor(.white)
   }
 
-  private func remoteImage(for page: PDFPage) -> UIImage {
-    let image = page.thumbnail(of: bounds.size, for: .cropBox)
-    return traitCollection.userInterfaceStyle == .dark ? ReaderDarkPDF.inverted(image) : image
+  private func updateRemotePDF() {
+    guard let remotePageData, let remotePDFView else { return }
+    // Font changes regenerate vectors once; zooming only requests new tiles.
+    let customFont = !translationFontName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || translationSerif
+    if customFont, remoteFontRenderer == nil,
+       let document = PDFDocument(data: remotePageData), let translated = document.page(at: 0) {
+      remoteFontRenderer = ReaderRemoteTranslationFont(page: translated, original: page)
+    }
+    let data = customFont
+      ? (try? remoteFontRenderer?.pdfData(
+          name: translationFontName,
+          serif: translationSerif,
+          language: translationLanguage
+        )) ?? remotePageData
+      : remotePageData
+    remotePDFView.setPDFData(data)
+    remotePDFView.setInverted(traitCollection.userInterfaceStyle == .dark)
   }
 }

@@ -1,6 +1,12 @@
 import ReaderCore
 import UIKit
 
+extension ReadingAidsConfiguration {
+  var emphasisColor: UIColor {
+    accentColor == "system" ? .systemBlue : UIColor(hex: accentColor)
+  }
+}
+
 @MainActor
 func readingAidsAttributedString(
   text: String,
@@ -16,7 +22,7 @@ func readingAidsAttributedString(
     let end = min(length, max(0, topicSentenceLength(text)))
     addAttribute(
       .backgroundColor,
-      value: UIColor.systemBlue.withAlphaComponent(0.14),
+      value: configuration.emphasisColor.withAlphaComponent(0.14),
       range: NSRange(location: 0, length: end),
       to: result,
       length: length
@@ -37,7 +43,7 @@ func readingAidsAttributedString(
       )
       addAttribute(
         .underlineColor,
-        value: UIColor.systemOrange.withAlphaComponent(0.9),
+        value: configuration.emphasisColor.withAlphaComponent(0.9),
         range: NSRange(location: match.start, length: match.end - match.start),
         to: result,
         length: length

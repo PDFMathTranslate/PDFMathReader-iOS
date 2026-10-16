@@ -40,9 +40,10 @@ final class TranslateAllPagesJob: ObservableObject {
     "com.pdfmathtranslate.PDFMathReader.continuedProcessingTask"
 
   private weak var coordinator: ReaderTranslationCoordinator?
-  private let persistenceURL: URL
+  private var persistenceURL: URL
   private var runTask: Task<Void, Never>?
   private var isRunActive = false
+  private var runID = UUID()
   private var continuedTaskIdentifier: String?
   private var continuedTask: BGTask?
   private var legacyBackgroundTaskID: UIBackgroundTaskIdentifier = .invalid
@@ -81,6 +82,22 @@ final class TranslateAllPagesJob: ObservableObject {
     mergeCachedPages()
   }
 
+  /// A cache clear or explicit retranslation starts a fresh completion record.
+  func resetForCurrentConfiguration() {
+    cancel(cancelTranslations: false)
+    guard let coordinator else { return }
+    let configurationID = coordinator.translationConfigurationID
+    persistenceURL = TranslationJobPersistence.url(
+      documentID: coordinator.translationDocumentID, configurationID: configurationID
+    )
+    state = TranslationJobState(
+      documentID: coordinator.translationDocumentID,
+      configurationID: configurationID,
+      totalPages: coordinator.translationPageCount
+    )
+    publish(persist: true)
+  }
+
   var isRunning: Bool {
     isRunActive || state.status == .queued || state.status == .running
   }
@@ -113,12 +130,13 @@ final class TranslateAllPagesJob: ObservableObject {
     }
   }
 
-  func cancel() {
+  func cancel(cancelTranslations: Bool = true) {
     guard isRunning else { return }
     isRunActive = false
+    runID = UUID()
     runTask?.cancel()
     runTask = nil
-    cancelCoordinatorWork()
+    if cancelTranslations { cancelCoordinatorWork() }
 
     if #available(iOS 26.0, *), let identifier = continuedTaskIdentifier {
       BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
@@ -209,14 +227,17 @@ final class TranslateAllPagesJob: ObservableObject {
       }
     }
     isRunActive = true
+    let id = UUID()
+    runID = id
     state.status = .running
     publish(persist: true)
     runTask = Task { @MainActor [weak self] in
-      await self?.performRun()
+      await self?.performRun(id: id)
     }
   }
 
-  private func performRun() async {
+  private func performRun(id: UUID) async {
+    guard runID == id, isRunActive, !Task.isCancelled else { return }
     guard let coordinator else {
       state.status = .failed
       state.lastError = L10n.string("ios.translationCoordinatorUnavailable")
@@ -228,14 +249,13 @@ final class TranslateAllPagesJob: ObservableObject {
     }
 
     mergeCachedPages()
-    guard isRunActive, !Task.isCancelled else {
-      runTask = nil
-      return
-    }
+    guard runID == id, isRunActive, !Task.isCancelled else { return }
 
-    guard let pendingPages = await coordinator.scheduleFullDocumentTranslation(
+    let scheduledPages = await coordinator.scheduleFullDocumentTranslation(
       excluding: Set(state.completedPageIndices)
-    ) else {
+    )
+    guard runID == id, !Task.isCancelled else { return }
+    guard let pendingPages = scheduledPages else {
       state.status = .failed
       state.lastError = L10n.string("ios.translationPipelineUnavailable")
       publish(persist: true)
@@ -250,10 +270,7 @@ final class TranslateAllPagesJob: ObservableObject {
       await watchPage(pageIndex, coordinator: coordinator)
     }
 
-    guard isRunActive, !Task.isCancelled else {
-      runTask = nil
-      return
-    }
+    guard runID == id, isRunActive, !Task.isCancelled else { return }
     state.markFinished()
     publish(persist: true)
     isRunActive = false
@@ -265,7 +282,9 @@ final class TranslateAllPagesJob: ObservableObject {
     _ pageIndex: Int,
     coordinator: ReaderTranslationCoordinator
   ) async {
-    guard let stream = await coordinator.translationStream(for: pageIndex) else {
+    let stream = await coordinator.translationStream(for: pageIndex)
+    guard !Task.isCancelled else { return }
+    guard let stream else {
       state.markFailed(pageIndex: pageIndex, error: L10n.string("ios.translationStreamUnavailable"))
       publish(persist: true)
       return
@@ -302,6 +321,7 @@ final class TranslateAllPagesJob: ObservableObject {
   private func handleExpiration() {
     guard isRunActive else { return }
     isRunActive = false
+    runID = UUID()
     runTask?.cancel()
     runTask = nil
     cancelCoordinatorWork()
@@ -312,8 +332,11 @@ final class TranslateAllPagesJob: ObservableObject {
 
   private func cancelCoordinatorWork() {
     guard let coordinator else { return }
+    let configurationID = state.configurationID
     Task { @MainActor [weak coordinator] in
-      await coordinator?.cancelAllTranslations()
+      guard let coordinator,
+        coordinator.translationConfigurationID == configurationID else { return }
+      await coordinator.cancelAllTranslations()
     }
   }
 

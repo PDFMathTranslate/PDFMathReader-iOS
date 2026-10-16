@@ -9,11 +9,11 @@ public enum ReaderAnnotationValidationError: Error, Equatable, LocalizedError, S
 
   public var errorDescription: String? {
     switch self {
-    case .invalidDocumentKey: "Invalid annotation document key."
-    case .invalidAnnotations: "Invalid annotations."
-    case .invalidAnnotation(let index, let field): "Invalid annotation \(index) \(field)."
-    case .invalidNativeReference: "Invalid annotation native reference."
-    case .pdfTooLarge: "Annotation PDF exceeds the 200 MiB limit."
+    case .invalidDocumentKey: ReaderLocalization.resolve("Invalid annotation document key.")
+    case .invalidAnnotations: ReaderLocalization.resolve("Invalid annotations.")
+    case .invalidAnnotation(let index, let field): ReaderLocalization.string("Invalid annotation {0} {1}.", String(index), field)
+    case .invalidNativeReference: ReaderLocalization.resolve("Invalid annotation native reference.")
+    case .pdfTooLarge: ReaderLocalization.resolve("Annotation PDF exceeds the 200 MiB limit.")
     }
   }
 }

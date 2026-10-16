@@ -7,9 +7,16 @@ import Translation
 @MainActor
 final class ReaderKernelMenuAvailability: ObservableObject {
   @Published private(set) var engines: [ReaderEngine] = [.ultraFast]
+  @Published private(set) var remotePreciseAvailable = false
   @Published private(set) var appleLanguages: Set<String> = []
-  private let companion = CompanionKernelClient()
-  private let remote = RemoteKernelClient()
+  private let companion: CompanionKernelClient
+  private let remote: RemoteKernelClient
+  private var computerHealth: CompanionHealth?
+
+  init(companion: CompanionKernelClient = .init(), remote: RemoteKernelClient = .init()) {
+    self.companion = companion
+    self.remote = remote
+  }
 
   func loadAppleLanguages() async {
     let languages = await Self.supportedAppleLanguages()
@@ -28,13 +35,26 @@ final class ReaderKernelMenuAvailability: ObservableObject {
     return Set(languages.map(\.minimalIdentifier))
   }
 
-  func reset() { engines = [.ultraFast] }
+  func reset() {
+    engines = [.ultraFast]
+    remotePreciseAvailable = false
+    computerHealth = nil
+  }
 
   func refresh(_ preferences: ReaderPreferences) async {
     async let computer = computerHealth(preferences.companionURL)
     async let server = remoteHealth(preferences)
-    let (computerHealth, serverHealth) = await (computer, server)
+    // A paired computer may be asleep. Publish the remote result immediately,
+    // rather than withholding it until the unrelated computer probe finishes.
+    let serverHealth = await server
     guard !Task.isCancelled else { return }
+    remotePreciseAvailable = serverHealth?.ok == true
+    engines = ReaderKernelAvailability.availableEngines(
+      companion: computerHealth, remote: serverHealth, remoteEnabled: preferences.remoteKernelEnabled
+    )
+    let computerHealth = await computer
+    guard !Task.isCancelled else { return }
+    self.computerHealth = computerHealth
     engines = ReaderKernelAvailability.availableEngines(
       companion: computerHealth,
       remote: serverHealth,
@@ -62,21 +82,26 @@ final class ReaderKernelMenuAvailability: ObservableObject {
 struct ReaderKernelAvailabilityMonitor: View {
   @ObservedObject var library: LibraryModel
   @ObservedObject var availability: ReaderKernelMenuAvailability
-  @Environment(\.scenePhase) private var scenePhase
   @State private var pairingRevision = 0
+  @State private var activationRevision = 0
+  @State private var lastConnectionID: [String] = []
 
   private var connectionID: [String] {
     let preferences = library.preferences
     return [preferences.companionURL, preferences.remoteKernelURL,
-            String(preferences.remoteKernelEnabled), String(pairingRevision), String(describing: scenePhase)]
+            String(preferences.remoteKernelEnabled), String(pairingRevision)]
   }
 
   var body: some View {
     Color.clear
       .task { await availability.loadAppleLanguages() }
-      .task(id: connectionID) {
-        availability.reset()
-        guard scenePhase == .active else { return }
+      .task(id: connectionID + [String(activationRevision)]) {
+        // Only invalidate results when the server or pairing actually changes.
+        // Transient scene inactivity must not erase a successful health check.
+        if lastConnectionID != connectionID {
+          availability.reset()
+          lastConnectionID = connectionID
+        }
         while !Task.isCancelled {
           await availability.refresh(library.preferences)
           do { try await Task.sleep(for: .seconds(15)) }
@@ -85,6 +110,9 @@ struct ReaderKernelAvailabilityMonitor: View {
       }
       .onReceive(NotificationCenter.default.publisher(for: .companionPairingCodeDidChange)) { _ in
         pairingRevision &+= 1
+      }
+      .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+        activationRevision &+= 1
       }
   }
 }
@@ -113,6 +141,22 @@ struct ReaderTranslationMenu: View {
       .pickerStyle(.menu)
       .accessibilityIdentifier("reader.targetLanguage")
 
+      Picker(selection: preference(\.translationMode)) {
+        ForEach(TranslationMode.allCases, id: \.self) { mode in
+          Text(mode.displayName).tag(mode)
+        }
+      } label: {
+        Label(L10n.string("settings.translationMode"), systemImage: "text.bubble")
+      }
+      .pickerStyle(.menu)
+      .accessibilityIdentifier("reader.translationMode")
+
+      Toggle(L10n.string("settings.reuseTranslations"), isOn: preference(\.reuseTranslations))
+        .accessibilityIdentifier("reader.reuseTranslations")
+
+      Toggle(L10n.string("advanced.options.ignore_cache.label"), isOn: preference(\.ignoreCache))
+        .accessibilityIdentifier("reader.ignoreCache")
+
       // Buttons permit an unavailable saved selection to have no checkmark;
       // a Picker would require keeping that unavailable option in its list.
       Menu {
@@ -129,9 +173,9 @@ struct ReaderTranslationMenu: View {
             onChange(value)
           } label: {
             if engine == library.preferences.engine {
-              Label(engine.displayName, systemImage: "checkmark")
+              Label(engineLabel(engine), systemImage: "checkmark")
             } else {
-              Text(engine.displayName)
+              Text(engineLabel(engine))
             }
           }
           .accessibilityIdentifier("reader.kernel.\(engine.rawValue)")
@@ -141,6 +185,13 @@ struct ReaderTranslationMenu: View {
       }
       .accessibilityIdentifier("reader.kernel")
     }
+  }
+
+  private func engineLabel(_ engine: ReaderEngine) -> String {
+    if engine == .precise, availability.remotePreciseAvailable {
+      return "\(engine.displayName) (\(L10n.string("ios.remoteKernel")))"
+    }
+    return engine.displayName
   }
 
   @ViewBuilder
@@ -168,7 +219,7 @@ struct ReaderTranslationMenu: View {
     return translationLanguageLabel(option.name, locale: Locale.current.identifier)
   }
 
-  private func preference(_ keyPath: WritableKeyPath<ReaderPreferences, String>) -> Binding<String> {
+  private func preference<Value>(_ keyPath: WritableKeyPath<ReaderPreferences, Value>) -> Binding<Value> {
     Binding(
       get: { library.preferences[keyPath: keyPath] },
       set: { selection in

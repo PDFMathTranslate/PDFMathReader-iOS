@@ -7,10 +7,11 @@ import XCTest
 
 @MainActor
 final class ReaderDrawingModelTests: XCTestCase {
-  func testAnnotatedPagesAreSortedAndExcludeEmptyDrawings() throws {
+  func testAnnotatedPagesAreSortedAndExcludeEmptyDrawings() async throws {
     let fixture = try makeFixture(pageCount: 5)
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let model = ReaderDrawingModel(session: fixture.session, directory: fixture.directory)
+    await model.prepare()
 
     let laterCanvas = model.canvas(for: 3, page: try XCTUnwrap(fixture.document.page(at: 3)))
     laterCanvas.drawing = sampleDrawing(offset: CGPoint(x: 15, y: 0))
@@ -28,10 +29,11 @@ final class ReaderDrawingModelTests: XCTestCase {
     XCTAssertEqual(model.drawings[2]?.strokes.count, 0)
   }
 
-  func testDeleteDrawingClearsLiveCanvasPersistsAndPreservesOtherPages() throws {
+  func testDeleteDrawingClearsLiveCanvasPersistsAndPreservesOtherPages() async throws {
     let fixture = try makeFixture(pageCount: 3)
     defer { try? FileManager.default.removeItem(at: fixture.root) }
     let model = ReaderDrawingModel(session: fixture.session, directory: fixture.directory)
+    await model.prepare()
 
     let deletedCanvas = model.canvas(for: 1, page: try XCTUnwrap(fixture.document.page(at: 1)))
     deletedCanvas.drawing = sampleDrawing()
@@ -50,6 +52,7 @@ final class ReaderDrawingModelTests: XCTestCase {
     XCTAssertEqual(keptCanvas.drawing.strokes.count, 1)
 
     let reopened = ReaderDrawingModel(session: fixture.session, directory: fixture.directory)
+    await reopened.prepare()
     XCTAssertTrue(reopened.drawings[1]?.strokes.isEmpty == true)
     XCTAssertEqual(reopened.drawings[2]?.strokes.count, 1)
     XCTAssertEqual(reopened.annotatedPages, [2])
@@ -60,7 +63,7 @@ final class ReaderDrawingModelTests: XCTestCase {
     XCTAssertTrue(reopenedDeletedCanvas.drawing.strokes.isEmpty)
   }
 
-  func testDrawingSurvivesReopenAndEraseDoesNotResurrectIt() throws {
+  func testDrawingSurvivesReopenAndEraseDoesNotResurrectIt() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -73,6 +76,7 @@ final class ReaderDrawingModelTests: XCTestCase {
     let session = DocumentSession(id: "drawing-test", title: "sample.pdf", url: source, access: SecurityScopedAccess(url: source))
     let directory = root.appendingPathComponent("drawings")
     let model = ReaderDrawingModel(session: session, directory: directory)
+    await model.prepare()
     XCTAssertNil(model.lastError)
     let canvas = model.canvas(for: 0, page: page)
     XCTAssertFalse(canvas.acceptsDrawing)
@@ -87,18 +91,20 @@ final class ReaderDrawingModelTests: XCTestCase {
     // A highlight save changes the content hash used for the next session.
     let editedSession = DocumentSession(id: "after-highlight", title: session.title, url: source, access: SecurityScopedAccess(url: source))
     let reopened = ReaderDrawingModel(session: editedSession, directory: directory)
+    await reopened.prepare()
     XCTAssertEqual(reopened.drawings[0]?.strokes.count, 1)
     let restoredCanvas = reopened.canvas(for: 0, page: page)
     restoredCanvas.drawing = PKDrawing()
     reopened.canvasViewDrawingDidChange(restoredCanvas)
     reopened.release(restoredCanvas)
     let erased = ReaderDrawingModel(session: session, directory: directory)
+    await erased.prepare()
     XCTAssertEqual(erased.drawings[0]?.strokes.count, 0)
     model.isDrawing = false
     XCTAssertFalse(canvas.acceptsDrawing)
   }
 
-  func testUnreadableSidecarIsPreservedAndBlocksEditing() throws {
+  func testUnreadableSidecarIsPreservedAndBlocksEditing() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -108,6 +114,7 @@ final class ReaderDrawingModelTests: XCTestCase {
     try XCTUnwrap(document.dataRepresentation()).write(to: source)
     let session = DocumentSession(id: "corrupt", title: "source", url: source, access: SecurityScopedAccess(url: source))
     let model = ReaderDrawingModel(session: session, directory: root)
+    await model.prepare()
     let canvas = model.canvas(for: 0, page: try XCTUnwrap(document.page(at: 0)))
     canvas.drawing = sampleDrawing()
     model.canvasViewDrawingDidChange(canvas)
@@ -116,12 +123,61 @@ final class ReaderDrawingModelTests: XCTestCase {
     let corrupt = Data("not JSON".utf8)
     try corrupt.write(to: sidecar)
     let reopened = ReaderDrawingModel(session: session, directory: root)
+    await reopened.prepare()
     XCTAssertNotNil(reopened.lastError)
     reopened.isDrawing = true
     XCTAssertFalse(reopened.canvas(for: 0, page: try XCTUnwrap(document.page(at: 0))).acceptsDrawing)
     XCTAssertThrowsError(try reopened.exportDrawings())
     reopened.flush()
     XCTAssertEqual(try Data(contentsOf: sidecar), corrupt)
+  }
+
+  func testPreparationRestoresEmbeddedDrawingWithoutEarlyOverlaySave() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let source = root.appendingPathComponent("embedded.pdf")
+    let document = PDFDocument()
+    let page = PDFPage()
+    page.setBounds(CGRect(x: 0, y: 0, width: 200, height: 300), for: .mediaBox)
+    document.insert(page, at: 0)
+    let sourceData = try XCTUnwrap(document.dataRepresentation())
+    let embeddedDrawing = sampleDrawing()
+    let embeddedData = try ReaderDrawingPDF.embed([0: embeddedDrawing], in: sourceData)
+    try embeddedData.write(to: source)
+
+    let session = DocumentSession(
+      id: "embedded-drawing-test",
+      title: "embedded.pdf",
+      url: source,
+      access: SecurityScopedAccess(url: source)
+    )
+    let directory = root.appendingPathComponent("drawings")
+    let model = ReaderDrawingModel(session: session, directory: directory)
+    let displayedDocument = try XCTUnwrap(PDFDocument(data: embeddedData))
+    let displayedPage = try XCTUnwrap(displayedDocument.page(at: 0))
+    let canvas = model.canvas(for: 0, page: displayedPage)
+    let marker = try XCTUnwrap(
+      displayedPage.annotations.first {
+        $0.value(forAnnotationKey: ReaderDrawingPDF.markerKey) != nil
+      }
+    )
+
+    XCTAssertFalse(model.isPrepared)
+    XCTAssertTrue(marker.shouldDisplay)
+    canvas.drawing = sampleDrawing(offset: CGPoint(x: 40, y: 0))
+    model.canvasViewDrawingDidChange(canvas)
+    model.flush()
+    XCTAssertTrue(model.drawings.isEmpty)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+
+    await model.prepare()
+
+    XCTAssertTrue(model.isPrepared)
+    XCTAssertEqual(model.drawings[0]?.strokes.count, embeddedDrawing.strokes.count)
+    XCTAssertEqual(canvas.drawing.strokes.count, embeddedDrawing.strokes.count)
+    XCTAssertFalse(marker.shouldDisplay)
   }
 
   private func sampleDrawing() -> PKDrawing {

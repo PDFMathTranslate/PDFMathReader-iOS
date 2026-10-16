@@ -1,0 +1,107 @@
+{
+  "version": "1.0",
+  "sourceLanguage": "en",
+  "strings": {
+    "NSLocalNetworkUsageDescription": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يكتشف PDFMathReader أجهزة الكمبيوتر القريبة ويتصل بمحركات الترجمة المشتركة الخاصة بها على شبكتك المحلية."
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader بيكتشف الكمبيوترات القريبة وبيتصل بمحركات الترجمة المشتركة بتاعتها على الشبكة المحلية بتاعتك."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader কাছাকাছি কম্পিউটার শনাক্ত করে এবং আপনার স্থানীয় নেটওয়ার্কে তাদের শেয়ার করা অনুবাদ কার্নেলের সঙ্গে সংযোগ করে।"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader erkennt Computer in der Nähe und verbindet sich über Ihr lokales Netzwerk mit deren gemeinsam genutzten Übersetzungskernen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader discovers nearby computers and connects to their shared translation kernels on your local network."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader detecta ordenadores cercanos y se conecta a sus motores de traducción compartidos en tu red local."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader détecte les ordinateurs à proximité et se connecte à leurs moteurs de traduction partagés sur votre réseau local."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader आस-पास के कंप्यूटरों का पता लगाता है और आपके स्थानीय नेटवर्क पर उनके साझा किए गए अनुवाद कर्नेल से कनेक्ट होता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader は近くのコンピュータを検出し、ローカルネットワーク上の共有翻訳カーネルに接続します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader는 주변 컴퓨터를 찾고 로컬 네트워크에서 공유된 번역 커널에 연결합니다."
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader dey find computers wey dey near and connect to dia shared translation kernels for your local network."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O PDFMathReader deteta computadores próximos e liga-se aos respetivos motores de tradução partilhados na sua rede local."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader обнаруживает компьютеры поблизости и подключается к их общим ядрам перевода в вашей локальной сети."
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader قریبی کمپیوٹرز دریافت کرتا ہے اور آپ کے مقامی نیٹ ورک پر ان کے مشترکہ ترجمہ کرنلز سے منسلک ہوتا ہے۔"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader 会发现附近的电脑，并连接到它们在本地网络上共享的翻译内核。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFMathReader 會尋找附近的電腦，並連線至它們在區域網路上共享的翻譯核心。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

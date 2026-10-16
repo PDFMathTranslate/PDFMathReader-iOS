@@ -39,6 +39,16 @@ extension ReaderTheme {
   }
 }
 
+extension TranslationMode {
+  var displayName: String {
+    switch self {
+    case .full: L10n.string("translation.full")
+    case .reading: L10n.string("translation.reading")
+    case .readingAhead: L10n.string("translation.readingAhead")
+    }
+  }
+}
+
 struct SettingsView: View {
   @EnvironmentObject private var library: LibraryModel
   @Environment(\.dismiss) private var dismiss
@@ -53,14 +63,17 @@ struct SettingsView: View {
         Section(L10n.string("appearance.section")) {
           Picker(L10n.string("appearance.interfaceLanguage"), selection: $draft.uiLanguage) {
             Text(L10n.string("appearance.system")).tag("system")
-            Text(L10n.string("appearance.english")).tag("en")
-            Text(L10n.string("appearance.simplifiedChinese")).tag("zh-Hans")
+            ForEach(L10n.supportedLanguages, id: \.code) { language in
+              Text(verbatim: language.name).tag(language.code)
+            }
           }
+          .accessibilityIdentifier("settings.uiLanguage")
           Picker(L10n.string("ios.theme"), selection: $draft.theme) {
             ForEach(ReaderTheme.allCases, id: \.self) { theme in
               Text(theme.displayName).tag(theme)
             }
           }
+          AccentColorSettingsRow(selection: $draft.accentColor)
           AppIconSettingsRow()
         }
 
@@ -68,12 +81,12 @@ struct SettingsView: View {
           Picker(L10n.string("settings.sourceLanguage"), selection: $draft.sourceLanguage) {
             Text(L10n.string("settings.automaticDetection")).tag("")
             ForEach(translationLanguageOptions) { option in
-              Text(translationLanguageLabel(option.name, locale: Locale.current.identifier)).tag(option.code)
+              Text(translationLanguageLabel(option.name, locale: L10n.locale.identifier)).tag(option.code)
             }
           }
           Picker(L10n.string("settings.translationLanguage"), selection: $draft.targetLanguage) {
             ForEach(translationLanguageOptions) { option in
-              Text(translationLanguageLabel(option.name, locale: Locale.current.identifier)).tag(option.code)
+              Text(translationLanguageLabel(option.name, locale: L10n.locale.identifier)).tag(option.code)
             }
           }
           Picker(L10n.string("recentStatus.engine"), selection: $draft.engine) {
@@ -81,7 +94,15 @@ struct SettingsView: View {
               Text(engine.displayName).tag(engine)
             }
           }
-          Toggle(L10n.string("translation.full"), isOn: $draft.translateFullDocument)
+          Picker(L10n.string("settings.translationMode"), selection: $draft.translationMode) {
+            ForEach(TranslationMode.allCases, id: \.self) { mode in
+              Text(mode.displayName).tag(mode)
+            }
+          }
+          Toggle(L10n.string("settings.reuseTranslations"), isOn: $draft.reuseTranslations)
+            .accessibilityIdentifier("settings.reuseTranslations")
+          Toggle(L10n.string("advanced.options.ignore_cache.label"), isOn: $draft.ignoreCache)
+            .accessibilityIdentifier("settings.ignoreCache")
           NavigationLink {
             GlossaryEditorView(libraries: $draft.glossaries)
           } label: {
@@ -89,6 +110,11 @@ struct SettingsView: View {
           }
         } header: {
           Text(L10n.string("settings.translation"))
+        } footer: {
+          VStack(alignment: .leading, spacing: 4) {
+            Text(L10n.string("settings.reuseTranslationsDescription"))
+            Text(L10n.string("advanced.options.ignore_cache.help"))
+          }
         }
 
         Section {
@@ -135,6 +161,8 @@ struct SettingsView: View {
           }
         }
 
+        TranslationCacheSettingsSection()
+
         TranslationFontSettingsSection(preferences: $draft)
 
         ReadingAidsSettingsSection(preferences: $draft)
@@ -148,12 +176,22 @@ struct SettingsView: View {
       .toolbar {
         ToolbarItem(placement: .confirmationAction) {
           Button(L10n.string("search.done")) { dismiss() }
+            .accessibilityIdentifier("settings.done")
         }
       }
     }
+    // UIKit's navigation bar captures direction when it is created. Rebuild
+    // the stack when direction changes while keeping the draft in this view.
+    .id(L10n.isRightToLeft)
+    .environment(\.locale, L10n.locale)
+    .environment(\.layoutDirection, L10n.isRightToLeft ? .rightToLeft : .leftToRight)
     .preferredColorScheme(draft.theme.colorScheme)
+    .readerAccentColor(draft.accentColor)
     .onAppear {
       draft = library.preferences
+      if draft.uiLanguage != "system" {
+        draft.uiLanguage = L10n.resolveLanguage(choice: draft.uiLanguage, preferredLanguages: [])
+      }
       if !availableServices.contains(draft.translationService) {
         draft.translationService = .siliconFlowFree
       }
@@ -161,6 +199,12 @@ struct SettingsView: View {
         apiKey = (try? await credentialStore.read(account: openAIAPIKeyAccount)) ?? ""
         didLoadAPIKey = true
       }
+    }
+    .onChange(of: draft.uiLanguage) { _, language in
+      // Apply immediately while preserving the rest of the in-progress form.
+      var preferences = library.preferences
+      preferences.uiLanguage = language
+      library.savePreferences(preferences)
     }
     .onDisappear {
       let savedPreferences = draft

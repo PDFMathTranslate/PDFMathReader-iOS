@@ -1,0 +1,152 @@
+{
+  "menu.extra.messages.Close Document": {
+    "es": "Cerrar documento",
+    "fr": "Fermer le document",
+    "ja": "書類を閉じる",
+    "ko": "문서 닫기",
+    "zh-CN": "关闭文档",
+    "zh-TW": "關閉文件"
+  },
+  "menu.extra.messages.Close Window": {
+    "es": "Cerrar ventana",
+    "fr": "Fermer la fenêtre",
+    "ja": "ウインドウを閉じる",
+    "ko": "창 닫기",
+    "zh-CN": "关闭窗口",
+    "zh-TW": "關閉視窗"
+  },
+  "menu.extra.messages.Copy": {
+    "es": "Copiar",
+    "fr": "Copier",
+    "ja": "コピー",
+    "ko": "복사",
+    "zh-CN": "拷贝",
+    "zh-TW": "拷貝"
+  },
+  "menu.extra.messages.Copy Email": {
+    "es": "Copiar correo electrónico",
+    "fr": "Copier l’adresse e-mail",
+    "ja": "メールアドレスをコピー",
+    "ko": "이메일 주소 복사",
+    "zh-CN": "拷贝电子邮件地址",
+    "zh-TW": "拷貝電子郵件地址"
+  },
+  "menu.extra.messages.Fit Width": {
+    "es": "Ajustar al ancho",
+    "fr": "Ajuster à la largeur",
+    "ja": "幅に合わせる",
+    "ko": "너비에 맞추기",
+    "zh-CN": "适合宽度",
+    "zh-TW": "符合寬度"
+  },
+  "menu.extra.messages.Go": {
+    "es": "Ir",
+    "fr": "Aller",
+    "ja": "移動",
+    "ko": "이동",
+    "zh-CN": "前往",
+    "zh-TW": "前往"
+  },
+  "menu.extra.messages.Layout": {
+    "es": "Diseño",
+    "fr": "Mise en page",
+    "ja": "レイアウト",
+    "ko": "레이아웃",
+    "zh-CN": "版面",
+    "zh-TW": "版面"
+  },
+  "menu.extra.messages.Next Page": {
+    "es": "Página siguiente",
+    "fr": "Page suivante",
+    "ja": "次のページ",
+    "ko": "다음 페이지",
+    "zh-CN": "下一页",
+    "zh-TW": "下一頁"
+  },
+  "menu.extra.messages.No Recent Documents": {
+    "es": "No hay documentos recientes",
+    "fr": "Aucun document récent",
+    "ja": "最近の書類はありません",
+    "ko": "최근 문서 없음",
+    "zh-CN": "没有最近的文档",
+    "zh-TW": "沒有最近的文件"
+  },
+  "menu.extra.messages.Previous Page": {
+    "es": "Página anterior",
+    "fr": "Page précédente",
+    "ja": "前のページ",
+    "ko": "이전 페이지",
+    "zh-CN": "上一页",
+    "zh-TW": "上一頁"
+  },
+  "menu.extra.messages.Search in Document": {
+    "es": "Buscar en el documento",
+    "fr": "Rechercher dans le document",
+    "ja": "書類内を検索",
+    "ko": "문서에서 검색",
+    "zh-CN": "在文档中搜索",
+    "zh-TW": "在文件中搜尋"
+  },
+  "menu.extra.messages.Target Language": {
+    "es": "Idioma de destino",
+    "fr": "Langue cible",
+    "ja": "翻訳先の言語",
+    "ko": "대상 언어",
+    "zh-CN": "目标语言",
+    "zh-TW": "目標語言"
+  },
+  "menu.extra.messages.Zoom In": {
+    "es": "Acercar",
+    "fr": "Zoom avant",
+    "ja": "拡大",
+    "ko": "확대",
+    "zh-CN": "放大",
+    "zh-TW": "放大"
+  },
+  "menu.extra.messages.Zoom Out": {
+    "es": "Alejar",
+    "fr": "Zoom arrière",
+    "ja": "縮小",
+    "ko": "축소",
+    "zh-CN": "缩小",
+    "zh-TW": "縮小"
+  },
+  "sidebar.annotations": {
+    "es": "Anotaciones",
+    "fr": "Annotations",
+    "ja": "注釈",
+    "ko": "주석"
+  },
+  "sidebar.comment": {
+    "es": "Comentario",
+    "fr": "Commentaire",
+    "ja": "コメント",
+    "ko": "댓글"
+  },
+  "sidebar.highlight": {
+    "es": "Resaltado",
+    "fr": "Surlignage",
+    "ja": "ハイライト",
+    "ko": "강조"
+  },
+  "sidebar.outline": {
+    "es": "Índice",
+    "fr": "Sommaire",
+    "ja": "目次",
+    "ko": "목차"
+  },
+  "sidebar.page": {
+    "es": "Página {page}",
+    "fr": "Page {page}",
+    "ja": "{page} ページ",
+    "ko": "{page}페이지"
+  },
+  "menu.extra.messages.Force Retranslate": {
+    "es": "Forzar nueva traducción",
+    "fr": "Forcer une nouvelle traduction",
+    "ja": "強制的に再翻訳",
+    "ko": "강제로 다시 번역",
+    "zh-CN": "强制重新翻译",
+    "zh-TW": "強制重新翻譯"
+  }
+}

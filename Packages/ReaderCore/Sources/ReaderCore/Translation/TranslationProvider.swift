@@ -80,30 +80,30 @@ public enum TranslationProviderError: Error, LocalizedError, Sendable, Equatable
   public var errorDescription: String? {
     switch self {
     case .invalidBaseURL:
-      return "Invalid translation base URL"
+      return ReaderLocalization.resolve("Invalid translation base URL")
     case .cancelled:
-      return "The translation request was cancelled."
+      return ReaderLocalization.resolve("The translation request was cancelled.")
     case .timeout:
-      return "The translation request timed out."
+      return ReaderLocalization.resolve("The translation request timed out.")
     case let .network(message):
       return message
     case let .http(provider, status):
       if provider == "siliconflow-free" {
-        return "SiliconFlow free service request failed (\(status)). Please retry later."
+        return ReaderLocalization.string("SiliconFlow free service request failed ({0}). Please retry later.", String(status))
       }
       if status == 401 {
-        return "OpenAI rejected the configured API key. Update it in Settings or your launch environment."
+        return ReaderLocalization.resolve("OpenAI rejected the configured API key. Update it in Settings or your launch environment.")
       }
       if status == 429 {
-        return "OpenAI rate limit reached. Reduce parallel requests and retry."
+        return ReaderLocalization.resolve("OpenAI rate limit reached. Reduce parallel requests and retry.")
       }
-      return "OpenAI request failed (\(status))."
+      return ReaderLocalization.string("OpenAI request failed ({0}).", String(status))
     case .invalidResponse:
-      return "The translation service returned an invalid response."
+      return ReaderLocalization.resolve("The translation service returned an invalid response.")
     case .emptyTranslation:
-      return "Empty translation"
+      return ReaderLocalization.resolve("Empty translation")
     case .emptyFreeTranslation:
-      return "SiliconFlow free service returned an empty translation."
+      return ReaderLocalization.resolve("SiliconFlow free service returned an empty translation.")
     }
   }
 }
@@ -377,7 +377,9 @@ public final class SiliconFlowFreeProvider: TranslationProvider, @unchecked Send
         continue
       }
     }
-    throw TranslationProviderError.network("SiliconFlow free service endpoints are unavailable.")
+    throw TranslationProviderError.network(
+      ReaderLocalization.resolve("SiliconFlow free service endpoints are unavailable.")
+    )
   }
 }
 

@@ -6,6 +6,8 @@ import UIKit
 struct LibraryView: View {
   @EnvironmentObject private var library: LibraryModel
   @State private var isImporting = false
+  @State private var isOpeningDocument = false
+  @State private var isShowingComputerDocuments = false
   @State private var isShowingSettings = false
   @State private var isConfirmingClear = false
 
@@ -22,14 +24,20 @@ struct LibraryView: View {
           .font(.largeTitle.bold())
           .accessibilityAddTraits(.isHeader)
         header
+        computerDocumentsSection
         if library.recents.isEmpty {
           emptyState
         } else {
           LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
             ForEach(library.recents) { recent in
               RecentDocumentCard(document: recent) {
-                guard let session = library.makeSession(for: recent) else { return }
-                onOpenDocument(session)
+                guard !isOpeningDocument else { return }
+                isOpeningDocument = true
+                Task {
+                  defer { isOpeningDocument = false }
+                  guard let session = await library.makeSession(for: recent) else { return }
+                  onOpenDocument(session)
+                }
               }
             }
           }
@@ -39,6 +47,10 @@ struct LibraryView: View {
       .padding(.vertical, 24)
       .frame(maxWidth: 1120, alignment: .leading)
       .frame(maxWidth: .infinity, alignment: .center)
+    }
+    .disabled(isOpeningDocument)
+    .overlay {
+      if isOpeningDocument { ProgressView(L10n.string("status.openingPDF")).padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
     }
     .background(Color(uiColor: .systemGroupedBackground))
     .navigationBarTitleDisplayMode(.inline)
@@ -64,14 +76,28 @@ struct LibraryView: View {
     ) { result in
       switch result {
       case .success(let urls):
-        guard let url = urls.first, let session = library.makeSession(for: url) else { return }
-        onOpenDocument(session)
+        guard let url = urls.first, !isOpeningDocument else { return }
+        isOpeningDocument = true
+        Task {
+          defer { isOpeningDocument = false }
+          guard let session = await library.makeSession(for: url) else { return }
+          onOpenDocument(session)
+        }
       case .failure:
         library.lastError = L10n.string("ios.importPDFFailed")
       }
     }
     .sheet(isPresented: $isShowingSettings) {
       SettingsView().environmentObject(library)
+    }
+    .sheet(isPresented: $isShowingComputerDocuments) {
+      NavigationStack {
+        CompanionDocumentsView(manager: library.computerDocuments) { session in
+          isShowingComputerDocuments = false
+          onOpenDocument(session)
+        }
+        .environmentObject(library)
+      }
     }
     .confirmationDialog(
       L10n.string("ios.clearRecentPDFsTitle"),
@@ -99,6 +125,39 @@ struct LibraryView: View {
       Text(L10n.string("ios.resumeReading"))
         .foregroundStyle(.secondary)
     }
+  }
+
+  private var computerDocumentsSection: some View {
+    Button {
+      isShowingComputerDocuments = true
+    } label: {
+      HStack(spacing: 14) {
+        Image(systemName: "desktopcomputer")
+          .font(.title2)
+          .foregroundStyle(.tint)
+          .frame(width: 36, height: 36)
+          .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        VStack(alignment: .leading, spacing: 3) {
+          Text(L10n.string("companion.onYourComputer"))
+            .font(.headline)
+          Text(L10n.string("companion.onYourComputerDescription"))
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.leading)
+        }
+        Spacer(minLength: 8)
+        Image(systemName: "chevron.forward")
+          .font(.footnote.weight(.semibold))
+          .foregroundStyle(.tertiary)
+      }
+      .padding(16)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+      .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("library.computerDocuments")
+    .accessibilityHint(L10n.string("companion.openDocumentsHint"))
   }
 
   private var emptyState: some View {

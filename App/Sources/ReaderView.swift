@@ -120,6 +120,10 @@ struct ReaderView: View {
               .presentationDetents([.medium, .large])
             }
         }
+      } else if model.isLoadingDocument {
+        ProgressView(L10n.string("status.openingPDF"))
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .accessibilityIdentifier("reader.loadingDocument")
       } else {
         ContentUnavailableView(
           L10n.string("ios.pdfUnavailable"),
@@ -128,6 +132,9 @@ struct ReaderView: View {
         )
       }
     }
+    .task { await model.loadDocument() }
+    .task { await annotationModel.prepare() }
+    .task { await drawingModel.prepare() }
     // iPad default: sidebar off in portrait, on in landscape. Each rotation
     // resets it; the toolbar toggle still works in between.
     .onGeometryChange(for: Bool.self) { proxy in
@@ -152,9 +159,6 @@ struct ReaderView: View {
         model.readingState.sidebarVisible = false
         model.persistReadingState()
       }
-    }
-    .onChange(of: model.library.preferences) { _, value in
-      model.updateTranslationPreferences(value)
     }
     .onAppear {
       ReaderCommandRouter.shared.activate(model)
@@ -200,6 +204,13 @@ struct ReaderView: View {
       guard notification.object as? ReaderViewModel === model else { return }
       isSearchPresented = true
     }
+    .onReceive(NotificationCenter.default.publisher(for: .readerSearchSelectedText)) { notification in
+      guard notification.object as? PDFView === model.pdfViewReference.view,
+        let text = notification.userInfo?["text"] as? String else { return }
+      model.searchQuery = text
+      model.search()
+      isSearchPresented = true
+    }
     .sheet(isPresented: $isSearchPresented) {
       SearchSheet(model: model)
     }
@@ -213,6 +224,12 @@ struct ReaderView: View {
       drawings: drawingModel,
       regular: regular,
       onToggleSidebar: toggleSidebar,
+      onClose: onClose.map { close in
+        {
+          model.persistReadingState()
+          close()
+        }
+      },
       onSearch: { isSearchPresented = true },
       onCompare: { isComparePresented = true },
       onExport: { exportRequest = $0 }
@@ -337,6 +354,7 @@ private struct ReaderDetail: View {
   @StateObject private var kernelAvailability = ReaderKernelMenuAvailability()
   let regular: Bool
   let onToggleSidebar: () -> Void
+  let onClose: (() -> Void)?
   let onSearch: () -> Void
   let onCompare: () -> Void
   let onExport: (ReaderExportKind) -> Void
@@ -347,6 +365,7 @@ private struct ReaderDetail: View {
     drawings: ReaderDrawingModel,
     regular: Bool,
     onToggleSidebar: @escaping () -> Void,
+    onClose: (() -> Void)?,
     onSearch: @escaping () -> Void,
     onCompare: @escaping () -> Void,
     onExport: @escaping (ReaderExportKind) -> Void
@@ -356,6 +375,7 @@ private struct ReaderDetail: View {
     self.drawings = drawings
     self.regular = regular
     self.onToggleSidebar = onToggleSidebar
+    self.onClose = onClose
     self.onSearch = onSearch
     self.onCompare = onCompare
     self.onExport = onExport
@@ -419,17 +439,22 @@ private struct ReaderDetail: View {
           .background(.bar)
       }
     }
+    .onReceive(NotificationCenter.default.publisher(for: .translationCacheDidClear)) { notification in
+      if let id = notification.userInfo?["documentID"] as? String,
+        id != model.translationCoordinator?.translationDocumentID { return }
+      translateAll.resetForCurrentConfiguration()
+    }
     .navigationTitle(model.session.title)
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar(removing: .sidebarToggle)
     .toolbar {
       ToolbarItemGroup(placement: .topBarLeading) {
-        // NavigationSplitView supplies its own sidebar button in regular width.
-        if !regular {
-          Button(action: onToggleSidebar) {
-            Label(L10n.string("sidebar.thumbnails"), systemImage: "sidebar.left")
-          }
-          .labelStyle(.iconOnly)
+        Button(action: onToggleSidebar) {
+          Label(L10n.string("sidebar.thumbnails"), systemImage: "sidebar.left")
         }
+        .labelStyle(.iconOnly)
+        .buttonStyle(ReaderSidebarHoldStyle(onClose: onClose))
+        .accessibilityIdentifier("reader.toggleSidebar")
 
         // iPad can relaunch straight into reader windows with no library
         // scene, so readers need their own way to open another PDF.
@@ -443,8 +468,8 @@ private struct ReaderDetail: View {
         }
       }
 
-      // Desktop order: annotation visibility, translation, search, then
-      // everything else in one menu.
+      // Keep drawing, translation, and search directly accessible;
+      // additional reader controls live in the menu.
       ToolbarItemGroup(placement: .topBarTrailing) {
         Button {
           drawings.isDrawing.toggle()
@@ -452,19 +477,9 @@ private struct ReaderDetail: View {
           Label(L10n.string("ios.drawingTools"), systemImage: drawings.isDrawing ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
         }
         .tint(drawings.isDrawing ? .accentColor : .primary)
+        .disabled(!drawings.isPrepared)
         .accessibilityIdentifier("reader.drawingTools")
         .accessibilityValue(drawings.isDrawing ? L10n.string("ios.drawingActive") : L10n.string("ios.drawingInactive"))
-        if !annotations.annotations.isEmpty {
-          Button {
-            annotations.setShowsAnnotations(!annotations.showsAnnotations, in: model.pdfViewReference.view)
-          } label: {
-            Label(
-              L10n.string(annotations.showsAnnotations ? "toolbar.hideAnnotations" : "toolbar.showAnnotations"),
-              systemImage: annotations.showsAnnotations ? "eye" : "eye.slash"
-            )
-          }
-          .accessibilityIdentifier("reader.toggleAnnotations")
-        }
 
         if let coordinator = model.translationCoordinator {
           ReaderTranslationButton(
@@ -494,16 +509,18 @@ private struct ReaderDetail: View {
       switch result {
       case .success(let urls):
         guard let url = urls.first else { return }
-        guard let session = model.library.makeSession(for: url) else {
-          // The library scene's alert may not exist here; report locally.
-          importError = model.library.lastError ?? L10n.string("ios.pdfReadFailed")
-          model.library.lastError = nil
-          return
-        }
-        if let openReaderTab {
-          openReaderTab(session)
-        } else {
-          openWindow(value: model.library.windowValue(for: session))
+        Task {
+          guard let session = await model.library.makeSession(for: url) else {
+            // The library scene's alert may not exist here; report locally.
+            importError = model.library.lastError ?? L10n.string("ios.pdfReadFailed")
+            model.library.lastError = nil
+            return
+          }
+          if let openReaderTab {
+            openReaderTab(session)
+          } else {
+            openWindow(value: model.library.windowValue(for: session))
+          }
         }
       case .failure:
         importError = L10n.string("ios.importPDFFailed")
@@ -521,11 +538,43 @@ private struct ReaderDetail: View {
 
   @ViewBuilder
   private var moreMenu: some View {
+    Section {
+      if !annotations.annotations.isEmpty {
+        Button {
+          annotations.setShowsAnnotations(!annotations.showsAnnotations, in: model.pdfViewReference.view)
+        } label: {
+          Label(
+            L10n.string(annotations.showsAnnotations ? "toolbar.hideAnnotations" : "toolbar.showAnnotations"),
+            systemImage: annotations.showsAnnotations ? "eye" : "eye.slash"
+          )
+        }
+        .accessibilityIdentifier("reader.toggleAnnotations")
+      }
+    }
+
     ReaderTranslationMenu(library: model.library, availability: kernelAvailability) { preferences in
       guard preferences != model.library.preferences else { return }
       translateAll.cancel()
       model.library.savePreferences(preferences)
       model.updateTranslationPreferences(model.library.preferences)
+    }
+    Section {
+      Button {
+        translateAll.cancel()
+        model.translationCoordinator?.forceRetranslate()
+        translateAll.resetForCurrentConfiguration()
+      } label: {
+        Label(L10n.string("menu.extra.messages.Force Retranslate"), systemImage: "arrow.clockwise")
+      }
+      .accessibilityIdentifier("reader.forceRetranslate")
+      Button {
+        translateAll.cancel()
+        do { try model.translationCoordinator?.clearDocumentCache() }
+        catch { importError = error.localizedDescription }
+      } label: {
+        Label(L10n.string("ios.clearDocumentTranslationCache"), systemImage: "trash")
+      }
+      .accessibilityIdentifier("reader.clearDocumentTranslationCache")
     }
     Section(L10n.string("ios.drawingTools")) {
       Toggle(isOn: $drawings.usesFinger) {
@@ -595,6 +644,7 @@ private struct ReaderDetail: View {
 
     Section {
       Button(ReaderExportKind.airDrop.title, systemImage: "airdrop") { onExport(.airDrop) }
+        .disabled(!annotations.isPrepared || !drawings.isPrepared)
         .accessibilityIdentifier("reader.airDropToComputer")
       Menu {
         Button(ReaderExportKind.original.title, systemImage: "doc") { onExport(.original) }
@@ -602,6 +652,7 @@ private struct ReaderDetail: View {
       } label: {
         Label(L10n.string("ios.export"), systemImage: "square.and.arrow.up")
       }
+      .disabled(!annotations.isPrepared || !drawings.isPrepared)
     }
   }
 
@@ -683,6 +734,7 @@ private struct ReaderThumbnailList: View {
                 } label: {
                   ReaderThumbnail(
                     page: page,
+                    session: model.session,
                     number: index + 1,
                     width: geometry.size.width * 0.9,
                     isSelected: model.readingState.page == index + 1
@@ -710,6 +762,7 @@ private struct ReaderThumbnailList: View {
 
 private struct ReaderThumbnail: View {
   let page: PDFPage
+  let session: DocumentSession
   let number: Int
   let width: CGFloat
   let isSelected: Bool
@@ -754,9 +807,21 @@ private struct ReaderThumbnail: View {
     .contentShape(Rectangle())
     .accessibilityElement(children: .ignore)
     .task(id: ObjectIdentifier(page)) {
-      image = ReaderDarkPDF.appearanceImage(ReaderDarkPDF.thumbnail(
-        of: page, fitting: CGSize(width: 280, height: 376), box: .cropBox, inverted: false
-      ))
+      let session = session
+      let pageIndex = number - 1
+      let data = await Task.detached(priority: .utility) {
+        withExtendedLifetime(session.access) {
+          guard let document = PDFDocument(url: session.url),
+            let page = document.page(at: pageIndex) else { return Data?.none }
+          return withExtendedLifetime(document) {
+            ReaderDarkPDF.thumbnail(
+              of: page, fitting: CGSize(width: 280, height: 376), box: .cropBox, inverted: false
+            ).pngData()
+          }
+        }
+      }.value
+      guard !Task.isCancelled, let data, let thumbnail = UIImage(data: data) else { return }
+      image = ReaderDarkPDF.appearanceImage(thumbnail)
     }
   }
 }
@@ -786,34 +851,37 @@ private struct OutlineList: View {
   @ObservedObject var model: ReaderViewModel
 
   var body: some View {
-    if model.outlineEntries.isEmpty {
-      ContentUnavailableView(
-        L10n.string("ios.noOutline"),
-        systemImage: "list.bullet.indent",
-        description: Text(L10n.string("ios.noBookmarks"))
-      )
-    } else {
-      List(model.outlineEntries) { entry in
-        Button {
-          if let page = entry.page { model.goToPage(page) }
-        } label: {
-          HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(entry.title)
-              .lineLimit(2)
-            Spacer(minLength: 4)
-            if let page = entry.page {
-              Text("\(page)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+    Group {
+      if model.outlineEntries.isEmpty {
+        ContentUnavailableView(
+          L10n.string("ios.noOutline"),
+          systemImage: "list.bullet.indent",
+          description: Text(L10n.string("ios.noBookmarks"))
+        )
+      } else {
+        List(model.outlineEntries) { entry in
+          Button {
+            if let page = entry.page { model.goToPage(page) }
+          } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+              Text(entry.title)
+                .lineLimit(2)
+              Spacer(minLength: 4)
+              if let page = entry.page {
+                Text("\(page)")
+                  .font(.caption.monospacedDigit())
+                  .foregroundStyle(.secondary)
+              }
             }
+            .padding(.leading, CGFloat(entry.depth * 14))
           }
-          .padding(.leading, CGFloat(entry.depth * 14))
+          .buttonStyle(.plain)
+          .disabled(entry.page == nil)
         }
-        .buttonStyle(.plain)
-        .disabled(entry.page == nil)
+        .listStyle(.plain)
       }
-      .listStyle(.plain)
     }
+    .task(id: model.library.preferences.tocGenerationEnabled) { await model.loadGeneratedTOC() }
   }
 }
 
@@ -941,5 +1009,71 @@ private struct TranslationProgressRing: View {
     }
     .frame(width: 18, height: 18)
     .animation(.easeOut(duration: 0.2), value: fraction)
+  }
+}
+
+
+/// An exclusive gesture prevents a completed hold from also toggling the sidebar.
+private struct ReaderSidebarHoldStyle: PrimitiveButtonStyle {
+  let onClose: (() -> Void)?
+
+  func makeBody(configuration: Configuration) -> some View {
+    HoldControl(configuration: configuration, onClose: onClose)
+  }
+
+  private struct HoldControl: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var isPressing = false
+    let configuration: PrimitiveButtonStyle.Configuration
+    let onClose: (() -> Void)?
+    private let holdDuration = 1.3
+
+    var body: some View {
+      configuration.label
+        .frame(width: 44, height: 44)
+        .background {
+          Circle()
+            .fill(Color.accentColor.opacity(isPressing ? 0.12 : 0))
+            .padding(3)
+        }
+        .overlay {
+          if onClose != nil {
+            Circle()
+              .trim(from: 0, to: isPressing ? 1 : 0)
+              .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+              .rotationEffect(.degrees(-90))
+              .padding(3)
+              .animation(isPressing ? .linear(duration: holdDuration) : .easeOut(duration: 0.16), value: isPressing)
+              .accessibilityHidden(true)
+          }
+        }
+        .scaleEffect(isPressing && !reduceMotion ? 0.95 : 1)
+        .animation(.easeOut(duration: 0.12), value: isPressing)
+        .contentShape(Rectangle())
+        .gesture(
+          LongPressGesture(minimumDuration: holdDuration, maximumDistance: 16)
+            .updating($isPressing) { value, state, _ in state = value }
+            .exclusively(before: TapGesture())
+            .onEnded { result in
+              switch result {
+              case .first(true):
+                if let onClose {
+                  UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                  onClose()
+                }
+              case .second:
+                configuration.trigger()
+              default:
+                break
+              }
+            }
+        )
+        .accessibilityAction { configuration.trigger() }
+        .accessibilityActions {
+          if let onClose {
+            Button(L10n.string("menu.extra.messages.Close Document"), action: onClose)
+          }
+        }
+    }
   }
 }

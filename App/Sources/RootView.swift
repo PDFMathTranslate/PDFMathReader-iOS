@@ -66,7 +66,7 @@ struct ReaderWindow: View {
     .background(SceneSessionReader { sceneSession = $0 })
     .task {
       guard session == nil, failure == nil else { return }
-      session = library.session(
+      session = await library.session(
         for: value,
         fallbackURL: Self.relocatedIntoCurrentContainer(value.url)
       )

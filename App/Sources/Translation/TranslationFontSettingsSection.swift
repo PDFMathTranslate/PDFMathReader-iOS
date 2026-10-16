@@ -16,9 +16,13 @@ public struct TranslationFontSettingsSection: View {
         L10n.string("ios.translationFontSerif"),
         isOn: $preferences.translationSerif
       )
+      .accessibilityIdentifier("settings.translationSerif")
 
       NavigationLink {
-        TranslationFontPicker(selection: $preferences.translationFont)
+        TranslationFontPicker(
+          selection: $preferences.translationFont,
+          language: preferences.targetLanguage
+        )
       } label: {
         HStack {
           Text(L10n.string("ios.translationFontFamily"))
@@ -28,6 +32,7 @@ public struct TranslationFontSettingsSection: View {
             .lineLimit(1)
         }
       }
+      .accessibilityIdentifier("settings.translationFont")
 
       VStack(alignment: .leading, spacing: 8) {
         Text(L10n.string("ios.translationFontPreview"))
@@ -38,7 +43,8 @@ public struct TranslationFontSettingsSection: View {
             ReaderTranslationFont.resolve(
               name: preferences.translationFont,
               serif: preferences.translationSerif,
-              size: 20
+              size: 20,
+              language: preferences.targetLanguage
             )
           ))
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -60,6 +66,7 @@ public struct TranslationFontSettingsSection: View {
 
 private struct TranslationFontPicker: View {
   @Binding var selection: String
+  let language: String
   @Environment(\.dismiss) private var dismiss
   @State private var searchText = ""
 
@@ -96,7 +103,9 @@ private struct TranslationFontPicker: View {
     } label: {
       HStack(spacing: 12) {
         Text(label)
-          .font(Font(ReaderTranslationFont.resolve(name: name, serif: false, size: 17)))
+          .font(Font(ReaderTranslationFont.resolve(
+            name: name, serif: false, size: 17, language: language
+          )))
           .foregroundStyle(.primary)
         Spacer(minLength: 8)
         if selection == name {

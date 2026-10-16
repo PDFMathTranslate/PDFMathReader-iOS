@@ -126,9 +126,9 @@ public enum PageTranslationPipelineError: Error, LocalizedError, Sendable, Equat
 
   public var errorDescription: String? {
     switch self {
-    case .invalidDocument: return "The PDF document could not be loaded."
-    case .invalidPage: return "The requested PDF page is out of range."
-    case .closed: return "The translation pipeline is closed."
+    case .invalidDocument: return ReaderLocalization.resolve("The PDF document could not be loaded.")
+    case .invalidPage: return ReaderLocalization.resolve("The requested PDF page is out of range.")
+    case .closed: return ReaderLocalization.resolve("The translation pipeline is closed.")
     }
   }
 }
@@ -249,6 +249,7 @@ public actor PageTranslationPipeline {
     aheadPageIndices: [Int] = [],
     direction: Int = 1,
     moving: Bool = false,
+    manual: Bool = false,
     excludedPageIndices: Set<Int> = []
   ) async {
     guard !isClosed else { return }
@@ -279,7 +280,7 @@ public actor PageTranslationPipeline {
       if retryPages.isDisjoint(with: runningPages) { break }
       try? await Task.sleep(nanoseconds: 1_000_000)
     }
-    guard !isClosed else { return }
+    guard !isClosed, !Task.isCancelled else { return }
     await queue.schedule(
       totalPages: pageCount,
       currentPage: current,
@@ -288,10 +289,20 @@ public actor PageTranslationPipeline {
       aheadPages: ahead,
       direction: direction,
       moving: moving,
+      manual: manual,
       excludedPages: Set(excluded.map { $0 + 1 }),
       context: context
     )
     guard !isClosed else { return }
+    let scheduled = await queue.snapshot()
+    let retained = Set(scheduled.queuedPages + scheduled.runningPages)
+    for page in queueSnapshot.queuedPages where !retained.contains(page) {
+      if var value = states[page - 1], value.status == .queued {
+        value.status = .idle
+        states[page - 1] = value
+        publish(value)
+      }
+    }
     for page in pages where page > 0 && !excluded.contains(page - 1) {
       var value = state(for: page - 1)
       if [.idle, .error, .cancelled].contains(value.status) {
@@ -550,7 +561,9 @@ public actor PageTranslationPipeline {
             paragraphs[index].error = nil
           } else {
             paragraphs[index].status = .error
-            paragraphs[index].error = TranslationServiceError.provider("Empty translation").localizedDescription
+            paragraphs[index].error = TranslationServiceError.provider(
+              ReaderLocalization.resolve("Empty translation")
+            ).localizedDescription
           }
         case let .failure(error):
           paragraphs[index].status = .error

@@ -10,30 +10,54 @@ public protocol ReadingAidsConfigurationProviding: AnyObject {
   var readingAidsConfiguration: ReadingAidsConfiguration { get }
 }
 
-private struct ReadingAidsGlyph {
+private struct ReadingAidsGlyph: Sendable {
   var index: Int
   var text: String
   var bounds: CGRect
 }
 
-private struct ReadingAidsPageData {
+private struct ReadingAidsPageData: Sendable {
   var text: String
   var glyphs: [ReadingAidsGlyph]
   var paragraphs: [LayoutParagraph]
 }
 
-private struct ReadingAidsLink {
+private struct ReadingAidsLink: Sendable {
   var url: URL
   var label: String
   var range: ReadingRange
 }
 
-private struct ReadingAidsPageAnalysis {
+private struct ReadingAidsPageAnalysis: Sendable {
   var bionicRanges: [ReadingRange]
   var informationRanges: [InformationRange]
   var topicRanges: [ReadingRange]
   var tfidfRanges: [TfidfRange]
   var links: [ReadingAidsLink]
+}
+
+private struct ReadingAidsAnalysisSource: Sendable {
+  var url: URL?
+  var data: Data?
+}
+
+private struct ReadingAidsAnalysisResult: Sendable {
+  var data: ReadingAidsPageData
+  var analysis: ReadingAidsPageAnalysis
+}
+
+private extension ReadingAidsPageData {
+  static let empty = ReadingAidsPageData(text: "", glyphs: [], paragraphs: [])
+}
+
+private extension ReadingAidsPageAnalysis {
+  static let empty = ReadingAidsPageAnalysis(
+    bionicRanges: [],
+    informationRanges: [],
+    topicRanges: [],
+    tfidfRanges: [],
+    links: []
+  )
 }
 
 /// Supplies cached, page-local drawing and interaction layers for reading aids.
@@ -43,37 +67,49 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
   public let documentID: String
   public private(set) var readingAidsConfiguration: ReadingAidsConfiguration
 
+  private let analysisSource: ReadingAidsAnalysisSource
   private var pageData: [Int: ReadingAidsPageData] = [:]
   private var overlays: [Int: ReadingAidsPageOverlay] = [:]
   private var analyses: [Int: ReadingAidsPageAnalysis] = [:]
-  private let corpus = TermCorpus()
-  private var corpusPages = Set<Int>()
-  private var corpusPrepared = false
+  private var analysisGeneration = 0
+  private var pendingAnalysisTasks: [Int: Task<Void, Never>] = [:]
   private var configurationObservers: [UUID: (ReadingAidsConfiguration) -> Void] = [:]
 
   public init(
     document: PDFDocument,
     preferences: ReaderPreferences,
-    documentID: String = ""
+    documentID: String = "",
+    sourceData: Data? = nil
   ) {
     self.document = document
     self.documentID = documentID
+    let sourceURL = document.documentURL
+    let suppliedSourceData = sourceData?.isEmpty == false ? sourceData : nil
+    self.analysisSource = ReadingAidsAnalysisSource(
+      url: sourceURL,
+      data: suppliedSourceData ?? (sourceURL == nil ? document.dataRepresentation() : nil)
+    )
     self.readingAidsConfiguration = ReadingAidsConfiguration(preferences: preferences)
+  }
+
+  isolated deinit {
+    pendingAnalysisTasks.values.forEach { $0.cancel() }
   }
 
   public func updatePreferences(_ preferences: ReaderPreferences) {
     let next = ReadingAidsConfiguration(preferences: preferences)
     guard next != readingAidsConfiguration else { return }
     readingAidsConfiguration = next
+    analysisGeneration &+= 1
+    pendingAnalysisTasks.values.forEach { $0.cancel() }
+    pendingAnalysisTasks.removeAll(keepingCapacity: true)
     analyses.removeAll(keepingCapacity: true)
-    if next.tfidfWeightingEnabled {
-      prepareTfidfCorpus()
-    }
     for (pageIndex, overlay) in overlays {
-      guard let data = pageData[pageIndex] else { continue }
-      let analysis = analysis(for: data, pageIndex: pageIndex)
-      analyses[pageIndex] = analysis
-      overlay.update(analysis: analysis)
+      overlay.update(accentColor: next.emphasisColor)
+      overlay.update(analysis: .empty)
+      if next.hasOriginalOverlay {
+        requestAnalysis(for: pageIndex)
+      }
     }
     configurationObservers.values.forEach { $0(next) }
   }
@@ -97,34 +133,106 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
     guard pageIndex != NSNotFound, pageIndex < document.pageCount,
       readingAidsConfiguration.hasOriginalOverlay
     else { return nil }
-    let data: ReadingAidsPageData
-    if let cached = pageData[pageIndex] {
-      data = cached
-    } else {
-      let extracted = makePageData(page: page, pageIndex: pageIndex)
-      pageData[pageIndex] = extracted
-      data = extracted
-    }
-
-    if readingAidsConfiguration.tfidfWeightingEnabled {
-      prepareTfidfCorpus()
-    }
-    let analysis = analyses[pageIndex] ?? analysis(for: data, pageIndex: pageIndex)
-    analyses[pageIndex] = analysis
 
     let overlay: ReadingAidsPageOverlay
     if let existing = overlays[pageIndex] {
       overlay = existing
       overlay.rebind(page: page, pdfView: pdfView)
     } else {
-      overlay = ReadingAidsPageOverlay(page: page, pdfView: pdfView, data: data)
+      overlay = ReadingAidsPageOverlay(page: page, pdfView: pdfView, data: pageData[pageIndex] ?? .empty)
       overlays[pageIndex] = overlay
     }
-    overlay.update(analysis: analysis)
+    overlay.update(accentColor: readingAidsConfiguration.emphasisColor)
+    overlay.update(data: pageData[pageIndex] ?? .empty)
+    overlay.update(analysis: analyses[pageIndex] ?? .empty)
+    if pageData[pageIndex] == nil {
+      requestAnalysis(for: pageIndex)
+    }
     return overlay
   }
 
-  private func makePageData(page: PDFPage, pageIndex: Int) -> ReadingAidsPageData {
+  private func requestAnalysis(for pageIndex: Int) {
+    guard pendingAnalysisTasks[pageIndex] == nil else { return }
+    let source = analysisSource
+    let configuration = readingAidsConfiguration
+    let generation = analysisGeneration
+    let task = Task { @MainActor [weak self, source, configuration, generation] in
+      let result = await Task.detached(priority: .utility) {
+        ReadingAidsOverlayProvider.makePageAnalysis(
+          source: source,
+          pageIndex: pageIndex,
+          configuration: configuration
+        )
+      }.value
+      guard !Task.isCancelled, let self else { return }
+      guard self.analysisGeneration == generation,
+        self.readingAidsConfiguration == configuration
+      else { return }
+      self.pendingAnalysisTasks[pageIndex] = nil
+      guard let result else { return }
+      self.pageData[pageIndex] = result.data
+      self.analyses[pageIndex] = result.analysis
+      guard let overlay = self.overlays[pageIndex] else { return }
+      overlay.update(data: result.data)
+      overlay.update(analysis: result.analysis)
+    }
+    pendingAnalysisTasks[pageIndex] = task
+  }
+
+  nonisolated private static func makePageAnalysis(
+    source: ReadingAidsAnalysisSource,
+    pageIndex: Int,
+    configuration: ReadingAidsConfiguration
+  ) -> ReadingAidsAnalysisResult? {
+    guard let document = makeIndependentDocument(from: source),
+      pageIndex >= 0, pageIndex < document.pageCount,
+      let page = document.page(at: pageIndex)
+    else { return nil }
+
+    let data = makePageData(page: page, pageIndex: pageIndex)
+    var corpus: TermCorpus?
+    if configuration.tfidfWeightingEnabled {
+      let prepared = TermCorpus()
+      let pages = sampleTfidfPageNumbers(
+        count: document.pageCount,
+        size: tfidfSamplePages,
+        random: { 0.5 }
+      )
+      for pageNumber in pages {
+        guard let corpusPage = document.page(at: pageNumber - 1) else { continue }
+        let text = corpusPage.string ?? ""
+        _ = try? prepared.add(
+          corpusID(pageNumber - 1),
+          terms: tfidfTermSet([text])
+        )
+      }
+      corpus = prepared
+    }
+
+    return ReadingAidsAnalysisResult(
+      data: data,
+      analysis: makeAnalysis(
+        for: data,
+        pageIndex: pageIndex,
+        configuration: configuration,
+        corpus: corpus
+      )
+    )
+  }
+
+  nonisolated private static func makeIndependentDocument(
+    from source: ReadingAidsAnalysisSource
+  ) -> PDFDocument? {
+    if let data = source.data, !data.isEmpty,
+      let document = PDFDocument(data: data)
+    {
+      return document
+    }
+    guard let url = source.url else { return nil }
+    return PDFDocument(url: url)
+  }
+
+  nonisolated private static func makePageData(page: PDFPage, pageIndex: Int) -> ReadingAidsPageData {
     let text = page.string ?? ""
     let pageString = text as NSString
     var glyphs: [ReadingAidsGlyph] = []
@@ -153,11 +261,12 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
     )
   }
 
-  private func analysis(
+  nonisolated private static func makeAnalysis(
     for data: ReadingAidsPageData,
-    pageIndex: Int
+    pageIndex: Int,
+    configuration: ReadingAidsConfiguration,
+    corpus: TermCorpus?
   ) -> ReadingAidsPageAnalysis {
-    let configuration = readingAidsConfiguration
     let information = configuration.emphasizeInformation
       ? importantInformationRanges(data.text, categories: configuration.informationCategories)
       : []
@@ -166,7 +275,10 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
       : []
 
     var tfidf: [TfidfRange] = []
-    if configuration.tfidfWeightingEnabled, corpus.documentCount() >= tfidfMinimumDocuments {
+    if configuration.tfidfWeightingEnabled,
+      let corpus,
+      corpus.documentCount() >= tfidfMinimumDocuments
+    {
       let terms = tfidfTermSet([data.text])
       if let values = try? corpus.frequencies(excluding: corpusID(pageIndex), terms: terms) {
         let frequencyByTerm = Dictionary(uniqueKeysWithValues: zip(terms, values.frequencies))
@@ -190,32 +302,11 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
     )
   }
 
-  private func prepareTfidfCorpus() {
-    guard !corpusPrepared else { return }
-    corpusPrepared = true
-    let pages = sampleTfidfPageNumbers(
-      count: document.pageCount,
-      size: tfidfSamplePages,
-      random: { 0.5 }
-    )
-    for pageNumber in pages {
-      addCorpusPage(pageNumber - 1)
-    }
-  }
-
-  private func addCorpusPage(_ pageIndex: Int) {
-    guard pageIndex >= 0, pageIndex < document.pageCount, corpusPages.insert(pageIndex).inserted,
-      let page = document.page(at: pageIndex)
-    else { return }
-    let text = page.string ?? ""
-    _ = try? corpus.add(corpusID(pageIndex), terms: tfidfTermSet([text]))
-  }
-
-  private func corpusID(_ pageIndex: Int) -> String {
+  nonisolated private static func corpusID(_ pageIndex: Int) -> String {
     String(format: "%064x", max(0, pageIndex))
   }
 
-  private func topicRanges(
+  nonisolated private static func topicRanges(
     in text: String,
     paragraphs: [LayoutParagraph]
   ) -> [ReadingRange] {
@@ -233,7 +324,7 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
     return result
   }
 
-  private func detectedLinks(in text: String) -> [ReadingAidsLink] {
+  nonisolated private static func detectedLinks(in text: String) -> [ReadingAidsLink] {
     var values: [String] = []
     values.append(contentsOf: detectLinks(text))
     values.append(contentsOf: detectEmails(text).map { "mailto:\($0)" })
@@ -365,7 +456,7 @@ private final class ReadingAidsLinkButton: UIButton {
 private final class ReadingAidsPageOverlay: UIView {
   private weak var pdfView: PDFView?
   private weak var page: PDFPage?
-  private let data: ReadingAidsPageData
+  private var data: ReadingAidsPageData
   private var analysis = ReadingAidsPageAnalysis(
     bionicRanges: [],
     informationRanges: [],
@@ -374,6 +465,7 @@ private final class ReadingAidsPageOverlay: UIView {
     links: []
   )
   private var linkButtons: [ReadingAidsLinkButton] = []
+  private var emphasisColor: UIColor = .systemBlue
 
   init(page: PDFPage, pdfView: PDFView, data: ReadingAidsPageData) {
     self.page = page
@@ -394,6 +486,17 @@ private final class ReadingAidsPageOverlay: UIView {
     guard page !== self.page || pdfView !== self.pdfView else { return }
     self.page = page
     self.pdfView = pdfView
+    setNeedsLayout()
+  }
+
+  func update(accentColor: UIColor) {
+    emphasisColor = accentColor
+    setNeedsDisplay()
+  }
+
+  func update(data: ReadingAidsPageData) {
+    self.data = data
+    setNeedsDisplay()
     setNeedsLayout()
   }
 
@@ -425,13 +528,13 @@ private final class ReadingAidsPageOverlay: UIView {
     guard let context = UIGraphicsGetCurrentContext() else { return }
 
     for range in analysis.topicRanges {
-      context.setFillColor(UIColor.systemBlue.withAlphaComponent(0.13).cgColor)
+      context.setFillColor(emphasisColor.withAlphaComponent(0.13).cgColor)
       for glyphRect in convertedRects(for: range) {
         context.fill(glyphRect.insetBy(dx: -0.3, dy: 0))
       }
     }
 
-    context.setFillColor(UIColor.systemOrange.withAlphaComponent(0.9).cgColor)
+    context.setFillColor(emphasisColor.withAlphaComponent(0.9).cgColor)
     for range in analysis.informationRanges {
       for glyphRect in convertedRects(for: ReadingRange(start: range.start, end: range.end)) {
         let thickness = max(1, glyphRect.height * 0.07)

@@ -10,7 +10,7 @@ struct SearchResult: Identifiable, Hashable {
   let text: String
 }
 
-struct OutlineEntry: Identifiable, Hashable {
+struct OutlineEntry: Identifiable, Hashable, Sendable {
   let id: String
   let title: String
   let page: Int?
@@ -20,7 +20,9 @@ struct OutlineEntry: Identifiable, Hashable {
 @MainActor
 final class ReaderViewModel: ObservableObject {
   let session: DocumentSession
-  let document: PDFDocument?
+  @Published private(set) var document: PDFDocument?
+  @Published private(set) var isLoadingDocument = true
+  private var loadingDocument = false
   let library: LibraryModel
   let pdfViewReference = PDFViewReference()
 
@@ -29,29 +31,65 @@ final class ReaderViewModel: ObservableObject {
   @Published private(set) var searchResults: [SearchResult] = []
   @Published private(set) var translationCoordinator: ReaderTranslationCoordinator?
   // Generated TOC extracts every page, so compute it once per document.
-  private var cachedGeneratedTOC: [OutlineEntry]?
+  @Published private var cachedGeneratedTOC: [OutlineEntry]?
   private var cancellables = Set<AnyCancellable>()
 
   init(session: DocumentSession, library: LibraryModel) {
     self.session = session
     self.library = library
     self.readingState = library.readingState(for: session)
-    self.document = ReaderPDFDocument(url: session.url)
+    self.document = nil
     self.translationCoordinator = nil
-    if let document {
-      library.updateDocumentMetadata(for: session, document: document)
-      cacheThumbnail(document: document)
+    // The reader observes this model, not the nested LibraryModel. Apply
+    // settings directly so completed overlays also update in another window.
+    library.$preferences
+      .removeDuplicates()
+      .sink { [weak self] preferences in
+        guard let self else { return }
+        self.updateTranslationPreferences(preferences)
+        self.objectWillChange.send()
+      }
+      .store(in: &cancellables)
+  }
+
+  /// Only opening the display document gates the reader. Translation and
+  /// previews use separate PDFKit documents and never serialize this one.
+  func loadDocument() async {
+    guard document == nil, !loadingDocument else { return }
+    loadingDocument = true
+    isLoadingDocument = true
+    defer { loadingDocument = false }
+    let session = session
+    let loaded = await Task.detached(priority: .userInitiated) {
+      withExtendedLifetime(session.access) {
+        LoadedReaderPDF(document: ReaderPDFDocument(url: session.url))
+      }
+    }.value
+    guard !Task.isCancelled else { return }
+    if let document = loaded.document {
       translationCoordinator = ReaderTranslationCoordinator(
-        document: document,
-        documentID: session.id,
-        preferences: library.preferences
+        document: document, documentID: session.id, preferences: library.preferences
       )
-      // Views observe this model, not the coordinator; relay visibility
-      // changes so the toolbar toggle's label and icon stay current.
       translationCoordinator?.$showTranslations
         .removeDuplicates()
         .sink { [weak self] _ in self?.objectWillChange.send() }
         .store(in: &cancellables)
+      self.document = document
+      isLoadingDocument = false
+      library.updateDocumentMetadata(for: session, document: document)
+      let thumbnail = await Task.detached(priority: .utility) {
+        withExtendedLifetime(session.access) {
+          guard let previewDocument = PDFDocument(url: session.url),
+            let page = previewDocument.page(at: 0) else { return Data?.none }
+          return withExtendedLifetime(previewDocument) {
+            page.thumbnail(of: CGSize(width: 480, height: 640), for: .mediaBox).pngData()
+          }
+        }
+      }.value
+      guard !Task.isCancelled else { return }
+      if let thumbnail { library.cacheThumbnail(thumbnail, for: session) }
+    } else {
+      isLoadingDocument = false
     }
   }
 
@@ -63,13 +101,23 @@ final class ReaderViewModel: ObservableObject {
       appendOutlineEntries(from: root, depth: 0, path: "", into: &entries)
       if !entries.isEmpty { return entries }
     }
-    guard let document, library.preferences.tocGenerationEnabled else { return [] }
-    if let cachedGeneratedTOC { return cachedGeneratedTOC }
-    let generated = generatedTOCFallback(for: document).map { item in
-      OutlineEntry(id: item.id, title: item.title, page: item.page, depth: item.depth)
-    }
-    cachedGeneratedTOC = generated
-    return generated
+    guard library.preferences.tocGenerationEnabled else { return [] }
+    return cachedGeneratedTOC ?? []
+  }
+
+  func loadGeneratedTOC() async {
+    guard cachedGeneratedTOC == nil, library.preferences.tocGenerationEnabled else { return }
+    let session = session
+    let entries = await Task.detached(priority: .utility) {
+      withExtendedLifetime(session.access) {
+        guard let document = PDFDocument(url: session.url) else { return [OutlineEntry]() }
+        return generatedTOCFallback(for: document).map { item in
+          OutlineEntry(id: item.id, title: item.title, page: item.page, depth: item.depth)
+        }
+      }
+    }.value
+    guard !Task.isCancelled else { return }
+    cachedGeneratedTOC = entries
   }
 
   func receivePDFViewState(_ view: PDFView) {
@@ -78,6 +126,15 @@ final class ReaderViewModel: ObservableObject {
     if let page = view.currentPage, let document = view.document ?? document {
       let index = document.index(for: page)
       if index != NSNotFound { next.page = index + 1 }
+    }
+    if let displayDocument = view.document {
+      translationCoordinator?.updateViewport(
+        currentPageIndex: next.page - 1,
+        visiblePageIndices: view.visiblePages.compactMap { page in
+          let index = displayDocument.index(for: page)
+          return index == NSNotFound ? nil : index
+        }
+      )
     }
     if readingState.scaleMode == .custom {
       next.zoom = Double(view.scaleFactor)
@@ -213,10 +270,10 @@ final class ReaderViewModel: ObservableObject {
     }
   }
 
-  private func cacheThumbnail(document: PDFDocument) {
-    guard let page = document.page(at: 0) else { return }
-    let image = page.thumbnail(of: CGSize(width: 480, height: 640), for: .mediaBox)
-    guard let data = image.pngData() else { return }
-    library.cacheThumbnail(data, for: session)
-  }
+}
+
+/// A one-way ownership transfer: the worker stops touching the document
+/// before the main actor installs it in PDFView.
+private struct LoadedReaderPDF: @unchecked Sendable {
+  let document: PDFDocument?
 }

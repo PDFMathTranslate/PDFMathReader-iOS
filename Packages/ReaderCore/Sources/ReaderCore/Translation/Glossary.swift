@@ -30,7 +30,7 @@ public enum GlossaryError: Error, LocalizedError, Sendable {
   public var errorDescription: String? {
     switch self {
     case .missingToken:
-      return "Translation did not preserve a required glossary term. Retry translation."
+      return ReaderLocalization.resolve("Translation did not preserve a required glossary term. Retry translation.")
     }
   }
 }

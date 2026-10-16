@@ -45,6 +45,7 @@ struct ReaderWindowValue: Codable, Hashable {
 @MainActor
 final class LibraryModel: ObservableObject {
   private let importedPDFDirectory: URL
+  let computerDocuments: CompanionDocumentManager
   let recentsStore: RecentsStore
   let readingStateStore: ReadingStateStore
   let preferencesStore: PreferencesStore
@@ -56,12 +57,15 @@ final class LibraryModel: ObservableObject {
   private var pendingWindowSessions: [String: DocumentSession] = [:]
 
   init(directory: URL = LibraryDirectory.default) {
+    ReaderErrorLocalization.configure()
+    computerDocuments = CompanionDocumentManager(directory: directory.appendingPathComponent("Computer Documents"))
     importedPDFDirectory = directory.appendingPathComponent("Imported PDFs", isDirectory: true)
     recentsStore = RecentsStore(directory: directory)
     readingStateStore = ReadingStateStore(directory: directory)
     preferencesStore = PreferencesStore(directory: directory)
     recents = recentsStore.list()
     preferences = preferencesStore.load()
+    L10n.languageChoice = preferences.uiLanguage
     #if DEBUG
     // UI tests pin the service with `-PMRTranslationService <raw value>`; the
     // override stays in memory so the saved choice on the device is untouched.
@@ -78,7 +82,10 @@ final class LibraryModel: ObservableObject {
   private var translationServiceOverride: ReaderTranslationService?
   #endif
 
-  func makeSession(for url: URL) -> DocumentSession? {
+  func makeSession(for url: URL, computerAuthorized: Bool = false, displayTitle: String? = nil) async -> DocumentSession? {
+    if !computerAuthorized, computerDocuments.handles(url) {
+      return await computerDocuments.reopen(url, library: self)
+    }
     guard url.isFileURL else {
       lastError = L10n.string("ios.localPDFOnly")
       return nil
@@ -90,18 +97,22 @@ final class LibraryModel: ObservableObject {
     let id: String
     let transferredState: ReadingState?
     do {
-      let data = try Self.coordinatedData(at: url)
-      let transferred = try PDFDocument(data: data).flatMap {
-        try ReaderTransferPDF.metadata(from: $0)
-      }
-      // Transfer identity survives PDF annotation rewrites. Hashing the whole
-      // rewritten file would orphan local comments, links, and reading state.
-      if let transferID = transferred?.documentID {
-        id = DocumentIdentity.contentHash(for: Data("PDFMathReaderTransfer:\(transferID)".utf8))
-      } else {
-        id = DocumentIdentity.contentHash(for: data)
-      }
-      transferredState = transferred?.readingState
+      let prepared = try await Task.detached(priority: .userInitiated) {
+        try withExtendedLifetime(access) {
+          let data = try Self.coordinatedData(at: url)
+          guard let document = PDFDocument(data: data) else { throw CocoaError(.fileReadCorruptFile) }
+          let transferred = try ReaderTransferPDF.metadata(from: document)
+          let id = transferred?.documentID.map {
+            DocumentIdentity.contentHash(for: Data("PDFMathReaderTransfer:\($0)".utf8))
+          } ?? DocumentIdentity.contentHash(for: data)
+          return (id, transferred?.readingState)
+        }
+      }.value
+      guard !Task.isCancelled else { return nil }
+      id = computerAuthorized
+        ? DocumentIdentity.contentHash(for: Data(url.standardizedFileURL.absoluteString.utf8))
+        : prepared.0
+      transferredState = prepared.1
     } catch {
       lastError = L10n.string("ios.pdfReadFailed")
       return nil
@@ -119,7 +130,7 @@ final class LibraryModel: ObservableObject {
       }
     }
     let bookmarkData = (try? recentsStore.bookmarkData(for: url)) ?? previous?.bookmarkData ?? Data()
-    let title = url.lastPathComponent.isEmpty ? L10n.string("ios.pdfDocument") : url.lastPathComponent
+    let title = displayTitle ?? (url.lastPathComponent.isEmpty ? L10n.string("ios.pdfDocument") : url.lastPathComponent)
     let thumbnailPath = previous?.thumbnailCachePath ?? recentsStore.thumbnailURL(for: id).path
     let record = RecentDocument(
       id: id,
@@ -140,27 +151,31 @@ final class LibraryModel: ObservableObject {
 
   /// Open-in/Share deliveries can be temporary. Keep a local copy so the
   /// reader and Recents survive the sender removing its file.
-  func receiveExternalPDF(at url: URL) -> DocumentSession? {
+  func receiveExternalPDF(at url: URL) async -> DocumentSession? {
     guard url.isFileURL else {
       lastError = L10n.string("ios.localPDFOnly")
       return nil
     }
     let access = SecurityScopedAccess(url: url)
     do {
-      let localURL = try withExtendedLifetime(access) {
-        let data = try Self.coordinatedData(at: url)
-        guard PDFDocument(data: data) != nil else { throw CocoaError(.fileReadCorruptFile) }
-        let directory = importedPDFDirectory.appendingPathComponent(
-          DocumentIdentity.contentHash(for: data), isDirectory: true
-        )
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let destination = directory.appendingPathComponent(url.lastPathComponent)
-        if !FileManager.default.fileExists(atPath: destination.path) {
-          try data.write(to: destination, options: .atomic)
+      let importedPDFDirectory = importedPDFDirectory
+      let localURL = try await Task.detached(priority: .userInitiated) {
+        try withExtendedLifetime(access) {
+          let data = try Self.coordinatedData(at: url)
+          guard PDFDocument(data: data) != nil else { throw CocoaError(.fileReadCorruptFile) }
+          let directory = importedPDFDirectory.appendingPathComponent(
+            DocumentIdentity.contentHash(for: data), isDirectory: true
+          )
+          try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+          let destination = directory.appendingPathComponent(url.lastPathComponent)
+          if !FileManager.default.fileExists(atPath: destination.path) {
+            try data.write(to: destination, options: .atomic)
+          }
+          return destination
         }
-        return destination
-      }
-      return makeSession(for: localURL)
+      }.value
+      guard !Task.isCancelled else { return nil }
+      return await makeSession(for: localURL)
     } catch {
       lastError = L10n.string("ios.pdfReadFailed")
       return nil
@@ -169,7 +184,7 @@ final class LibraryModel: ObservableObject {
 
   /// Coordinated read so iCloud Drive files are materialized and not read
   /// mid-sync.
-  private static func coordinatedData(at url: URL) throws -> Data {
+  nonisolated private static func coordinatedData(at url: URL) throws -> Data {
     var coordinationError: NSError?
     var result: Result<Data, Error> = .failure(CocoaError(.fileReadUnknown))
     NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readURL in
@@ -179,7 +194,7 @@ final class LibraryModel: ObservableObject {
     return try result.get()
   }
 
-  func makeSession(for recent: RecentDocument) -> DocumentSession? {
+  func makeSession(for recent: RecentDocument) async -> DocumentSession? {
     guard !recent.bookmarkData.isEmpty else {
       lastError = L10n.string("ios.missingBookmark")
       return nil
@@ -187,7 +202,7 @@ final class LibraryModel: ObservableObject {
 
     do {
       let url = try recentsStore.resolveBookmarkData(recent.bookmarkData)
-      return makeSession(for: url)
+      return await makeSession(for: url)
     } catch {
       lastError = L10n.string("ios.pdfUnavailableFromFiles")
       return nil
@@ -219,17 +234,17 @@ final class LibraryModel: ObservableObject {
 
   /// Live handoff first, then the saved bookmark (restored windows), then
   /// the raw URL for files inside the app container.
-  func session(for value: ReaderWindowValue, fallbackURL: URL) -> DocumentSession? {
+  func session(for value: ReaderWindowValue, fallbackURL: URL) async -> DocumentSession? {
     if let session = pendingWindowSessions.removeValue(forKey: value.documentID) {
       return session
     }
     if let recent = recentsStore.document(id: value.documentID),
        !recent.bookmarkData.isEmpty,
-       let session = makeSession(for: recent) {
+       let session = await makeSession(for: recent) {
       return session
     }
     lastError = nil
-    return makeSession(for: fallbackURL)
+    return await makeSession(for: fallbackURL)
   }
 
   func refreshRecents() {
@@ -284,6 +299,7 @@ final class LibraryModel: ObservableObject {
       }
       #endif
       try preferencesStore.save(stored)
+      L10n.languageChoice = value.uiLanguage
       preferences = value
     } catch {
       lastError = L10n.string("ios.preferencesSaveFailed")

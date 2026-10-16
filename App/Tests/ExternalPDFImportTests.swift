@@ -7,7 +7,7 @@ import XCTest
 
 @MainActor
 final class ExternalPDFImportTests: XCTestCase {
-  func testExternalPDFIsCopiedAndRecentsReopenAfterSourceDeletion() throws {
+  func testExternalPDFIsCopiedAndRecentsReopenAfterSourceDeletion() async throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
 
@@ -23,7 +23,8 @@ final class ExternalPDFImportTests: XCTestCase {
     try sourceData.write(to: sourceURL)
 
     let library = LibraryModel(directory: libraryDirectory)
-    let imported = try XCTUnwrap(library.receiveExternalPDF(at: sourceURL))
+    let importedSession = await library.receiveExternalPDF(at: sourceURL)
+    let imported = try XCTUnwrap(importedSession)
     let hash = DocumentIdentity.contentHash(for: sourceData)
     let expectedURL = libraryDirectory
       .appendingPathComponent("Imported PDFs", isDirectory: true)
@@ -39,14 +40,15 @@ final class ExternalPDFImportTests: XCTestCase {
 
     let reopenedLibrary = LibraryModel(directory: libraryDirectory)
     let recent = try XCTUnwrap(reopenedLibrary.recents.first)
-    let reopened = try XCTUnwrap(reopenedLibrary.makeSession(for: recent))
+    let reopenedSession = await reopenedLibrary.makeSession(for: recent)
+    let reopened = try XCTUnwrap(reopenedSession)
 
     XCTAssertEqual(reopened.url.standardizedFileURL, expectedURL.standardizedFileURL)
     XCTAssertEqual(PDFDocument(url: reopened.url)?.pageCount, 1)
     XCTAssertNil(reopenedLibrary.lastError)
   }
 
-  func testInvalidPDFIsRejectedWithoutAddingRecent() throws {
+  func testInvalidPDFIsRejectedWithoutAddingRecent() async throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
 
@@ -61,18 +63,20 @@ final class ExternalPDFImportTests: XCTestCase {
 
     let library = LibraryModel(directory: root.appendingPathComponent("Library", isDirectory: true))
 
-    XCTAssertNil(library.receiveExternalPDF(at: sourceURL))
+    let session = await library.receiveExternalPDF(at: sourceURL)
+    XCTAssertNil(session)
     XCTAssertNotNil(library.lastError)
     XCTAssertTrue(library.recents.isEmpty)
   }
 
-  func testNonFileExternalURLIsRejectedWithoutAddingRecent() throws {
+  func testNonFileExternalURLIsRejectedWithoutAddingRecent() async throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
     let library = LibraryModel(directory: root.appendingPathComponent("Library", isDirectory: true))
     let externalURL = try XCTUnwrap(URL(string: "https://example.com/Paper.pdf"))
 
-    XCTAssertNil(library.receiveExternalPDF(at: externalURL))
+    let session = await library.receiveExternalPDF(at: externalURL)
+    XCTAssertNil(session)
     XCTAssertNotNil(library.lastError)
     XCTAssertTrue(library.recents.isEmpty)
   }

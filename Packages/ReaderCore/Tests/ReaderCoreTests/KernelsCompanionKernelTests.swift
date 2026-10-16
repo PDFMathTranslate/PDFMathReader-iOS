@@ -129,10 +129,47 @@ struct CompanionKernelClientTests {
     #expect(normalizeCompanionURL(" my-mac.local ") == "http://my-mac.local:8891")
     #expect(normalizeCompanionURL("192.168.1.20") == "http://192.168.1.20:8891")
     #expect(normalizeCompanionURL("192.168.1.20:9000") == "http://192.168.1.20:9000")
+    #expect(normalizeCompanionURL("[fd7a:115c:a1e0::1]") == "http://[fd7a:115c:a1e0::1]:8891")
     #expect(normalizeCompanionURL("http://my-mac.local:8891/") == "http://my-mac.local:8891")
     #expect(normalizeCompanionURL("") == "")
     #expect(normalizeCompanionURL(nil) == "")
     #expect(normalizeCompanionPairingCode(" abcd-efgh ijkl_mnop ") == "ABCDEFGHIJKLMNOP")
+  }
+
+  @Test
+  func recognizesOnlyTailscaleLiteralRanges() {
+    #expect(isTailscaleHost("100.64.0.0"))
+    #expect(isTailscaleHost("100.127.255.255"))
+    #expect(!isTailscaleHost("100.63.255.255"))
+    #expect(!isTailscaleHost("100.128.0.0"))
+    #expect(!isTailscaleHost("100.100.100.100"))
+    #expect(isTailscaleHost("fd7a:115c:a1e0::"))
+    #expect(isTailscaleHost("fd7a:115c:a1e0:ffff:ffff:ffff:ffff:ffff"))
+    #expect(!isTailscaleHost("fd7a:115c:a1df::1"))
+    #expect(!isTailscaleHost("fd7a:115c:a1e1::1"))
+    #expect(isTailscaleHost("[fd7a:115c:a1e0::1]"))
+    #expect(!isTailscaleHost("desktop.ts.net"))
+  }
+
+  @Test
+  func validatesAndNormalizesTailscaleCompanionURLs() {
+    #expect(tailscaleCompanionURL("100.64.0.1") == "http://100.64.0.1:8891")
+    #expect(tailscaleCompanionURL("http://100.64.0.1") == "http://100.64.0.1:8891")
+    #expect(tailscaleCompanionURL("https://[fd7a:115c:a1e0::1]") == "https://[fd7a:115c:a1e0::1]:8891")
+    #expect(tailscaleCompanionURL("https://desktop.ts.net/") == "https://desktop.ts.net:8891")
+    #expect(tailscaleCompanionURL("desktop.ts.net") == "http://desktop.ts.net:8891")
+    #expect(tailscaleCompanionURL("http://desktop.ts.net:65535") == "http://desktop.ts.net:65535")
+    #expect(tailscaleCompanionURL("http://desktop.ts.net.evil") == nil)
+    #expect(tailscaleCompanionURL("http://192.168.1.20") == nil)
+    #expect(tailscaleCompanionURL("ftp://100.64.0.1") == nil)
+    #expect(tailscaleCompanionURL("http://100.64.0.1:0") == nil)
+    #expect(tailscaleCompanionURL("http://100.64.0.1:65536") == nil)
+    #expect(tailscaleCompanionURL("http://100.64.0.1:") == nil)
+    #expect(tailscaleCompanionURL("http://user@100.64.0.1") == nil)
+    #expect(tailscaleCompanionURL("http://100.64.0.1/") != nil)
+    #expect(tailscaleCompanionURL("http://100.64.0.1/?query=1") == nil)
+    #expect(tailscaleCompanionURL("http://100.64.0.1#fragment") == nil)
+    #expect(tailscaleCompanionURL("http://100.64.0.1/path") == nil)
   }
 
   @Test
@@ -152,6 +189,38 @@ struct CompanionKernelClientTests {
     await client.markUnhealthy("mac.test", pairingCode: "ABCDEFGH", reason: "Gone")
     let marked = await client.health("mac.test", pairingCode: "ABCDEFGH")
     #expect(marked == CompanionHealth(ok: false, reason: "Gone"))
+  }
+
+  @Test
+  func healthParsesOptionalComputerMetadataAndLegacyHealthRemainsCompatible() async throws {
+    let metadataBody = Data(
+      #"{"status":"ok","app":"PDFMathReader","protocol":1,"version":"0.1.12","computer":{"name":"Office Mac","addresses":["http://100.64.0.9:8891"]},"kernels":[]}"#.utf8
+    )
+    companionMock.install { request in
+      let body = request.url?.host == "metadata.test"
+        ? metadataBody
+        : healthyBody
+      return CompanionMockResponse(body: body)
+    }
+    let client = CompanionKernelClient(session: companionSession())
+    let metadata = await client.health("metadata.test", pairingCode: "AAAA")
+    #expect(
+      metadata.computer == CompanionComputer(
+        name: "Office Mac",
+        addresses: ["http://100.64.0.9:8891"]
+      )
+    )
+
+    let legacy = await client.health("legacy.test", pairingCode: "AAAA")
+    #expect(legacy.computer == nil)
+
+    let encoded = try JSONEncoder().encode(metadata)
+    #expect(try JSONDecoder().decode(CompanionHealth.self, from: encoded) == metadata)
+    let old = try JSONDecoder().decode(
+      CompanionHealth.self,
+      from: Data(#"{"ok":true,"version":"0.1.12","reason":"","kernels":[]}"#.utf8)
+    )
+    #expect(old.computer == nil)
   }
 
   @Test

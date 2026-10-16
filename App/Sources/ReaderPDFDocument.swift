@@ -145,3 +145,86 @@ final class ReaderPDFPage: PDFPage {
     super.draw(with: box, to: context)
   }
 }
+
+/// Keep kernel output as PDF vectors. A full-page UIImage both loses detail
+/// when PDFKit zooms its overlay and retains a large bitmap for every page.
+final class ReaderPDFTileLayer: CATiledLayer {
+  // Core Graphics PDF handles are immutable here and retained together. Only
+  // this snapshot crosses into CATiledLayer drawing; view state stays on MainActor.
+  struct Content: @unchecked Sendable {
+    let document: CGPDFDocument
+    let page: CGPDFPage
+    let bounds: CGRect
+    let inverted: Bool
+  }
+
+  let content = OSAllocatedUnfairLock<Content?>(initialState: nil)
+
+  override class func fadeDuration() -> CFTimeInterval { 0 }
+
+  override func draw(in context: CGContext) {
+    guard let content = content.withLock({ $0 }) else { return }
+    context.saveGState()
+    context.setFillColor(gray: 1, alpha: 1)
+    context.fill(content.bounds)
+    context.translateBy(x: 0, y: content.bounds.height)
+    context.scaleBy(x: 1, y: -1)
+    context.concatenate(content.page.getDrawingTransform(
+      .cropBox, rect: content.bounds, rotate: 0, preserveAspectRatio: true
+    ))
+    context.drawPDFPage(content.page)
+    context.restoreGState()
+    if content.inverted { ReaderDarkPDF.invert(content.bounds, in: context) }
+    withExtendedLifetime(content.document) {}
+  }
+}
+
+@MainActor
+final class ReaderTiledPDFView: UIView {
+  override class var layerClass: AnyClass { ReaderPDFTileLayer.self }
+  private var document: CGPDFDocument?
+  private var inverted = false
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    isOpaque = true
+    isUserInteractionEnabled = false
+    let tiles = layer as! ReaderPDFTileLayer
+    tiles.tileSize = CGSize(width: 512, height: 512)
+    tiles.levelsOfDetail = 1
+    tiles.levelsOfDetailBias = 4
+  }
+
+  required init?(coder: NSCoder) { nil }
+
+  func setPDFData(_ data: Data) {
+    guard let provider = CGDataProvider(data: data as CFData),
+      let document = CGPDFDocument(provider) else { return }
+    self.document = document
+    updateContent()
+  }
+
+  func setInverted(_ inverted: Bool) {
+    guard self.inverted != inverted else { return }
+    self.inverted = inverted
+    updateContent()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    updateContent()
+  }
+
+  private func updateContent() {
+    guard let document, let page = document.page(at: 1), !bounds.isEmpty else { return }
+    let tiles = layer as! ReaderPDFTileLayer
+    let next = ReaderPDFTileLayer.Content(document: document, page: page, bounds: bounds, inverted: inverted)
+    let changed = tiles.content.withLock { content in
+      guard content?.document !== next.document || content?.bounds != next.bounds || content?.inverted != next.inverted
+      else { return false }
+      content = next
+      return true
+    }
+    if changed { tiles.setNeedsDisplay() }
+  }
+}

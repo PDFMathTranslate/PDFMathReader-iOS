@@ -1,6 +1,6 @@
 import Foundation
 
-public enum TranslationMode: String, Sendable {
+public enum TranslationMode: String, Codable, CaseIterable, Hashable, Sendable {
   case full
   case reading
   case readingAhead
@@ -208,11 +208,17 @@ public actor TranslationQueue {
     for (index, page) in pages.enumerated() {
       guard page > 0, seen.insert(page).inserted else { continue }
       let key = JobKey(generation: generation, page: page)
-      if pending.contains(where: { $0.key == key }) || active[key] != nil || (!force && completed.contains(key)) {
+      let priority = priorities.indices.contains(index) ? priorities[index] : index
+      if let pendingIndex = pending.firstIndex(where: { $0.key == key }) {
+        if manual && !pending[pendingIndex].manual {
+          pending[pendingIndex] = Job(key: key, page: page, manual: true, priority: priority)
+        }
+        continue
+      }
+      if active[key] != nil || (!force && completed.contains(key)) {
         continue
       }
       errors.removeValue(forKey: page)
-      let priority = priorities.indices.contains(index) ? priorities[index] : index
       pending.append(Job(key: key, page: page, manual: manual, priority: priority))
     }
     sortPending()
@@ -247,6 +253,19 @@ public actor TranslationQueue {
       moving: moving
     ).filter { !excludedPages.contains($0) }
     queueState.translateAllPages = mode == .full
+    // Scrolling or narrowing the mode drops stale automatic preloads. Explicit
+    // document jobs and work already running retain their lifetime.
+    if !manual {
+      let scope = Set(pages)
+      pending.removeAll { !$0.manual && !scope.contains($0.page) }
+      for index in pending.indices where !pending[index].manual {
+        let job = pending[index]
+        pending[index] = Job(
+          key: job.key, page: job.page, manual: false,
+          priority: pages.firstIndex(of: job.page) ?? job.priority
+        )
+      }
+    }
     let priorities = Array(pages.indices)
     enqueuePages(pages, manual: manual, priorities: priorities, force: force)
   }

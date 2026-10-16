@@ -38,6 +38,10 @@ targets:
       - App/Sources
       - path: App/Resources/Localizable.xcstrings
         buildPhase: resources
+      - path: App/Resources/InfoPlist.xcstrings
+        buildPhase: resources
+      - path: App/Resources/Fonts
+        buildPhase: resources
       - path: App/Resources/Assets.xcassets
         buildPhase: resources
     dependencies:
@@ -45,6 +49,9 @@ targets:
     info:
       path: App/Info.plist
       properties:
+        UIAppFonts:
+          - NotoSerifCJKtc-Regular.otf
+          - NotoSerifCJKtc-Bold.otf
         CFBundleDisplayName: PDFMathReader
         UILaunchScreen: {}
         UISupportsDocumentBrowser: true
@@ -63,12 +70,19 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSLocalNetworkUsageDescription: PDFMathReader connects to translation kernels you add on your local network.
+        NSLocalNetworkUsageDescription: PDFMathReader discovers nearby computers and connects to their shared translation kernels on your local network.
+        NSBonjourServices:
+          - _pdfmathreader._tcp
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
           # iOS 17+ requires explicit HTTP exceptions for IP literals, even over VPN.
           NSExceptionDomains:
             "100.64.0.0/10":
+              NSExceptionAllowsInsecureHTTPLoads: true
+            "fd7a:115c:a1e0::/48":
+              NSExceptionAllowsInsecureHTTPLoads: true
+            "ts.net":
+              NSIncludesSubdomains: true
               NSExceptionAllowsInsecureHTTPLoads: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: PDF Document

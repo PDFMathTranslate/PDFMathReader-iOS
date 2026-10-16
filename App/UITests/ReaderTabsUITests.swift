@@ -2,6 +2,32 @@ import XCTest
 
 final class ReaderTabsUITests: XCTestCase {
   @MainActor
+  func testSidebarHoldClosesOnlyAfterFullDuration() throws {
+    try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad sidebar interaction")
+    XCUIDevice.shared.orientation = .portrait
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
+    app.launch()
+    let sidebar = app.buttons["reader.toggleSidebar"].firstMatch
+    XCTAssertTrue(sidebar.waitForExistence(timeout: 30))
+
+    // Releasing before the threshold must keep the document open.
+    sidebar.press(forDuration: 0.65)
+    XCTAssertTrue(sidebar.exists)
+    let close = app.buttons["reader.closeDocument"].firstMatch
+    sidebar.tap()
+    let visible = NSPredicate(format: "exists == true AND isHittable == true")
+    XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: visible, object: close)], timeout: 5), .completed)
+    sidebar.tap()
+    let hidden = NSPredicate(format: "exists == false OR isHittable == false")
+    XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: hidden, object: close)], timeout: 5), .completed)
+
+    sidebar.press(forDuration: 1.4)
+    XCTAssertTrue(app.buttons["library.settings"].firstMatch.waitForExistence(timeout: 10))
+    XCTAssertFalse(sidebar.exists)
+  }
+
+  @MainActor
   func testSwitchAndCloseDocumentTabs() {
     let app = XCUIApplication()
     app.launchArguments = ["-PMRTabPDFs", "sample.pdf", "precise-compaction.pdf"]
@@ -27,10 +53,9 @@ final class ReaderTabsUITests: XCTestCase {
     cancel.tap()
     let closeButtons = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "reader.closeTab."))
     closeButtons.element(boundBy: 0).tap()
-    XCTAssertEqual(tabs.count, 1)
-    XCTAssertTrue(tabs.element(boundBy: 0).isSelected)
-    closeButtons.element(boundBy: 0).tap()
-    XCTAssertTrue(app.buttons["library.settings"].waitForExistence(timeout: 10))
+    XCTAssertTrue(add.waitForNonExistence(timeout: 5))
     XCTAssertEqual(tabs.count, 0)
+    XCTAssertEqual(closeButtons.count, 0)
+    XCTAssertTrue(headerButton.exists, "The remaining document should stay open when the tab bar hides")
   }
 }

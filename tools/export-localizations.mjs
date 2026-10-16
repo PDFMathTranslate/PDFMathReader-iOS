@@ -55,6 +55,12 @@ for (const [key, messages] of Object.entries(iosExtras)) {
   for (const [locale, value] of Object.entries(messages)) setValue(key, locale, value);
 }
 
+// Native computer-document controls have no desktop counterpart.
+const companionExtras = JSON.parse(await readFile(join(repoRoot, 'tools/companion-strings.json'), 'utf8'));
+for (const [key, messages] of Object.entries(companionExtras)) {
+  for (const [locale, value] of Object.entries(messages)) setValue(key, locale, value);
+}
+
 // The desktop menu has a few strings that are shared with the native shell.
 // Keep these under a separate namespace while retaining the source labels.
 const menuExtra = await import(
@@ -98,6 +104,24 @@ for (const [locale, labels] of Object.entries(menuTabs.MENU_TAB_LABELS)) {
   menuTabs.MENU_TAB_KEYS.forEach((key, index) => setValue(`menu.tabs.${key}`, locale, labels[index]));
 }
 
+// Fill shared desktop keys that the native iOS UI uses but older desktop
+// locale tables omit. Keep these in source so regeneration is lossless.
+const sharedExtras = JSON.parse(await readFile(join(repoRoot, 'tools/ios-shared-strings.json'), 'utf8'));
+for (const [key, messages] of Object.entries(sharedExtras)) {
+  if (!values.has(key)) throw new Error(`Unknown shared localization key: ${key}`);
+  for (const [locale, value] of Object.entries(messages)) {
+    if (!(locale in locales)) throw new Error(`Unknown locale: ${locale}`);
+    // Prefer upstream translations when the desktop catches up.
+    if (!(locale in values.get(key))) setValue(key, locale, value);
+  }
+}
+
+// ReaderCore substitutes numbered brace placeholders itself, after lookup.
+const coreErrors = JSON.parse(await readFile(join(repoRoot, 'tools/core-error-strings.json'), 'utf8'));
+for (const [template, messages] of Object.entries(coreErrors)) {
+  for (const [locale, value] of Object.entries(messages)) setValue(`core.error.${template}`, locale, value);
+}
+
 const placeholderPattern = /\{([A-Za-z0-9_.-]+)\}/g;
 function placeholderNames(template) {
   const names = [];
@@ -135,7 +159,7 @@ for (const key of [...values.keys()].sort()) {
     const value = translated ? translations[locale] : source;
     if (!translated) fallbackCount += 1;
     localizations[locale] = {
-      stringUnit: { state: translated ? 'translated' : 'needs_review', value: formatValue(value, source) },
+      stringUnit: { state: translated ? 'translated' : 'needs_review', value: key.startsWith('core.error.') ? value : formatValue(value, source) },
     };
   }
   strings[key] = { localizations };

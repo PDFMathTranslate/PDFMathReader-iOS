@@ -198,8 +198,8 @@ public enum CustomServiceError: Error, LocalizedError, Sendable {
 
   public var errorDescription: String? {
     switch self {
-    case .unsupportedKernel: return "Unsupported translation service for this kernel"
-    case .incompleteSettings: return "API key, Base URL and Model are required for this OpenAI-compatible service"
+    case .unsupportedKernel: return ReaderLocalization.resolve("Unsupported translation service for this kernel")
+    case .incompleteSettings: return ReaderLocalization.resolve("API key, Base URL and Model are required for this OpenAI-compatible service")
     }
   }
 }

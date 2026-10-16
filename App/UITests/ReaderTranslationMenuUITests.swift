@@ -75,7 +75,13 @@ final class ReaderTranslationMenuUITests: XCTestCase {
     let overflow = app.navigationBars.buttons["More"].firstMatch
     XCTAssertTrue(overflow.waitForExistence(timeout: 30), "Reader More menu did not appear")
     overflow.tap()
-    if more.exists, more.isHittable { more.tap() }
+    if more.exists, more.isHittable {
+      more.tap()
+    } else {
+      let submenu = app.collectionViews.buttons["More"].firstMatch
+      XCTAssertTrue(submenu.waitForExistence(timeout: 5))
+      submenu.tap()
+    }
   }
 
   @MainActor

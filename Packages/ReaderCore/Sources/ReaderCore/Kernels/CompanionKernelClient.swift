@@ -27,12 +27,13 @@ public func normalizeCompanionURL(_ value: String?) -> String {
   guard !trimmed.isEmpty else { return "" }
   if trimmed.contains("://") { return normalizeRemoteKernelUrl(trimmed) }
   let candidate = "http://" + trimmed
-  guard let components = URLComponents(string: candidate), components.host != nil else { return "" }
-  return normalizeRemoteKernelUrl(
-    components.port == nil && (components.path.isEmpty || components.path == "/")
-      ? "http://\(components.host!):\(CompanionKernelClient.defaultPort)"
-      : candidate
-  )
+  guard var components = URLComponents(string: candidate), components.host != nil else { return "" }
+  if components.port == nil && (components.path.isEmpty || components.path == "/") {
+    components.port = CompanionKernelClient.defaultPort
+    guard let withDefaultPort = components.string else { return "" }
+    return normalizeRemoteKernelUrl(withDefaultPort)
+  }
+  return normalizeRemoteKernelUrl(candidate)
 }
 
 public struct CompanionKernelStatus: Codable, Sendable, Equatable {
@@ -49,18 +50,36 @@ public struct CompanionKernelStatus: Codable, Sendable, Equatable {
   }
 }
 
-public struct CompanionHealth: Sendable, Equatable {
+public struct CompanionComputer: Codable, Sendable, Equatable {
+  public let name: String
+  public let addresses: [String]
+
+  public init(name: String, addresses: [String]) {
+    self.name = name
+    self.addresses = addresses
+  }
+}
+
+public struct CompanionHealth: Codable, Sendable, Equatable {
   /// The computer answered with a compatible protocol and accepted the code.
   public let ok: Bool
   public let version: String
   public let reason: String
   public let kernels: [CompanionKernelStatus]
+  public let computer: CompanionComputer?
 
-  public init(ok: Bool, version: String = "", reason: String = "", kernels: [CompanionKernelStatus] = []) {
+  public init(
+    ok: Bool,
+    version: String = "",
+    reason: String = "",
+    kernels: [CompanionKernelStatus] = [],
+    computer: CompanionComputer? = nil
+  ) {
     self.ok = ok
     self.version = version
     self.reason = reason
     self.kernels = kernels
+    self.computer = computer
   }
 
   public func isAvailable(_ engine: String) -> Bool {
@@ -86,31 +105,31 @@ public enum CompanionKernelError: Error, LocalizedError, Sendable, Equatable {
   public var errorDescription: String? {
     switch self {
     case .invalidServerURL:
-      return "Invalid computer address"
+      return ReaderLocalization.resolve("Invalid computer address")
     case .missingPairingCode:
-      return "Enter the pairing code shown on your computer"
+      return ReaderLocalization.resolve("Enter the pairing code shown on your computer")
     case .wrongPairingCode:
-      return "Wrong pairing code"
+      return ReaderLocalization.resolve("Wrong pairing code")
     case .tooManyAttempts:
-      return "Too many attempts. Try again in a minute."
+      return ReaderLocalization.resolve("Too many attempts. Try again in a minute.")
     case .busy:
-      return "Your computer is busy. Try again soon."
+      return ReaderLocalization.resolve("Your computer is busy. Try again soon.")
     case .incompatibleVersion:
-      return "Update PDFMathReader on your computer"
+      return ReaderLocalization.resolve("Update PDFMathReader on your computer")
     case let .timeout(operation):
-      return "Your computer did not respond (\(operation))"
+      return ReaderLocalization.string("Your computer did not respond ({0})", operation)
     case let .httpStatus(status):
-      return "HTTP \(status)"
+      return ReaderLocalization.string("HTTP {0}", String(status))
     case .invalidResponse:
-      return "Your computer sent an invalid response"
+      return ReaderLocalization.resolve("Your computer sent an invalid response")
     case let .translationFailed(message):
       return message
     case .jobLost:
-      return "Your computer lost the page. Try again."
+      return ReaderLocalization.resolve("Your computer lost the page. Try again.")
     case .resultTooLarge:
-      return "The translated page is too large"
+      return ReaderLocalization.resolve("The translated page is too large")
     case .resultNotPDF:
-      return "The translated page is not a PDF"
+      return ReaderLocalization.resolve("The translated page is not a PDF")
     }
   }
 }
@@ -166,6 +185,7 @@ public actor CompanionKernelClient {
     var `protocol`: Int?
     var version: String?
     var kernels: [CompanionKernelStatus]?
+    var computer: CompanionComputer?
   }
 
   private struct JobBody: Decodable {
@@ -230,10 +250,16 @@ public actor CompanionKernelClient {
         value = CompanionHealth(
           ok: false,
           version: body.version ?? "",
-          reason: CompanionKernelError.incompatibleVersion.localizedDescription
+          reason: CompanionKernelError.incompatibleVersion.localizedDescription,
+          computer: body.computer
         )
       } else {
-        value = CompanionHealth(ok: true, version: body.version ?? "", kernels: body.kernels ?? [])
+        value = CompanionHealth(
+          ok: true,
+          version: body.version ?? "",
+          kernels: body.kernels ?? [],
+          computer: body.computer
+        )
       }
     } catch is CancellationError {
       return CompanionHealth(ok: false, reason: "Cancelled")
@@ -455,7 +481,7 @@ public actor CompanionKernelClient {
       switch error.code {
       case .cannotFindHost, .cannotConnectToHost, .notConnectedToInternet, .networkConnectionLost,
         .timedOut, .dnsLookupFailed:
-        return "Can’t reach your computer. Check that PDFMathReader is open and kernel sharing is on."
+        return ReaderLocalization.resolve("Can’t reach your computer. Check that PDFMathReader is open and kernel sharing is on.")
       default:
         break
       }

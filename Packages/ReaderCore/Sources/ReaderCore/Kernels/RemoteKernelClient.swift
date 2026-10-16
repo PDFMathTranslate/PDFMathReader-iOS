@@ -120,27 +120,27 @@ public enum RemoteKernelError: Error, LocalizedError, Sendable, Equatable {
   public var errorDescription: String? {
     switch self {
     case .invalidServerURL:
-      return "Invalid server URL"
+      return ReaderLocalization.resolve("Invalid server URL")
     case .invalidPDF:
-      return "The PDF data is invalid"
+      return ReaderLocalization.resolve("The PDF data is invalid")
     case .pageOutOfRange:
-      return "Page is out of range"
+      return ReaderLocalization.resolve("Page is out of range")
     case let .timeout(operation):
-      return "Remote \(operation) timed out"
+      return ReaderLocalization.string("Remote {0} timed out", operation)
     case let .httpStatus(status):
-      return "HTTP \(status)"
+      return ReaderLocalization.string("HTTP {0}", String(status))
     case let .invalidResponse(message):
       return message
     case let .remoteFailure(message):
-      return "Remote translation failed: \(message)"
+      return ReaderLocalization.string("Remote translation failed: {0}", message)
     case .noTaskID:
-      return "Remote server sent no task id"
+      return ReaderLocalization.resolve("Remote server sent no task id")
     case .stoppedResponding:
-      return "Remote server stopped responding"
+      return ReaderLocalization.resolve("Remote server stopped responding")
     case .resultTooLarge:
-      return "Remote result is too large"
+      return ReaderLocalization.resolve("Remote result is too large")
     case .resultNotPDF:
-      return "Remote result is not a PDF"
+      return ReaderLocalization.resolve("Remote result is not a PDF")
     }
   }
 }
@@ -355,10 +355,14 @@ public actor RemoteKernelClient {
     )
     try Task.checkCancellation()
     guard let submitHTTP = submitResponse as? HTTPURLResponse else {
-      throw RemoteKernelError.invalidResponse("Remote server returned an invalid response")
+      throw RemoteKernelError.invalidResponse(
+        ReaderLocalization.resolve("Remote server returned an invalid response")
+      )
     }
     guard let payload = try JSONSerialization.jsonObject(with: submitData) as? [String: Any] else {
-      throw RemoteKernelError.invalidResponse("Remote server returned HTTP \(submitHTTP.statusCode)")
+      throw RemoteKernelError.invalidResponse(
+        ReaderLocalization.string("Remote server returned HTTP {0}", String(submitHTTP.statusCode))
+      )
     }
     let payloadStatus = payload["status"] as? String
     if !(200..<300).contains(submitHTTP.statusCode) || payloadStatus == "error" {
@@ -409,9 +413,13 @@ public actor RemoteKernelClient {
       }
     }
 
-    guard let names = files else { throw RemoteKernelError.invalidResponse("No translated files") }
+    guard let names = files else {
+      throw RemoteKernelError.invalidResponse(ReaderLocalization.resolve("No translated files"))
+    }
     guard let name = Self.pickTranslatedFile(names) else {
-      throw RemoteKernelError.invalidResponse("Remote server returned no translated PDF")
+      throw RemoteKernelError.invalidResponse(
+        ReaderLocalization.resolve("Remote server returned no translated PDF")
+      )
     }
     let translated = try await download(base: base, name: name)
     try Task.checkCancellation()
@@ -469,11 +477,11 @@ public actor RemoteKernelClient {
       operation: "poll"
     )
     guard let http = response as? HTTPURLResponse else {
-      throw RemoteKernelError.invalidResponse("Invalid polling response")
+      throw RemoteKernelError.invalidResponse(ReaderLocalization.resolve("Invalid polling response"))
     }
     guard (200..<300).contains(http.statusCode) else { throw RemoteKernelError.httpStatus(http.statusCode) }
     guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-      throw RemoteKernelError.invalidResponse("Invalid polling response")
+      throw RemoteKernelError.invalidResponse(ReaderLocalization.resolve("Invalid polling response"))
     }
     return object
   }

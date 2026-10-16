@@ -24,17 +24,17 @@ enum ReaderDrawingPDF {
     var errorDescription: String? {
       switch self {
       case .invalidPDF:
-        "The drawing PDF could not be opened."
+        ReaderLocalization.resolve("The drawing PDF could not be opened.")
       case .missingPage(let page):
-        "The drawing references missing PDF page \(page)."
+        ReaderLocalization.string("The drawing references missing PDF page {0}.", String(page))
       case .invalidDrawing(let page):
-        "The PencilKit drawing on PDF page \(page) is invalid."
+        ReaderLocalization.string("The PencilKit drawing on PDF page {0} is invalid.", String(page))
       case .couldNotRenderDrawing(let page):
-        "The PencilKit drawing on PDF page \(page) could not be rendered."
+        ReaderLocalization.string("The PencilKit drawing on PDF page {0} could not be rendered.", String(page))
       case .couldNotSerialize:
-        "The drawing PDF could not be serialized."
+        ReaderLocalization.resolve("The drawing PDF could not be serialized.")
       case .pdfTooLarge:
-        "The drawing PDF exceeds the 200 MiB limit."
+        ReaderLocalization.resolve("The drawing PDF exceeds the 200 MiB limit.")
       }
     }
   }

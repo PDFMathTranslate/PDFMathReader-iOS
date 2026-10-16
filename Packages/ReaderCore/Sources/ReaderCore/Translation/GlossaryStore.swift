@@ -7,9 +7,9 @@ public enum GlossaryStoreError: Error, Equatable, LocalizedError, Sendable {
   public var errorDescription: String? {
     switch self {
     case .invalidGlossary:
-      return "The glossary contains too many entries or an entry is too long."
+      return ReaderLocalization.resolve("The glossary contains too many entries or an entry is too long.")
     case .unableToEncode:
-      return "The glossary could not be encoded."
+      return ReaderLocalization.resolve("The glossary could not be encoded.")
     }
   }
 }

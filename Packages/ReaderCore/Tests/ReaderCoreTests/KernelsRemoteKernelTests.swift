@@ -140,6 +140,29 @@ private func testPDF(pageCount: Int = 2) -> Data {
   return document.dataRepresentation()!
 }
 
+private func installSuccessfulTranslationHandler(
+  recorder: RequestRecorder,
+  translatedPDF: Data = testPDF(pageCount: 1),
+  submissionDelay: TimeInterval = 0
+) {
+  MockURLProtocol.install { request in
+    let path = request.url?.path ?? ""
+    recorder.record(path)
+    if path == "/translate" {
+      if submissionDelay > 0 {
+        Thread.sleep(forTimeInterval: submissionDelay)
+      }
+      return MockHTTPResponse(
+        body: Data(#"{"status":"accepted","fileList":["result.mono.pdf"]}"#.utf8)
+      )
+    }
+    if path == "/translatedFile/result.mono.pdf" {
+      return MockHTTPResponse(body: translatedPDF)
+    }
+    return MockHTTPResponse(statusCode: 404)
+  }
+}
+
 @Suite(.serialized)
 struct RemoteKernelClientTests {
   init() {
@@ -423,5 +446,247 @@ struct RemoteKernelClientTests {
     #expect(recorder.count("/translate") == 1)
     #expect(PDFDocument(data: second)?.pageCount == 1)
     #expect(FileManager.default.fileExists(atPath: cacheDirectory.path))
+  }
+
+  @Test
+  @MainActor
+  func mathPageTranslatorStableDocumentScopeReusesAcrossRecreatedDocuments() async throws {
+    let recorder = RequestRecorder()
+    installSuccessfulTranslationHandler(recorder: recorder)
+
+    let cacheDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdfmathreader-cache-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let translator = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()),
+      cacheDirectory: cacheDirectory
+    )
+    let firstDocument = PDFDocument(data: testPDF(pageCount: 2))!
+    let secondDocument = PDFDocument(data: testPDF(pageCount: 2))!
+
+    let first = try await translator.translatePage(
+      document: firstDocument,
+      pageIndex: 1,
+      serverURL: "https://kernel.test",
+      language: "zh-CN",
+      engine: "pdf_math_precise",
+      cacheScope: "documenthash:stable-document"
+    )
+    let second = try await translator.translatePage(
+      document: secondDocument,
+      pageIndex: 1,
+      serverURL: "https://kernel.test/",
+      language: "zh-CN",
+      engine: "pdf_math_precise",
+      cacheScope: "documenthash:stable-document"
+    )
+
+    #expect(first == second)
+    #expect(recorder.count("/translate") == 1)
+  }
+
+  @Test
+  @MainActor
+  func mathPageTranslatorCompatibleReuseRequiresOptIn() async throws {
+    let recorder = RequestRecorder()
+    installSuccessfulTranslationHandler(recorder: recorder)
+
+    let cacheDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdfmathreader-cache-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let translator = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()),
+      cacheDirectory: cacheDirectory
+    )
+    let document = PDFDocument(data: testPDF(pageCount: 1))!
+
+    _ = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel-a.test",
+      language: "zh-CN",
+      service: "service-a",
+      engine: "pdf_math_precise"
+    )
+    _ = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel-b.test",
+      language: "zh-CN",
+      service: "service-b",
+      engine: "pdf_math_precise",
+      reuseTranslations: false
+    )
+    let reused = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel-c.test",
+      language: "zh-CN",
+      service: "service-c",
+      engine: "pdf_math_precise",
+      reuseTranslations: true
+    )
+
+    #expect(PDFDocument(data: reused)?.pageCount == 1)
+    #expect(recorder.count("/translate") == 2)
+  }
+
+  @Test
+  @MainActor
+  func mathPageTranslatorCacheIsolatedByLanguageEngineAndDocumentScope() async throws {
+    let recorder = RequestRecorder()
+    installSuccessfulTranslationHandler(recorder: recorder)
+
+    let cacheDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdfmathreader-cache-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let translator = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()),
+      cacheDirectory: cacheDirectory
+    )
+    let document = PDFDocument(data: testPDF(pageCount: 1))!
+
+    _ = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel.test",
+      language: "zh-CN",
+      engine: "pdf_math_precise",
+      cacheScope: "documenthash:scope-a"
+    )
+    _ = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel.test",
+      language: "ja",
+      engine: "pdf_math_precise",
+      cacheScope: "documenthash:scope-a"
+    )
+    _ = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel.test",
+      language: "zh-CN",
+      engine: "pdf_math_fast",
+      cacheScope: "documenthash:scope-a"
+    )
+    _ = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel.test",
+      language: "zh-CN",
+      engine: "pdf_math_precise",
+      cacheScope: "documenthash:scope-b"
+    )
+
+    #expect(recorder.count("/translate") == 4)
+  }
+
+  @Test
+  @MainActor
+  func mathPageTranslatorCacheOnlyMissDoesNotUseNetwork() async throws {
+    let recorder = RequestRecorder()
+    installSuccessfulTranslationHandler(recorder: recorder)
+
+    let cacheDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdfmathreader-cache-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let translator = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()),
+      cacheDirectory: cacheDirectory
+    )
+    let document = PDFDocument(data: testPDF(pageCount: 1))!
+
+    do {
+      _ = try await translator.translatePage(
+        document: document,
+        pageIndex: 0,
+        serverURL: "https://kernel.test",
+        language: "zh-CN",
+        engine: "pdf_math_precise",
+        cacheOnly: true
+      )
+      Issue.record("expected a cache-only miss")
+    } catch {
+      #expect(error as? MathPageTranslatorError == .cacheMiss)
+    }
+    #expect(recorder.count("/translate") == 0)
+  }
+
+  @Test
+  @MainActor
+  func mathPageTranslatorForceRetranslationIssuesFreshRequest() async throws {
+    let recorder = RequestRecorder()
+    installSuccessfulTranslationHandler(recorder: recorder)
+
+    let cacheDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdfmathreader-cache-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let translator = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()),
+      cacheDirectory: cacheDirectory
+    )
+    let document = PDFDocument(data: testPDF(pageCount: 1))!
+
+    _ = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel.test",
+      language: "zh-CN",
+      engine: "pdf_math_precise"
+    )
+    _ = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel.test",
+      language: "zh-CN",
+      engine: "pdf_math_precise",
+      forceRetranslation: true
+    )
+
+    #expect(recorder.count("/translate") == 2)
+  }
+
+  @Test
+  @MainActor
+  func mathPageTranslatorsCoalesceConcurrentRequestsForSharedCache() async throws {
+    let recorder = RequestRecorder()
+    installSuccessfulTranslationHandler(recorder: recorder, submissionDelay: 0.1)
+
+    let cacheDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdfmathreader-cache-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let translatorA = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()),
+      cacheDirectory: cacheDirectory
+    )
+    let translatorB = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()),
+      cacheDirectory: cacheDirectory
+    )
+    let document = PDFDocument(data: testPDF(pageCount: 1))!
+
+    let first = Task { @MainActor in
+      try await translatorA.translatePage(
+        document: document,
+        pageIndex: 0,
+        serverURL: "https://kernel.test",
+        language: "zh-CN",
+        engine: "pdf_math_precise"
+      )
+    }
+    let second = Task { @MainActor in
+      try await translatorB.translatePage(
+        document: document,
+        pageIndex: 0,
+        serverURL: "https://kernel.test",
+        language: "zh-CN",
+        engine: "pdf_math_precise"
+      )
+    }
+    let results = try await (first.value, second.value)
+
+    #expect(results.0 == results.1)
+    #expect(recorder.count("/translate") == 1)
   }
 }

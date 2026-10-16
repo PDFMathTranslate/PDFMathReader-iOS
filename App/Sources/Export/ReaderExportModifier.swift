@@ -195,12 +195,7 @@ struct ReaderExportModifier: ViewModifier {
 
   private func translatedPDFData() throws -> Data {
     let sourceData = try originalPDFData()
-    let snapshot = coordinator?.exportSnapshot()
-    return try TranslatedPDFExporter().export(
-      originalPDFData: sourceData,
-      paragraphsByPage: snapshot?.paragraphsByPage ?? [],
-      replacementPDFDataByPage: snapshot?.replacementPDFDataByPage ?? []
-    )
+    return try coordinator?.exportedPDFData(originalPDFData: sourceData) ?? sourceData
   }
 
   private static func writeTemporaryFile(data: Data, fileName: String) throws -> URL {

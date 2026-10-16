@@ -159,3 +159,45 @@ struct TranslationQueueTests {
     #expect(snapshot.context.engine == "precise")
   }
 }
+
+private actor TranslationPageGate {
+  private var continuation: CheckedContinuation<Void, Never>?
+  private var started = false
+
+  func wait() async {
+    started = true
+    await withCheckedContinuation { continuation = $0 }
+  }
+
+  func hasStarted() -> Bool { started }
+  func release() { continuation?.resume(); continuation = nil }
+}
+
+extension TranslationQueueTests {
+  @Test
+  func narrowingScopeDropsPendingPreloadsAndPreservesManualWork() async throws {
+    let gate = TranslationPageGate()
+    let recorder = PageRecorder()
+    let queue = TranslationQueue(pageConcurrency: 1) { page in
+      await recorder.start(page)
+      if page == 1 { await gate.wait() }
+      await recorder.finish(page)
+    }
+    await queue.schedule(totalPages: 21, currentPage: 1, mode: .full, excludedPages: [21])
+    for _ in 0..<100 {
+      if await gate.hasStarted() { break }
+      try await Task.sleep(for: .milliseconds(1))
+    }
+    // Explicit requests promote existing automatic work and survive narrowing.
+    await queue.enqueue(page: 20, manual: true)
+    await queue.enqueue(page: 21, manual: true)
+    await queue.schedule(totalPages: 21, currentPage: 10, mode: .reading)
+    let snapshot = await queue.snapshot()
+    #expect(snapshot.runningPages == [1])
+    #expect(snapshot.queuedPages == [20, 21, 10, 11, 9, 12, 8])
+    await gate.release()
+    try await queue.waitUntilIdle()
+    let started = await recorder.started
+    #expect(started == [1, 20, 21, 10, 11, 9, 12, 8])
+  }
+}

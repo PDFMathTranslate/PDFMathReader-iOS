@@ -283,36 +283,41 @@ struct PDFKitView: UIViewRepresentable {
     @MainActor
     func apply(_ state: ReadingState) {
       guard let view = pdfView else { return }
-      view.displayDirection = state.scrollDirection == .vertical ? .vertical : .horizontal
+      let direction: PDFDisplayDirection = state.scrollDirection == .vertical ? .vertical : .horizontal
+      if view.displayDirection != direction { view.displayDirection = direction }
+      let displayMode: PDFDisplayMode
       switch state.displayMode {
       case .singlePage:
-        view.displayMode = .singlePageContinuous
+        displayMode = .singlePageContinuous
       case .twoPages:
-        view.displayMode = .twoUpContinuous
+        displayMode = .twoUpContinuous
       case .fourPages:
         // PDFKit has no four-up mode. P1 uses two-up with a compact scale so four pages can
         // be scanned across two facing-page pairs without inventing a second page renderer.
-        view.displayMode = .twoUpContinuous
+        displayMode = .twoUpContinuous
       }
 
+      if view.displayMode != displayMode { view.displayMode = displayMode }
+      if view.autoScales { view.autoScales = false }
       let baseScale: CGFloat
       switch state.scaleMode {
       case .fitPage:
-        view.autoScales = false
         baseScale = view.scaleFactorForSizeToFit
       case .fitWidth:
-        view.autoScales = false
         baseScale = view.scaleFactorForSizeToFit
       case .actualSize:
-        view.autoScales = false
         baseScale = 1
       case .custom:
-        view.autoScales = false
         baseScale = CGFloat(state.zoom)
       }
-      view.scaleFactor = state.displayMode == .fourPages
+      let targetScale = state.displayMode == .fourPages
         ? max(view.minScaleFactor, baseScale * 0.75)
         : baseScale
+      // Translation progress causes frequent SwiftUI updates. Reapplying the
+      // same zoom needlessly invalidates PDFKit's high-resolution page tiles.
+      if targetScale.isFinite, targetScale > 0, abs(view.scaleFactor - targetScale) > 0.001 {
+        view.scaleFactor = targetScale
+      }
 
       let targetIndex = max(0, min((view.document?.pageCount ?? 1) - 1, state.page - 1))
       if let page = view.document?.page(at: targetIndex), view.currentPage !== page {

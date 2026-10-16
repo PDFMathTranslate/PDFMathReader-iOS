@@ -71,12 +71,11 @@ public enum ReaderAnnotationPDF {
       guard let page = document.page(at: pageIndex) else { continue }
       let geometry = PageGeometry(page: page)
       for (annotationIndex, annotation) in page.annotations.enumerated() {
+        if let managed = managedAnnotation(from: annotation) {
+          annotations.append(managed)
+          continue
+        }
         if isManagedName(annotation.value(forAnnotationKey: rawKey("NM"))) {
-          if let managed = managedAnnotation(from: annotation),
-            let normalized = try? ReaderAnnotationValidator.validate(managed)
-          {
-            annotations.append(normalized)
-          }
           continue
         }
 
@@ -260,12 +259,15 @@ public enum ReaderAnnotationPDF {
   }
 
   private static func managedAnnotation(from annotation: PDFAnnotation) -> ReaderAnnotation? {
-    guard isManagedName(annotation.value(forAnnotationKey: rawKey("NM"))),
-      let value = annotation.value(forAnnotationKey: rawKey("PDFMathReader")) as? String,
+    // PDFKit drops /NM on reserialization, but retains our JSON payload.
+    // Recognize that payload so edits replace the previous mark rather than
+    // stacking another highlight on top of it.
+    guard let value = annotation.value(forAnnotationKey: rawKey("PDFMathReader")) as? String,
       let data = value.data(using: .utf8),
-      let decoded = try? JSONDecoder().decode(ReaderAnnotation.self, from: data)
+      let decoded = try? JSONDecoder().decode(ReaderAnnotation.self, from: data),
+      let validated = try? ReaderAnnotationValidator.validate(decoded)
     else { return nil }
-    return decoded
+    return validated
   }
 
   private static func encodedJSON(_ annotation: ReaderAnnotation) throws -> String {
@@ -324,7 +326,7 @@ public enum ReaderAnnotationPDF {
   private static func platformColor(_ value: String) -> ReaderPDFColor {
     let digits = Array(value.dropFirst().prefix(6))
     guard digits.count == 6,
-      let red = Int(String(digits[digits.startIndex...digits.index(digits.startIndex, offsetBy: 2)]), radix: 16),
+      let red = Int(String(digits[digits.startIndex..<digits.index(digits.startIndex, offsetBy: 2)]), radix: 16),
       let green = Int(String(digits[digits.index(digits.startIndex, offsetBy: 2)..<digits.index(digits.startIndex, offsetBy: 4)]), radix: 16),
       let blue = Int(String(digits[digits.index(digits.startIndex, offsetBy: 4)..<digits.endIndex]), radix: 16)
     else { return .yellow }
@@ -890,10 +892,10 @@ public enum ReaderAnnotationPDFError: Error, Equatable, LocalizedError, Sendable
 
   public var errorDescription: String? {
     switch self {
-    case .invalidPDF: "The PDF could not be opened."
-    case .missingPage(let page): "Annotation references missing PDF page \(page)."
-    case .annotationOutsidePage(let id): "Annotation \(id) is outside its PDF page."
-    case .couldNotSerialize: "The annotated PDF could not be serialized."
+    case .invalidPDF: ReaderLocalization.resolve("The PDF could not be opened.")
+    case .missingPage(let page): ReaderLocalization.string("Annotation references missing PDF page {0}.", String(page))
+    case .annotationOutsidePage(let id): ReaderLocalization.string("Annotation {0} is outside its PDF page.", id)
+    case .couldNotSerialize: ReaderLocalization.resolve("The annotated PDF could not be serialized.")
     }
   }
 }
