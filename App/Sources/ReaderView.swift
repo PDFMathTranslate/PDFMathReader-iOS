@@ -1,6 +1,7 @@
 import PDFKit
 import ReaderCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum ReaderSidebarMode: String, CaseIterable {
   case thumbnails
@@ -26,7 +27,6 @@ struct ReaderView: View {
   @State private var isSearchPresented = false
   @State private var isGoToPagePresented = false
   @State private var isComparePresented = false
-  @State private var isAccessingResource = false
 
   init(session: DocumentSession, library: LibraryModel) {
     _model = StateObject(wrappedValue: ReaderViewModel(session: session, library: library))
@@ -91,16 +91,9 @@ struct ReaderView: View {
     }
     .onAppear {
       ReaderCommandRouter.shared.activate(model)
-      if !isAccessingResource {
-        isAccessingResource = model.session.url.startAccessingSecurityScopedResource()
-      }
     }
     .onDisappear {
       ReaderCommandRouter.shared.deactivate(model)
-      if isAccessingResource {
-        model.session.url.stopAccessingSecurityScopedResource()
-        isAccessingResource = false
-      }
       model.persistReadingState()
     }
     .onReceive(NotificationCenter.default.publisher(for: .readerNextPage)) { notification in
@@ -197,6 +190,9 @@ private struct ReaderDetail: View {
   @ObservedObject var model: ReaderViewModel
   @ObservedObject var annotations: ReaderAnnotationViewModel
   @Environment(\.readerPageOverlayProvider) private var environmentOverlayProvider
+  @Environment(\.openWindow) private var openWindow
+  @State private var isImporting = false
+  @State private var importError: String?
   let regular: Bool
   let onToggleSidebar: () -> Void
   let onSearch: () -> Void
@@ -240,6 +236,17 @@ private struct ReaderDetail: View {
           Label(L10n.string("sidebar.thumbnails"), systemImage: "sidebar.left")
         }
         .labelStyle(.iconOnly)
+
+        // iPad can relaunch straight into reader windows with no library
+        // scene, so readers need their own way to open another PDF.
+        if regular {
+          Button {
+            isImporting = true
+          } label: {
+            Label(L10n.string("ios.importPDF"), systemImage: "doc.badge.plus")
+          }
+          .labelStyle(.iconOnly)
+        }
 
         Button(action: onGoToPage) {
           Text(
@@ -320,6 +327,33 @@ private struct ReaderDetail: View {
           TranslateAllPagesButton(coordinator: coordinator)
         }
       }
+    }
+    .fileImporter(
+      isPresented: $isImporting,
+      allowedContentTypes: [.pdf],
+      allowsMultipleSelection: false
+    ) { result in
+      switch result {
+      case .success(let urls):
+        guard let url = urls.first else { return }
+        guard let session = model.library.makeSession(for: url) else {
+          // The library scene's alert may not exist here; report locally.
+          importError = model.library.lastError ?? L10n.string("ios.pdfReadFailed")
+          model.library.lastError = nil
+          return
+        }
+        openWindow(value: model.library.windowValue(for: session))
+      case .failure:
+        importError = L10n.string("ios.importPDFFailed")
+      }
+    }
+    .alert(
+      "PDFMathReader",
+      isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })
+    ) {
+      Button(L10n.string("ios.ok")) { importError = nil }
+    } message: {
+      Text(importError ?? "")
     }
   }
 

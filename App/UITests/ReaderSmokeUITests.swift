@@ -88,6 +88,81 @@ final class ReaderSmokeUITests: XCTestCase {
   }
 
   @MainActor
+  /// Opens a PDF that lives outside the app sandbox (Files "On My iPad" or
+  /// iCloud Drive) through the import picker. Place `PMR-Files-Test.pdf` in
+  /// that location first.
+  func testOpenFromFilesPicker() {
+    let fileName = "PMR-Files-Test"
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMRUITestProbe"]
+    app.launch()
+
+    let importButton = app.buttons["Import PDF"].firstMatch
+    XCTAssertTrue(importButton.waitForExistence(timeout: 10), "Import button not found")
+    importButton.tap()
+
+    // iPad shows a sidebar of locations; iPhone shows a search field.
+    let iCloud = app.cells["DOC.sidebar.item.iCloud Drive"].firstMatch
+    let search = app.searchFields.firstMatch
+    let deadline = Date().addingTimeInterval(15)
+    while !iCloud.exists && !search.exists && Date() < deadline { usleep(250_000) }
+    if iCloud.exists {
+      iCloud.tap()
+      // The file may sit below the fold of a large folder; search instead.
+      let searchButton = app.buttons["Search"].firstMatch
+      if searchButton.waitForExistence(timeout: 5) { searchButton.tap() }
+    }
+    if search.waitForExistence(timeout: 5) {
+      search.tap()
+      search.typeText(fileName)
+    } else if !iCloud.exists {
+      attachScreenshot(app, name: "picker-missing")
+      add(XCTAttachment(string: app.debugDescription))
+      XCTFail("Files picker did not appear")
+      return
+    }
+    let result = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", fileName)).firstMatch
+    if !result.waitForExistence(timeout: 20) {
+      attachScreenshot(app, name: "picker-no-result")
+      add(XCTAttachment(string: app.debugDescription))
+      XCTFail("\(fileName) not found in the Files picker")
+      return
+    }
+    attachScreenshot(app, name: "picker-result")
+    // The iPhone picker can report the result before its search transition
+    // ends; give it a moment, then tap by coordinate if it is still covered.
+    let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: result)
+    if XCTWaiter().wait(for: [hittable], timeout: 5) == .completed {
+      result.tap()
+    } else {
+      result.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+    // Some picker layouts select first and need an explicit Open.
+    let open = app.buttons["Open"].firstMatch
+    if open.waitForExistence(timeout: 2), open.isHittable { open.tap() }
+
+    // iPad may already show a restored reader, so match the new title.
+    let opened = app.navigationBars["\(fileName).pdf"].firstMatch.waitForExistence(timeout: 30)
+    attachScreenshot(app, name: opened ? "files-opened" : "files-open-failed")
+    XCTAssertFalse(app.staticTexts["This PDF could not be read."].exists, "Read failed alert shown")
+    XCTAssertFalse(app.staticTexts["PDF unavailable"].exists, "Reader shows PDF unavailable")
+    XCTAssertTrue(opened, "Reader did not open the picked PDF")
+
+    // A file opened from Files must translate like one in the app's Documents.
+    let probe = app.descendants(matching: .any)["debug.translationStatus"].firstMatch
+    let translated = NSPredicate(format: "value MATCHES %@", "(?s).*\\p{Han}.*")
+    let expectation = XCTNSPredicateExpectation(predicate: translated, object: probe)
+    if XCTWaiter().wait(for: [expectation], timeout: 120) != .completed {
+      attachScreenshot(app, name: "files-translation-missing")
+      XCTFail("No translated paragraph appeared for the picked PDF")
+      return
+    }
+    setTranslationsVisible(true, in: app)
+    sleep(1)
+    attachScreenshot(app, name: "files-translated")
+  }
+
+  @MainActor
   /// The edit menu exposes entries as buttons on iPhone and menu items on iPad.
   private func menuEntry(_ label: String, in app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any).matching(

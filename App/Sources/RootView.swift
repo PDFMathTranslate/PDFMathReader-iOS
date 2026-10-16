@@ -20,7 +20,9 @@ struct RootView: View {
       open(url: url)
     }
     #if DEBUG
-    .task { openLaunchArgumentPDF() }
+    .task {
+      if let url = library.consumeLaunchArgumentPDF() { open(url: url) }
+    }
     #endif
     .alert(
       "PDFMathReader",
@@ -40,22 +42,9 @@ struct RootView: View {
     open(session)
   }
 
-  #if DEBUG
-  /// UI tests pass `-PMROpenPDF <name-or-path>`; a bare name resolves against Documents.
-  private func openLaunchArgumentPDF() {
-    let arguments = ProcessInfo.processInfo.arguments
-    guard let flag = arguments.firstIndex(of: "-PMROpenPDF"), flag + 1 < arguments.count else { return }
-    let value = arguments[flag + 1]
-    let url = value.hasPrefix("/")
-      ? URL(fileURLWithPath: value)
-      : URL.documentsDirectory.appendingPathComponent(value)
-    open(url: url)
-  }
-  #endif
-
   private func open(_ session: DocumentSession) {
     if horizontalSizeClass == .regular {
-      openWindow(value: session.url)
+      openWindow(value: library.windowValue(for: session))
     } else {
       compactSession = session
     }
@@ -65,7 +54,8 @@ struct RootView: View {
 struct ReaderWindow: View {
   @EnvironmentObject private var library: LibraryModel
   @Environment(\.dismissWindow) private var dismissWindow
-  let url: URL
+  @Environment(\.openWindow) private var openWindow
+  let value: ReaderWindowValue
   @State private var session: DocumentSession?
   @State private var failure: String?
 
@@ -88,8 +78,16 @@ struct ReaderWindow: View {
       }
     }
     .task {
+      #if DEBUG
+      if let url = library.consumeLaunchArgumentPDF(), let launched = library.makeSession(for: url) {
+        openWindow(value: library.windowValue(for: launched))
+      }
+      #endif
       guard session == nil, failure == nil else { return }
-      session = library.makeSession(for: Self.relocatedIntoCurrentContainer(url))
+      session = library.session(
+        for: value,
+        fallbackURL: Self.relocatedIntoCurrentContainer(value.url)
+      )
       if session == nil {
         failure = library.lastError ?? L10n.string("error.thisPDFUnavailable")
         library.lastError = nil

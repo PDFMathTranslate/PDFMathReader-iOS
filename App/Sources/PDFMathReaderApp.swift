@@ -10,9 +10,9 @@ struct PDFMathReaderApp: App {
         .environmentObject(library)
     }
 
-    WindowGroup(for: URL.self) { $url in
-      if let url {
-        ReaderWindow(url: url)
+    WindowGroup(for: ReaderWindowValue.self) { $value in
+      if let value {
+        ReaderWindow(value: value)
           .environmentObject(library)
       } else {
         ContentUnavailableView(L10n.string("ios.noPDFSelected"), systemImage: "doc")
