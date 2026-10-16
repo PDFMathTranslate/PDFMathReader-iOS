@@ -80,7 +80,7 @@ struct LibraryView: View {
     }
     .disabled(isOpeningDocument)
     .overlay {
-      if isOpeningDocument { ProgressView(L10n.string("status.openingPDF")).padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+      if isOpeningDocument { ProgressView(L10n.string(library.epubConversionsInProgress > 0 ? "ios.preparingEPUB" : "status.openingPDF")).padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
     }
     .background(Color(uiColor: .systemGroupedBackground))
     .navigationBarTitleDisplayMode(.inline)
@@ -95,13 +95,13 @@ struct LibraryView: View {
         Button {
           isImporting = true
         } label: {
-          Label(L10n.string("ios.importPDF"), systemImage: "plus")
+          Label(L10n.string("ios.importDocument"), systemImage: "plus")
         }
       }
     }
     .fileImporter(
       isPresented: $isImporting,
-      allowedContentTypes: [.pdf],
+      allowedContentTypes: [.pdf, .epub],
       allowsMultipleSelection: false
     ) { result in
       switch result {
@@ -114,7 +114,7 @@ struct LibraryView: View {
           onOpenDocument(session)
         }
       case .failure:
-        library.lastError = L10n.string("ios.importPDFFailed")
+        library.lastError = L10n.string("ios.importDocumentFailed")
       }
     }
     .sheet(isPresented: $isShowingSettings) {
@@ -226,7 +226,7 @@ struct LibraryView: View {
     } description: {
       Text(L10n.string("ios.noRecentPDFsDescription"))
     } actions: {
-      Button(L10n.string("ios.importPDF")) { isImporting = true }
+      Button(L10n.string("ios.importDocument")) { isImporting = true }
         .buttonStyle(.borderedProminent)
     }
     .frame(maxWidth: .infinity, minHeight: 340)

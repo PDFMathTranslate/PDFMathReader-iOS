@@ -46,6 +46,8 @@ struct ReaderWindowValue: Codable, Hashable {
 @MainActor
 final class LibraryModel: ObservableObject {
   private let importedPDFDirectory: URL
+  private let epubPDFDirectory: URL
+  @Published private(set) var epubConversionsInProgress = 0
   let computerDocuments: CompanionDocumentManager
   let recentsStore: RecentsStore
   let readingStateStore: ReadingStateStore
@@ -59,6 +61,7 @@ final class LibraryModel: ObservableObject {
 
   init(directory: URL = LibraryDirectory.default) {
     ReaderErrorLocalization.configure()
+    epubPDFDirectory = directory.appendingPathComponent("EPUB PDFs", isDirectory: true)
     computerDocuments = CompanionDocumentManager(directory: directory.appendingPathComponent("Computer Documents"))
     importedPDFDirectory = directory.appendingPathComponent("Imported PDFs", isDirectory: true)
     recentsStore = RecentsStore(directory: directory)
@@ -95,6 +98,26 @@ final class LibraryModel: ObservableObject {
     // Must start before any read; picked and opened-in-place files are
     // otherwise outside the sandbox.
     let access = SecurityScopedAccess(url: url)
+    if url.pathExtension.lowercased() == "epub" {
+      epubConversionsInProgress += 1
+      defer { epubConversionsInProgress -= 1 }
+      do {
+        let data = try await Task.detached(priority: .userInitiated) {
+          try withExtendedLifetime(access) {
+            try Self.coordinatedData(at: url, maximumBytes: 128 * 1024 * 1024)
+          }
+        }.value
+        try Task.checkCancellation()
+        let pdfURL = try await EPUBConverter.convert(data: data, directory: epubPDFDirectory)
+        try Task.checkCancellation()
+        return await makeSession(for: pdfURL, displayTitle: displayTitle ?? url.lastPathComponent)
+      } catch is CancellationError {
+        return nil
+      } catch {
+        lastError = L10n.string("ios.epubOpenFailed", error.localizedDescription)
+        return nil
+      }
+    }
     let id: String
     let transferredState: ReadingState?
     do {
@@ -110,7 +133,10 @@ final class LibraryModel: ObservableObject {
         }
       }.value
       guard !Task.isCancelled else { return nil }
-      id = computerAuthorized
+      let isCachedEPUB = url.deletingLastPathComponent().standardizedFileURL == epubPDFDirectory.standardizedFileURL
+      id = isCachedEPUB
+        ? DocumentIdentity.contentHash(for: Data("EPUB:\(url.deletingPathExtension().lastPathComponent)".utf8))
+        : computerAuthorized
         ? DocumentIdentity.contentHash(for: Data(url.standardizedFileURL.absoluteString.utf8))
         : prepared.0
       transferredState = prepared.1
@@ -131,7 +157,10 @@ final class LibraryModel: ObservableObject {
       }
     }
     let bookmarkData = (try? recentsStore.bookmarkData(for: url)) ?? previous?.bookmarkData ?? Data()
-    let title = displayTitle ?? (url.lastPathComponent.isEmpty ? L10n.string("ios.pdfDocument") : url.lastPathComponent)
+    let cachedEPUBTitle = url.deletingLastPathComponent().standardizedFileURL == epubPDFDirectory.standardizedFileURL
+      ? previous?.title : nil
+    let title = displayTitle ?? cachedEPUBTitle
+      ?? (url.lastPathComponent.isEmpty ? L10n.string("ios.pdfDocument") : url.lastPathComponent)
     let thumbnailPath = previous?.thumbnailCachePath ?? recentsStore.thumbnailURL(for: id).path
     let record = RecentDocument(
       id: id,
@@ -154,6 +183,10 @@ final class LibraryModel: ObservableObject {
   /// Open-in/Share deliveries can be temporary. Keep a local copy so the
   /// reader and Recents survive the sender removing its file.
   func receiveExternalPDF(at url: URL) async -> DocumentSession? {
+    // EPUB conversion produces a durable local PDF before adding a Recent.
+    if url.isFileURL, url.pathExtension.lowercased() == "epub" {
+      return await makeSession(for: url)
+    }
     guard url.isFileURL else {
       lastError = L10n.string("ios.localPDFOnly")
       return nil
@@ -186,11 +219,20 @@ final class LibraryModel: ObservableObject {
 
   /// Coordinated read so iCloud Drive files are materialized and not read
   /// mid-sync.
-  nonisolated private static func coordinatedData(at url: URL) throws -> Data {
+  nonisolated private static func coordinatedData(at url: URL, maximumBytes: Int? = nil) throws -> Data {
     var coordinationError: NSError?
     var result: Result<Data, Error> = .failure(CocoaError(.fileReadUnknown))
     NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readURL in
-      result = Result { try Data(contentsOf: readURL, options: [.mappedIfSafe]) }
+      result = Result {
+        if let maximumBytes,
+           let size = try readURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+           size > maximumBytes {
+          throw CocoaError(.fileReadTooLarge)
+        }
+        let data = try Data(contentsOf: readURL, options: [.mappedIfSafe])
+        if let maximumBytes, data.count > maximumBytes { throw CocoaError(.fileReadTooLarge) }
+        return data
+      }
     }
     if let coordinationError { throw coordinationError }
     return try result.get()

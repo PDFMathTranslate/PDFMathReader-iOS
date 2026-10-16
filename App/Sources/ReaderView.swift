@@ -464,7 +464,7 @@ private struct ReaderDetail: View {
     .toolbar(removing: .sidebarToggle)
     .fileImporter(
       isPresented: $isImporting,
-      allowedContentTypes: [.pdf],
+      allowedContentTypes: [.pdf, .epub],
       allowsMultipleSelection: false
     ) { result in
       switch result {
@@ -484,7 +484,7 @@ private struct ReaderDetail: View {
           }
         }
       case .failure:
-        importError = L10n.string("ios.importPDFFailed")
+        importError = L10n.string("ios.importDocumentFailed")
       }
     }
     .alert(
@@ -513,7 +513,7 @@ private struct ReaderDetail: View {
           Button {
             isImporting = true
           } label: {
-            Label(L10n.string("ios.importPDF"), systemImage: "doc.badge.plus")
+            Label(L10n.string("ios.importDocument"), systemImage: "doc.badge.plus")
           }
           .labelStyle(.iconOnly)
         }

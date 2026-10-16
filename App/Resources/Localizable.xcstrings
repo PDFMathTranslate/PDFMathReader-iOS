@@ -34801,6 +34801,106 @@
         }
       }
     },
+    "ios.epubOpenFailed": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح EPUB: %@"
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقدرناش نفتح EPUB: %@"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB খোলা যায়নি: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB konnte nicht geöffnet werden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not open EPUB: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el EPUB: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir l’EPUB : %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB नहीं खोला जा सका: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB を開けませんでした：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB를 열 수 없습니다: %@"
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "E no fit open EPUB: %@"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível abrir o EPUB: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось открыть EPUB: %@"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB نہیں کھولی جا سکی: %@"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开 EPUB：%@"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟 EPUB：%@"
+          }
+        }
+      }
+    },
     "ios.export": {
       "localizations": {
         "ar": {
@@ -37401,6 +37501,206 @@
         }
       }
     },
+    "ios.importDocument": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد PDF أو EPUB"
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد PDF أو EPUB"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF বা EPUB আমদানি করুন"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF oder EPUB importieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import PDF or EPUB"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar PDF o EPUB"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer un PDF ou un EPUB"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF या EPUB आयात करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF または EPUB を読み込む"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF 또는 EPUB 가져오기"
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import PDF or EPUB"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar PDF ou EPUB"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировать PDF или EPUB"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF یا EPUB درآمد کریں"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入 PDF 或 EPUB"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入 PDF 或 EPUB"
+          }
+        }
+      }
+    },
+    "ios.importDocumentFailed": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر استيراد المستند."
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المستند ماقدرش يتستورد."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "নথিটি আমদানি করা যায়নি।"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Dokument konnte nicht importiert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not import the document."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo importar el documento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document n’a pas pu être importé."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "दस्तावेज़ आयात नहीं किया जा सका।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書類を読み込めませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "문서를 가져올 수 없습니다."
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The document no fit import."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível importar o documento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось импортировать документ."
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دستاویز درآمد نہیں ہو سکی۔"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法导入文档。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法匯入文件。"
+          }
+        }
+      }
+    },
     "ios.importGlossary": {
       "localizations": {
         "ar": {
@@ -37906,97 +38206,97 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يستطيع PDFMathReader فتح سوى ملفات PDF المحلية."
+            "value": "لا يستطيع PDFMathReader فتح سوى ملفات PDF وEPUB المحلية."
           }
         },
         "arz": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader بيفتح ملفات PDF المحلية بس."
+            "value": "PDFMathReader بيفتح ملفات PDF وEPUB المحلية بس."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader কেবল স্থানীয় PDF ফাইল খুলতে পারে।"
+            "value": "PDFMathReader কেবল স্থানীয় PDF ও EPUB ফাইল খুলতে পারে।"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader kann nur lokale PDF-Dateien öffnen."
+            "value": "PDFMathReader kann nur lokale PDF- und EPUB-Dateien öffnen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader can open local PDF files only."
+            "value": "PDFMathReader can open local PDF and EPUB files only."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader solo puede abrir archivos PDF locales."
+            "value": "PDFMathReader solo puede abrir archivos PDF y EPUB locales."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader peut uniquement ouvrir des fichiers PDF locaux."
+            "value": "PDFMathReader peut uniquement ouvrir des fichiers PDF et EPUB locaux."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader केवल स्थानीय PDF फ़ाइलें खोल सकता है।"
+            "value": "PDFMathReader केवल स्थानीय PDF और EPUB फ़ाइलें खोल सकता है।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader はローカルの PDF ファイルのみ開けます。"
+            "value": "PDFMathReader はローカルの PDF と EPUB ファイルのみ開けます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader는 로컬 PDF 파일만 열 수 있습니다."
+            "value": "PDFMathReader는 로컬 PDF 및 EPUB 파일만 열 수 있습니다."
           }
         },
         "pcm": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader fit open local PDF files only."
+            "value": "PDFMathReader fit open local PDF and EPUB files only."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "O PDFMathReader só pode abrir ficheiros PDF locais."
+            "value": "O PDFMathReader só pode abrir ficheiros PDF e EPUB locais."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader может открывать только локальные файлы PDF."
+            "value": "PDFMathReader может открывать только локальные файлы PDF и EPUB."
           }
         },
         "ur": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader صرف مقامی PDF فائلیں کھول سکتا ہے۔"
+            "value": "PDFMathReader صرف مقامی PDF اور EPUB فائلیں کھول سکتا ہے۔"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader 只能打开本地 PDF 文件。"
+            "value": "PDFMathReader 只能打开本地 PDF 和 EPUB 文件。"
           }
         },
         "zh-TW": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDFMathReader 只能開啟本機 PDF 檔案。"
+            "value": "PDFMathReader 只能開啟本機 PDF 和 EPUB 檔案。"
           }
         }
       }
@@ -38806,97 +39106,97 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استورد PDF لبدء القراءة. ستتم استعادة موضعك وإعدادات العرض في المرة القادمة."
+            "value": "استورد PDF أو EPUB لبدء القراءة. ستتم استعادة موضعك وإعدادات العرض في المرة القادمة."
           }
         },
         "arz": {
           "stringUnit": {
             "state": "translated",
-            "value": "استورد PDF عشان تبدأ القراءة. مكانك وإعدادات العرض هتترجع المرة الجاية."
+            "value": "استورد PDF أو EPUB عشان تبدأ القراءة. مكانك وإعدادات العرض هتترجع المرة الجاية."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "পড়া শুরু করতে একটি PDF আমদানি করুন। আপনার অবস্থান ও প্রদর্শন সেটিংস পরের বার ফিরিয়ে আনা হবে।"
+            "value": "পড়া শুরু করতে একটি PDF বা EPUB আমদানি করুন। আপনার অবস্থান ও প্রদর্শন সেটিংস পরের বার ফিরিয়ে আনা হবে।"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importieren Sie ein PDF, um mit dem Lesen zu beginnen. Ihre Position und Anzeigeeinstellungen werden beim nächsten Mal wiederhergestellt."
+            "value": "Importieren Sie ein PDF oder EPUB, um mit dem Lesen zu beginnen. Ihre Position und Anzeigeeinstellungen werden beim nächsten Mal wiederhergestellt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import a PDF to start reading. Your position and display settings will be restored next time."
+            "value": "Import a PDF or EPUB to start reading. Your position and display settings will be restored next time."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importa un PDF para empezar a leer. Tu posición y los ajustes de pantalla se restaurarán la próxima vez."
+            "value": "Importa un PDF o EPUB para empezar a leer. Tu posición y los ajustes de pantalla se restaurarán la próxima vez."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importez un PDF pour commencer la lecture. Votre position et vos réglages d’affichage seront restaurés la prochaine fois."
+            "value": "Importez un PDF ou un EPUB pour commencer la lecture. Votre position et vos réglages d’affichage seront restaurés la prochaine fois."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "पढ़ना शुरू करने के लिए PDF आयात करें। आपका स्थान और प्रदर्शन सेटिंग अगली बार पुनर्स्थापित हो जाएँगी।"
+            "value": "पढ़ना शुरू करने के लिए PDF या EPUB आयात करें। आपका स्थान और प्रदर्शन सेटिंग अगली बार पुनर्स्थापित हो जाएँगी।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF を読み込んで読み始めます。次回、位置と表示設定が復元されます。"
+            "value": "PDF または EPUB を読み込んで読み始めます。次回、位置と表示設定が復元されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF를 가져와 읽기를 시작하세요. 다음에 위치와 화면 설정이 복원됩니다."
+            "value": "PDF 또는 EPUB를 가져와 읽기를 시작하세요. 다음에 위치와 화면 설정이 복원됩니다."
           }
         },
         "pcm": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import PDF to start reading. Your position and display settings go restore next time."
+            "value": "Import PDF or EPUB to start reading. Your position and display settings go restore next time."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importe um PDF para começar a ler. A sua posição e as definições de apresentação serão restauradas da próxima vez."
+            "value": "Importe um PDF ou EPUB para começar a ler. A sua posição e as definições de apresentação serão restauradas da próxima vez."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Импортируйте PDF, чтобы начать чтение. В следующий раз будут восстановлены ваша позиция и настройки отображения."
+            "value": "Импортируйте PDF или EPUB, чтобы начать чтение. В следующий раз будут восстановлены ваша позиция и настройки отображения."
           }
         },
         "ur": {
           "stringUnit": {
             "state": "translated",
-            "value": "پڑھنا شروع کرنے کے لیے PDF درآمد کریں۔ آپ کی پوزیشن اور ڈسپلے کی ترتیبات اگلی بار بحال ہو جائیں گی۔"
+            "value": "پڑھنا شروع کرنے کے لیے PDF یا EPUB درآمد کریں۔ آپ کی پوزیشن اور ڈسپلے کی ترتیبات اگلی بار بحال ہو جائیں گی۔"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "导入 PDF 以开始阅读。下次将恢复你的位置和显示设置。"
+            "value": "导入 PDF 或 EPUB 以开始阅读。下次将恢复你的位置和显示设置。"
           }
         },
         "zh-TW": {
           "stringUnit": {
             "state": "translated",
-            "value": "匯入 PDF 以開始閱讀。下次會還原你的位置和顯示設定。"
+            "value": "匯入 PDF 或 EPUB 以開始閱讀。下次會還原你的位置和顯示設定。"
           }
         }
       }
@@ -39606,97 +39906,97 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فتح PDF"
+            "value": "فتح المستند"
           }
         },
         "arz": {
           "stringUnit": {
             "state": "translated",
-            "value": "افتح PDF"
+            "value": "افتح المستند"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF খুলুন"
+            "value": "নথি খুলুন"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF öffnen"
+            "value": "Dokument öffnen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open PDF"
+            "value": "Open document"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir PDF"
+            "value": "Abrir documento"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir le PDF"
+            "value": "Ouvrir le document"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF खोलें"
+            "value": "दस्तावेज़ खोलें"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF を開く"
+            "value": "書類を開く"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF 열기"
+            "value": "문서 열기"
           }
         },
         "pcm": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open PDF"
+            "value": "Open document"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir PDF"
+            "value": "Abrir documento"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть PDF"
+            "value": "Открыть документ"
           }
         },
         "ur": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF کھولیں"
+            "value": "دستاویز کھولیں"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开 PDF"
+            "value": "打开文档"
           }
         },
         "zh-TW": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟 PDF"
+            "value": "開啟文件"
           }
         }
       }
@@ -41206,97 +41506,97 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ملف PDF هذا غير متاح. اختره مرة أخرى من الملفات."
+            "value": "هذا المستند غير متاح. اختره مرة أخرى من الملفات."
           }
         },
         "arz": {
           "stringUnit": {
             "state": "translated",
-            "value": "الـ PDF ده مش متاح. اختاره تاني من الملفات."
+            "value": "المستند ده مش متاح. اختاره تاني من الملفات."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "এই PDF উপলব্ধ নয়। Files থেকে আবার বেছে নিন।"
+            "value": "এই নথিটি উপলব্ধ নয়। Files থেকে আবার বেছে নিন।"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieses PDF ist nicht verfügbar. Wählen Sie es erneut aus den Dateien."
+            "value": "Dieses Dokument ist nicht verfügbar. Wählen Sie es erneut aus den Dateien."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This PDF is unavailable. Choose it again from Files."
+            "value": "This document is unavailable. Choose it again from Files."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este PDF no está disponible. Vuelve a elegirlo desde Archivos."
+            "value": "Este documento no está disponible. Vuelve a elegirlo desde Archivos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce PDF est indisponible. Choisissez-le à nouveau dans Fichiers."
+            "value": "Ce document est indisponible. Choisissez-le à nouveau dans Fichiers."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "यह PDF उपलब्ध नहीं है। Files से इसे फिर चुनें।"
+            "value": "यह दस्तावेज़ उपलब्ध नहीं है। Files से इसे फिर चुनें।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この PDF は利用できません。「ファイル」からもう一度選択してください。"
+            "value": "この書類は利用できません。「ファイル」からもう一度選択してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 PDF를 사용할 수 없습니다. 파일에서 다시 선택하세요."
+            "value": "이 문서를 사용할 수 없습니다. 파일에서 다시 선택하세요."
           }
         },
         "pcm": {
           "stringUnit": {
             "state": "translated",
-            "value": "This PDF no dey available. Choose am again from Files."
+            "value": "This document no dey available. Choose am again from Files."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este PDF está indisponível. Escolha-o novamente em Ficheiros."
+            "value": "Este documento está indisponível. Escolha-o novamente em Ficheiros."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этот PDF недоступен. Снова выберите его в приложении «Файлы»."
+            "value": "Этот документ недоступен. Снова выберите его в приложении «Файлы»."
           }
         },
         "ur": {
           "stringUnit": {
             "state": "translated",
-            "value": "یہ PDF دستیاب نہیں۔ Files سے اسے دوبارہ منتخب کریں۔"
+            "value": "یہ دستاویز دستیاب نہیں۔ Files سے اسے دوبارہ منتخب کریں۔"
           }
         },
         "zh-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 PDF 不可用。请从文件中重新选择。"
+            "value": "此文档不可用。请从文件中重新选择。"
           }
         },
         "zh-TW": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 PDF 無法使用。請從檔案重新選取。"
+            "value": "此文件無法使用。請從檔案重新選取。"
           }
         }
       }
@@ -41397,6 +41697,106 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法儲存偏好設定。"
+          }
+        }
+      }
+    },
+    "ios.preparingEPUB": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تجهيز EPUB…"
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بنجهّز EPUB…"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB প্রস্তুত করা হচ্ছে…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB wird vorbereitet …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing EPUB…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando EPUB…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préparation de l’EPUB…"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB तैयार किया जा रहा है…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB を準備中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB 준비 중…"
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dey prepare EPUB…"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A preparar EPUB…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подготовка EPUB…"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPUB تیار کیا جا رہا ہے…"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在准备 EPUB…"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在準備 EPUB…"
           }
         }
       }

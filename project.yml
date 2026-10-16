@@ -91,6 +91,10 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes: [com.adobe.pdf]
+          - CFBundleTypeName: EPUB Book
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [org.idpf.epub-container]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pdfmathtranslate.PDFMathReader

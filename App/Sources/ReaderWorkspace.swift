@@ -78,9 +78,12 @@ struct ReaderWorkspace: View {
         if tabs.tabs.count > 1 { tabStrip }
       })
     })
-    .disabled(isClosingComputerDocument)
+    .disabled(isClosingComputerDocument || library.epubConversionsInProgress > 0)
     .overlay {
-      if isClosingComputerDocument {
+      if library.epubConversionsInProgress > 0 {
+        ProgressView(L10n.string("ios.preparingEPUB"))
+          .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+      } else if isClosingComputerDocument {
         ProgressView(L10n.string("ios.computerSaving"))
           .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
       }
@@ -211,7 +214,7 @@ struct ReaderWorkspace: View {
       } label: {
         Image(systemName: "plus").frame(width: 44, height: 44)
       }
-      .accessibilityLabel(L10n.string("ios.importPDF"))
+      .accessibilityLabel(L10n.string("ios.importDocument"))
       .accessibilityIdentifier("reader.addTab")
     }
     .padding(.vertical, 4)
