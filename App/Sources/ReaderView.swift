@@ -28,10 +28,12 @@ struct ReaderView: View {
   @State private var isSearchPresented = false
   @State private var isGoToPagePresented = false
   @State private var isComparePresented = false
+  private let onClose: (() -> Void)?
 
-  init(session: DocumentSession, library: LibraryModel) {
+  init(session: DocumentSession, library: LibraryModel, onClose: (() -> Void)? = nil) {
     _model = StateObject(wrappedValue: ReaderViewModel(session: session, library: library))
     _annotationModel = StateObject(wrappedValue: ReaderAnnotationViewModel(session: session))
+    self.onClose = onClose
   }
 
   var body: some View {
@@ -42,6 +44,17 @@ struct ReaderView: View {
             ReaderSidebar(model: model, annotations: annotationModel, mode: $sidebarMode)
               .navigationTitle(L10n.string("ios.reader"))
               .navigationBarTitleDisplayMode(.inline)
+              .toolbar {
+                if let onClose {
+                  ToolbarItem(placement: .topBarLeading) {
+                    Button(L10n.string("menu.extra.messages.Close Document"), systemImage: "xmark") {
+                      model.persistReadingState()
+                      onClose()
+                    }
+                    .accessibilityIdentifier("reader.closeDocument")
+                  }
+                }
+              }
           } detail: {
             readerDetail(document: document, regular: true)
           }

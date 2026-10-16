@@ -174,6 +174,41 @@ final class ReaderSmokeUITests: XCTestCase {
     expectSidebar(hidden, "portrait-again-sidebar-hidden")
   }
 
+  /// iPad reader: the sidebar's close button closes the document window and
+  /// returns to the library.
+  @MainActor
+  func testCloseDocumentFromSidebar() throws {
+    try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad only")
+    XCUIDevice.shared.orientation = .portrait
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
+    app.launch()
+
+    let close = app.buttons["reader.closeDocument"].firstMatch
+    XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30), "Reader did not open")
+    if !close.waitForExistence(timeout: 5) {
+      // Portrait starts with the sidebar hidden; open it with the split view's toggle.
+      app.buttons.matching(
+        NSPredicate(format: "identifier == %@ OR label CONTAINS[c] %@", "ToggleSidebar", "Sidebar")
+      ).firstMatch.tap()
+    }
+    XCTAssertTrue(close.waitForExistence(timeout: 10), "No close button in the sidebar")
+    attachScreenshot(app, name: "1-sidebar-close-button")
+    close.tap()
+
+    // Windows restored from earlier runs may linger in the background and stay
+    // in the accessibility tree, so check what is in front rather than existence.
+    let front = NSPredicate(format: "exists == true AND isHittable == true")
+    let notFront = NSPredicate(format: "exists == false OR isHittable == false")
+    let results = [
+      XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: front, object: app.buttons["Import PDF"].firstMatch)], timeout: 10),
+      XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: notFront, object: close)], timeout: 10),
+    ]
+    attachScreenshot(app, name: "2-library-after-close")
+    XCTAssertEqual(results[0], .completed, "Library did not come back")
+    XCTAssertEqual(results[1], .completed, "Reader window is still in front")
+  }
+
   @MainActor
   /// Opens a PDF that lives outside the app sandbox (Files "On My iPad" or
   /// iCloud Drive) through the import picker. Place `PMR-Files-Test.pdf` in

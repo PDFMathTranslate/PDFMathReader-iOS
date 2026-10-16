@@ -1,4 +1,33 @@
 import SwiftUI
+import UIKit
+
+/// The library's window scene, so closing a reader window can bring it forward.
+@MainActor
+enum LibraryScene {
+  static weak var session: UISceneSession?
+}
+
+/// Reports the UIKit scene session of the window hosting this view.
+struct SceneSessionReader: UIViewRepresentable {
+  let onSession: (UISceneSession) -> Void
+
+  func makeUIView(context: Context) -> HostView { HostView(onSession: onSession) }
+  func updateUIView(_ uiView: HostView, context: Context) {}
+
+  final class HostView: UIView {
+    let onSession: (UISceneSession) -> Void
+    init(onSession: @escaping (UISceneSession) -> Void) {
+      self.onSession = onSession
+      super.init(frame: .zero)
+      isUserInteractionEnabled = false
+    }
+    required init?(coder: NSCoder) { nil }
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      if let session = window?.windowScene?.session { onSession(session) }
+    }
+  }
+}
 
 struct RootView: View {
   @EnvironmentObject private var library: LibraryModel
@@ -12,9 +41,10 @@ struct RootView: View {
         open(session)
       }
       .navigationDestination(item: $compactSession) { session in
-        ReaderView(session: session, library: library)
+        ReaderView(session: session, library: library) { compactSession = nil }
       }
     }
+    .background(SceneSessionReader { LibraryScene.session = $0 })
     .preferredColorScheme(library.preferences.theme.colorScheme)
     .onOpenURL { url in
       open(url: url)
@@ -58,11 +88,12 @@ struct ReaderWindow: View {
   let value: ReaderWindowValue
   @State private var session: DocumentSession?
   @State private var failure: String?
+  @State private var sceneSession: UISceneSession?
 
   var body: some View {
     Group {
       if let session {
-        ReaderView(session: session, library: library)
+        ReaderView(session: session, library: library) { closeDocument() }
       } else if let failure {
         // The library window's alert may be hidden; report the failure here
         // instead of spinning forever.
@@ -77,6 +108,7 @@ struct ReaderWindow: View {
         ProgressView(L10n.string("status.openingPDF"))
       }
     }
+    .background(SceneSessionReader { sceneSession = $0 })
     .task {
       #if DEBUG
       if let url = library.consumeLaunchArgumentPDF(), let launched = library.makeSession(for: url) {
@@ -92,6 +124,26 @@ struct ReaderWindow: View {
         failure = library.lastError ?? L10n.string("error.thisPDFUnavailable")
         library.lastError = nil
       }
+    }
+  }
+
+  /// Brings the library forward (reopening it if its window was closed), then
+  /// closes this reader window.
+  private func closeDocument() {
+    if let library = LibraryScene.session,
+       UIApplication.shared.openSessions.contains(library) {
+      UIApplication.shared.requestSceneSessionActivation(library, userActivity: nil, options: nil)
+    } else {
+      openWindow(id: PDFMathReaderApp.libraryWindowID)
+    }
+    // dismissWindow() leaves the reader scene alive once the library takes
+    // the foreground, so destroy this scene through UIKit.
+    if let sceneSession {
+      let options = UIWindowSceneDestructionRequestOptions()
+      options.windowDismissalAnimation = .standard
+      UIApplication.shared.requestSceneSessionDestruction(sceneSession, options: options)
+    } else {
+      dismissWindow()
     }
   }
 

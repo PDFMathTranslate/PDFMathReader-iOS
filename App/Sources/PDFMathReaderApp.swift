@@ -2,10 +2,11 @@ import SwiftUI
 
 @main
 struct PDFMathReaderApp: App {
+  static let libraryWindowID = "library"
   @StateObject private var library = LibraryModel()
 
   var body: some Scene {
-    WindowGroup {
+    WindowGroup(id: Self.libraryWindowID) {
       RootView()
         .environmentObject(library)
     }
