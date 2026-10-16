@@ -391,6 +391,9 @@ private struct ReaderDetail: View {
         titleBarHidden = distance > 0
       }
     )
+    // Extend only the document beneath system chrome; overlays keep the safe
+    // area so their controls stay clear of the camera and Home indicator.
+    .ignoresSafeArea(.container, edges: [.top, .bottom])
     .onChange(of: drawings.isDrawing || !drawings.isPrepared || !drawings.drawings.isEmpty, initial: true) { _, suspended in
       model.translationCoordinator?.setCompactionSuspended(suspended)
     }
@@ -435,7 +438,6 @@ private struct ReaderDetail: View {
         readerHeader
         if let readerTabStrip { readerTabStrip() }
       }
-      .background(.bar)
       .opacity(titleBarHidden ? 0 : 1)
       .offset(y: titleBarHidden && !reduceMotion ? -12 : 0)
       .allowsHitTesting(!titleBarHidden)
@@ -556,7 +558,6 @@ private struct ReaderDetail: View {
     .buttonStyle(ReaderHeaderButtonStyle())
     .padding(.horizontal, 8)
     .frame(minHeight: 52)
-    .background(.bar)
   }
 
   @ViewBuilder

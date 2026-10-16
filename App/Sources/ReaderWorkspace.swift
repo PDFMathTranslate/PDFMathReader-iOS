@@ -215,8 +215,6 @@ struct ReaderWorkspace: View {
       .accessibilityIdentifier("reader.addTab")
     }
     .padding(.vertical, 4)
-    .background(.bar)
-    .overlay(alignment: .bottom) { Divider() }
   }
 
   private func openExplicitly(_ session: DocumentSession) {
