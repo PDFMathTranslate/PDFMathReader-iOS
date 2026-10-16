@@ -7,6 +7,59 @@ import XCTest
 
 @MainActor
 final class ReaderDrawingModelTests: XCTestCase {
+  func testAnnotatedPagesAreSortedAndExcludeEmptyDrawings() throws {
+    let fixture = try makeFixture(pageCount: 5)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let model = ReaderDrawingModel(session: fixture.session, directory: fixture.directory)
+
+    let laterCanvas = model.canvas(for: 3, page: try XCTUnwrap(fixture.document.page(at: 3)))
+    laterCanvas.drawing = sampleDrawing(offset: CGPoint(x: 15, y: 0))
+    model.canvasViewDrawingDidChange(laterCanvas)
+
+    let emptyCanvas = model.canvas(for: 2, page: try XCTUnwrap(fixture.document.page(at: 2)))
+    model.canvasViewDrawingDidChange(emptyCanvas)
+
+    let earlierCanvas = model.canvas(for: 0, page: try XCTUnwrap(fixture.document.page(at: 0)))
+    earlierCanvas.drawing = sampleDrawing(offset: CGPoint(x: 30, y: 0))
+    model.canvasViewDrawingDidChange(earlierCanvas)
+    model.flush()
+
+    XCTAssertEqual(model.annotatedPages, [0, 3])
+    XCTAssertEqual(model.drawings[2]?.strokes.count, 0)
+  }
+
+  func testDeleteDrawingClearsLiveCanvasPersistsAndPreservesOtherPages() throws {
+    let fixture = try makeFixture(pageCount: 3)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let model = ReaderDrawingModel(session: fixture.session, directory: fixture.directory)
+
+    let deletedCanvas = model.canvas(for: 1, page: try XCTUnwrap(fixture.document.page(at: 1)))
+    deletedCanvas.drawing = sampleDrawing()
+    model.canvasViewDrawingDidChange(deletedCanvas)
+
+    let keptCanvas = model.canvas(for: 2, page: try XCTUnwrap(fixture.document.page(at: 2)))
+    keptCanvas.drawing = sampleDrawing(offset: CGPoint(x: 40, y: 0))
+    model.canvasViewDrawingDidChange(keptCanvas)
+    model.flush()
+
+    model.deleteDrawing(on: 1)
+
+    XCTAssertTrue(deletedCanvas.drawing.strokes.isEmpty)
+    XCTAssertTrue(model.drawings[1]?.strokes.isEmpty == true)
+    XCTAssertEqual(model.annotatedPages, [2])
+    XCTAssertEqual(keptCanvas.drawing.strokes.count, 1)
+
+    let reopened = ReaderDrawingModel(session: fixture.session, directory: fixture.directory)
+    XCTAssertTrue(reopened.drawings[1]?.strokes.isEmpty == true)
+    XCTAssertEqual(reopened.drawings[2]?.strokes.count, 1)
+    XCTAssertEqual(reopened.annotatedPages, [2])
+    let reopenedDeletedCanvas = reopened.canvas(
+      for: 1,
+      page: try XCTUnwrap(fixture.document.page(at: 1))
+    )
+    XCTAssertTrue(reopenedDeletedCanvas.drawing.strokes.isEmpty)
+  }
+
   func testDrawingSurvivesReopenAndEraseDoesNotResurrectIt() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -72,9 +125,41 @@ final class ReaderDrawingModelTests: XCTestCase {
   }
 
   private func sampleDrawing() -> PKDrawing {
-    let points = [CGPoint(x: 20, y: 30), CGPoint(x: 80, y: 100)].enumerated().map { index, point in
+    sampleDrawing(offset: .zero)
+  }
+
+  private func sampleDrawing(offset: CGPoint) -> PKDrawing {
+    let points = [
+      CGPoint(x: 20 + offset.x, y: 30 + offset.y),
+      CGPoint(x: 80 + offset.x, y: 100 + offset.y),
+    ].enumerated().map { index, point in
       PKStrokePoint(location: point, timeOffset: Double(index) * 0.1, size: CGSize(width: 3, height: 3), opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
     }
     return PKDrawing(strokes: [PKStroke(ink: PKInk(.pen, color: .black), path: PKStrokePath(controlPoints: points, creationDate: Date()))])
+  }
+
+  private func makeFixture(pageCount: Int) throws -> (
+    root: URL,
+    document: PDFDocument,
+    session: DocumentSession,
+    directory: URL
+  ) {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let document = PDFDocument()
+    for index in 0..<pageCount {
+      let page = PDFPage()
+      page.setBounds(CGRect(x: 0, y: 0, width: 200, height: 300), for: .mediaBox)
+      document.insert(page, at: index)
+    }
+    let source = root.appendingPathComponent("sample.pdf")
+    try XCTUnwrap(document.dataRepresentation()).write(to: source)
+    let session = DocumentSession(
+      id: "drawing-test-\(UUID().uuidString)",
+      title: "sample.pdf",
+      url: source,
+      access: SecurityScopedAccess(url: source)
+    )
+    return (root, document, session, root.appendingPathComponent("drawings"))
   }
 }

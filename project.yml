@@ -66,6 +66,10 @@ targets:
         NSLocalNetworkUsageDescription: PDFMathReader connects to translation kernels you add on your local network.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          # iOS 17+ requires explicit HTTP exceptions for IP literals, even over VPN.
+          NSExceptionDomains:
+            "100.64.0.0/10":
+              NSExceptionAllowsInsecureHTTPLoads: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: PDF Document
             CFBundleTypeRole: Viewer
@@ -75,6 +79,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pdfmathtranslate.PDFMathReader
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIconWarm AppIconSpring AppIconClassic AppIconBlueprint AppIconMoon AppIconModern"
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic

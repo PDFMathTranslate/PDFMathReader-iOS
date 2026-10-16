@@ -20,42 +20,54 @@ public struct PDFKitTextExtractor: Sendable {
     let attributed = page.attributedString
     guard pageString.length > 0 else { return [] }
 
-    var characters: [CharacterRun] = []
-    characters.reserveCapacity(page.numberOfCharacters)
-    var index = 0
-    // Offset from a string index to its `characterBounds` slot. PDFKit can
-    // synthesize line breaks that have no glyph slot, shifting later bounds.
-    var boundsShift = 0
-    while index < pageString.length {
-      let text = pageString.substring(with: NSRange(location: index, length: 1))
-      if isLineBreak(text), index + 1 < pageString.length {
-        boundsShift = resolvedBoundsShift(page: page, index: index + 1, current: boundsShift)
-      }
-      let slot = index + boundsShift
-      let bounds = slot >= 0 && slot < pageString.length ? page.characterBounds(at: slot) : .zero
-      let style = style(at: index, in: attributed)
-      characters.append(
-        CharacterRun(
-          index: index,
-          text: text,
-          bounds: bounds,
-          fontSize: style.fontSize,
-          isBold: style.isBold,
-          fontName: style.fontName
-        )
-      )
-      index += 1
-    }
-
     var result: [TextItem] = []
     var run: [CharacterRun] = []
-    for character in characters {
-      if isWhitespace(character.text) {
+    var index = 0
+    var styleRange = NSRange(location: 0, length: 0)
+    var cachedStyle = CharacterStyle()
+    // PDFKit can synthesize line breaks with no glyph slot. Keep string and
+    // bounds indices separate, and stream runs without retaining a page-sized
+    // second copy of all character geometry.
+    var boundsShift = 0
+    while index < pageString.length {
+      let range = pageString.rangeOfComposedCharacterSequence(at: index)
+      let text = pageString.substring(with: range)
+      defer { index = NSMaxRange(range) }
+      if isWhitespace(text) {
         appendRun(&result, run: run, pageNumber: pageNumber)
         run.removeAll(keepingCapacity: true)
+        if isLineBreak(text), NSMaxRange(range) < pageString.length {
+          boundsShift = resolvedBoundsShift(page: page, index: NSMaxRange(range), current: boundsShift)
+        }
         continue
       }
-      if let previous = run.last, !sameLine(previous, character) {
+      var bounds = CGRect.null
+      for stringIndex in range.location..<NSMaxRange(range) {
+        let slot = stringIndex + boundsShift
+        guard slot >= 0, slot < pageString.length else { continue }
+        let glyphBounds = page.characterBounds(at: slot)
+        if glyphBounds.width > 0, glyphBounds.height > 0 {
+          bounds = bounds.union(glyphBounds)
+        }
+      }
+      if !NSLocationInRange(index, styleRange) {
+        cachedStyle = style(at: index, in: attributed, effectiveRange: &styleRange)
+      }
+      let character = CharacterRun(
+        index: index,
+        text: text,
+        bounds: bounds.isNull ? .zero : bounds,
+        fontSize: cachedStyle.fontSize,
+        isBold: cachedStyle.isBold,
+        fontName: cachedStyle.fontName
+      )
+      // A synthesized glyph with no bounds still belongs to the current
+      // word. Keep its text without treating the zero rectangle as a new line.
+      if bounds.isNull, !run.isEmpty {
+        run.append(character)
+        continue
+      }
+      if let previous = run.last(where: { $0.bounds.width > 0 }), !sameLine(previous, character) {
         appendRun(&result, run: run, pageNumber: pageNumber)
         run.removeAll(keepingCapacity: true)
       }
@@ -196,9 +208,15 @@ public struct PDFKitTextExtractor: Sendable {
     text.unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) }
   }
 
-  private static func style(at index: Int, in attributed: NSAttributedString?) -> CharacterStyle {
-    guard let attributed else { return CharacterStyle() }
-    var effectiveRange = NSRange(location: 0, length: 0)
+  private static func style(
+    at index: Int,
+    in attributed: NSAttributedString?,
+    effectiveRange: inout NSRange
+  ) -> CharacterStyle {
+    guard let attributed, index < attributed.length else {
+      effectiveRange = NSRange(location: index, length: 1)
+      return CharacterStyle()
+    }
     let font = attributed.attribute(.font, at: index, effectiveRange: &effectiveRange)
     #if os(macOS)
     if let font = font as? NSFont {

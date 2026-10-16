@@ -1,9 +1,11 @@
 import PDFKit
+import PencilKit
 import ReaderCore
 import SwiftUI
 
 struct ReaderAnnotationsSidebar: View {
   @ObservedObject var model: ReaderAnnotationViewModel
+  @ObservedObject var drawings: ReaderDrawingModel
   @ObservedObject var pdfViewReference: PDFViewReference
   let onJump: (Int) -> Void
   @State private var editing: ReaderAnnotation?
@@ -26,7 +28,7 @@ struct ReaderAnnotationsSidebar: View {
       }
 
       Section(L10n.string("sidebar.annotations")) {
-        if model.annotations.isEmpty {
+        if model.annotations.isEmpty && drawings.annotatedPages.isEmpty {
           Text(L10n.string("ios.annotationEmpty"))
             .foregroundStyle(.secondary)
         } else {
@@ -65,6 +67,34 @@ struct ReaderAnnotationsSidebar: View {
               .disabled(annotation.kind != .comment)
               Button(L10n.string("ios.delete"), systemImage: "trash", role: .destructive) {
                 model.delete(annotation, pdfView: pdfViewReference.view)
+              }
+            }
+          }
+        }
+        ForEach(drawings.annotatedPages, id: \.self) { pageIndex in
+          if let drawing = drawings.drawings[pageIndex] {
+            Button {
+              onJump(pageIndex + 1)
+            } label: {
+              VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                  Label(L10n.string("ios.drawing"), systemImage: "pencil.tip")
+                  Spacer(minLength: 4)
+                  Text(L10n.string("sidebar.page", String(pageIndex + 1)))
+                    .monospacedDigit()
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                DrawingAnnotationPreview(drawing: drawing)
+              }
+              .padding(.vertical, 3)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("reader.drawingAnnotation.\(pageIndex + 1)")
+            .contextMenu {
+              Button(L10n.string("ios.delete"), systemImage: "trash", role: .destructive) {
+                drawings.deleteDrawing(on: pageIndex)
               }
             }
           }
@@ -158,6 +188,23 @@ struct ReaderAnnotationsSidebar: View {
       box.x.formatted(.number.precision(.fractionLength(0...1))),
       box.y.formatted(.number.precision(.fractionLength(0...1)))
     )
+  }
+}
+
+private struct DrawingAnnotationPreview: View {
+  let drawing: PKDrawing
+
+  var body: some View {
+    let bounds = drawing.bounds.insetBy(dx: -8, dy: -8)
+    // Bound raster size even for large PDF pages, preserving the stroke colors.
+    let scale = min(2, 480 / max(bounds.width, bounds.height, 1))
+    Image(uiImage: drawing.image(from: bounds, scale: scale))
+      .resizable()
+      .scaledToFit()
+      .frame(maxWidth: .infinity, maxHeight: 100, alignment: .leading)
+      .padding(6)
+      .background(.white, in: RoundedRectangle(cornerRadius: 6))
+      .accessibilityHidden(true)
   }
 }
 

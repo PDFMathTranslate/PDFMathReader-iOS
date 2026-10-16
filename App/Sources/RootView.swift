@@ -47,7 +47,8 @@ struct RootView: View {
     .background(SceneSessionReader { LibraryScene.session = $0 })
     .preferredColorScheme(library.preferences.theme.colorScheme)
     .onOpenURL { url in
-      open(url: url)
+      guard let session = library.receiveExternalPDF(at: url) else { return }
+      open(session)
     }
     #if DEBUG
     .task {
@@ -89,6 +90,7 @@ struct ReaderWindow: View {
   @State private var session: DocumentSession?
   @State private var failure: String?
   @State private var sceneSession: UISceneSession?
+  @State private var incomingError: String?
 
   var body: some View {
     Group {
@@ -109,6 +111,22 @@ struct ReaderWindow: View {
       }
     }
     .background(SceneSessionReader { sceneSession = $0 })
+    .onOpenURL { url in
+      guard let received = library.receiveExternalPDF(at: url) else {
+        incomingError = library.lastError
+        library.lastError = nil
+        return
+      }
+      openWindow(value: library.windowValue(for: received))
+    }
+    .alert("PDFMathReader", isPresented: Binding(
+      get: { incomingError != nil },
+      set: { if !$0 { incomingError = nil } }
+    )) {
+      Button(L10n.string("ios.ok")) { incomingError = nil }
+    } message: {
+      Text(incomingError ?? "")
+    }
     .task {
       #if DEBUG
       if let url = library.consumeLaunchArgumentPDF(), let launched = library.makeSession(for: url) {

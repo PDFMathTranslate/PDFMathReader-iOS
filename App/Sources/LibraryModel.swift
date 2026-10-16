@@ -44,6 +44,7 @@ struct ReaderWindowValue: Codable, Hashable {
 
 @MainActor
 final class LibraryModel: ObservableObject {
+  private let importedPDFDirectory: URL
   let recentsStore: RecentsStore
   let readingStateStore: ReadingStateStore
   let preferencesStore: PreferencesStore
@@ -55,6 +56,7 @@ final class LibraryModel: ObservableObject {
   private var pendingWindowSessions: [String: DocumentSession] = [:]
 
   init(directory: URL = LibraryDirectory.default) {
+    importedPDFDirectory = directory.appendingPathComponent("Imported PDFs", isDirectory: true)
     recentsStore = RecentsStore(directory: directory)
     readingStateStore = ReadingStateStore(directory: directory)
     preferencesStore = PreferencesStore(directory: directory)
@@ -134,6 +136,35 @@ final class LibraryModel: ObservableObject {
       return nil
     }
     return DocumentSession(id: id, title: title, url: url, access: access)
+  }
+
+  /// Open-in/Share deliveries can be temporary. Keep a local copy so the
+  /// reader and Recents survive the sender removing its file.
+  func receiveExternalPDF(at url: URL) -> DocumentSession? {
+    guard url.isFileURL else {
+      lastError = L10n.string("ios.localPDFOnly")
+      return nil
+    }
+    let access = SecurityScopedAccess(url: url)
+    do {
+      let localURL = try withExtendedLifetime(access) {
+        let data = try Self.coordinatedData(at: url)
+        guard PDFDocument(data: data) != nil else { throw CocoaError(.fileReadCorruptFile) }
+        let directory = importedPDFDirectory.appendingPathComponent(
+          DocumentIdentity.contentHash(for: data), isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(url.lastPathComponent)
+        if !FileManager.default.fileExists(atPath: destination.path) {
+          try data.write(to: destination, options: .atomic)
+        }
+        return destination
+      }
+      return makeSession(for: localURL)
+    } catch {
+      lastError = L10n.string("ios.pdfReadFailed")
+      return nil
+    }
   }
 
   /// Coordinated read so iCloud Drive files are materialized and not read

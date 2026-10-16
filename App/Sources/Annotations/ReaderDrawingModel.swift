@@ -12,7 +12,7 @@ final class ReaderDrawingModel: NSObject, ObservableObject, PKCanvasViewDelegate
   @Published var isDrawing = false { didSet { updateCanvases() } }
   @Published var usesFinger = false { didSet { updateCanvases() } }
   @Published var lastError: String?
-  private(set) var drawings: [Int: PKDrawing] = [:]
+  @Published private(set) var drawings: [Int: PKDrawing] = [:]
   private let url: URL
   private let picker = PKToolPicker()
   private var canvases: [Int: ReaderPencilCanvas] = [:]
@@ -106,6 +106,22 @@ final class ReaderDrawingModel: NSObject, ObservableObject, PKCanvasViewDelegate
 
   func undo() { activeCanvas?.undoManager?.undo() }
   func redo() { activeCanvas?.undoManager?.redo() }
+
+  /// One sidebar entry per page, including both Pencil and finger strokes.
+  var annotatedPages: [Int] {
+    drawings.keys.filter { drawings[$0]?.strokes.isEmpty == false }.sorted()
+  }
+
+  func deleteDrawing(on pageIndex: Int) {
+    guard canSave else { return }
+    if let canvas = canvases[pageIndex] {
+      canvas.drawing = PKDrawing()
+      canvas.undoManager?.removeAllActions()
+    }
+    drawings[pageIndex] = PKDrawing()
+    isDirty = true
+    flush()
+  }
 
   func exportDrawings() throws -> [Int: PKDrawing] {
     guard canSave else { throw CocoaError(.fileReadCorruptFile) }

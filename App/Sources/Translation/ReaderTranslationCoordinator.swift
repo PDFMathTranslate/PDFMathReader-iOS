@@ -38,6 +38,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   private var overlays: [Int: ReaderTranslationPageOverlay] = [:]
   private var latestStates: [Int: PageTranslationState] = [:]
   private var remotePageDataByPage: [Int: Data] = [:]
+  @Published private var remoteProgressByPage: [Int: Double] = [:]
   private var pairingCodeObserver: AnyCancellable?
 
   @Published private(set) var showTranslations: Bool
@@ -115,6 +116,28 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   var translationDocumentID: String { documentID }
 
   var translationPageCount: Int { document.pageCount }
+
+  /// Visibility is independent of work: the toolbar keeps reporting progress
+  /// even while the reader is showing the original text.
+  var activeTranslationProgress: Double? {
+    var fractions = remoteProgressByPage
+    var isActive = !fractions.isEmpty
+    for (pageIndex, state) in latestStates where fractions[pageIndex] == nil {
+      switch state.status {
+      case .queued, .extracting, .translating:
+        guard pageTasks[pageIndex] != nil else { continue }
+        fractions[pageIndex] = state.progress
+        isActive = true
+      case .ready, .error:
+        fractions[pageIndex] = 1
+      case .idle, .cancelled:
+        continue
+      }
+    }
+    for pageIndex in remotePageDataByPage.keys { fractions[pageIndex] = 1 }
+    guard isActive, !fractions.isEmpty else { return nil }
+    return fractions.values.reduce(0, +) / Double(fractions.count)
+  }
 
   /// Identifies the settings that affect a document-wide translation cache.
   /// Credentials and UI-only preferences are deliberately excluded.
@@ -214,6 +237,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     remoteTasks.values.forEach { $0.cancel() }
     pageTasks.removeAll()
     remoteTasks.removeAll()
+    remoteProgressByPage.removeAll()
     await pipeline?.cancel()
   }
 
@@ -290,6 +314,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     pipeline = nil
     latestStates.removeAll()
     remotePageDataByPage.removeAll()
+    remoteProgressByPage.removeAll()
     translationRevision &+= 1
     Task { await oldPipeline?.close() }
 
@@ -411,12 +436,17 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     remotePageDataByPage[pageIndex] = nil
     overlay.beginRemoteTranslation()
     let currentGeneration = generation
+    remoteProgressByPage[pageIndex] = 0
     let value = preferences
     let kernel = value.engine == .fast ? CompanionKernel.fast : CompanionKernel.precise
     let sourceLanguage = value.sourceLanguage.isEmpty ? nil : value.sourceLanguage
     let onProgress: @Sendable (RemoteKernelProgress) -> Void = { [weak self] progress in
       Task { @MainActor [weak self] in
-        self?.overlays[pageIndex]?.setRemoteProgress(progress.percent / 100)
+        guard let self, self.generation == currentGeneration,
+          self.remoteProgressByPage[pageIndex] != nil else { return }
+        let fraction = min(1, max(0, progress.percent / 100))
+        self.remoteProgressByPage[pageIndex] = fraction
+        self.overlays[pageIndex]?.setRemoteProgress(fraction)
       }
     }
     remoteTasks[pageIndex] = Task { @MainActor [weak self, weak overlay] in
@@ -480,6 +510,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
         startUltraFast(for: pageIndex, overlay: overlay)
       }
       remoteTasks[pageIndex] = nil
+      remoteProgressByPage[pageIndex] = nil
     }
   }
 

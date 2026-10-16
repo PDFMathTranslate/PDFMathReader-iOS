@@ -1,3 +1,4 @@
+import CoreText
 import Foundation
 import PDFKit
 import Testing
@@ -63,6 +64,35 @@ func pdfKitExtractionKeepsGlyphBoundsAlignedAfterLineBreaks() throws {
   let attribution = try #require(paragraphs.first { $0.text.hasPrefix("Rabindranath") })
   #expect(attribution.text == "Rabindranath Tagore, Stray Birds")
   #expect(abs(attribution.x - 76.381) < 1)
+}
+
+@Test
+func pdfKitExtractionPreservesUnicodeAndFontChanges() throws {
+  let bytes = NSMutableData()
+  let consumer = try #require(CGDataConsumer(data: bytes))
+  var mediaBox = CGRect(x: 0, y: 0, width: 600, height: 300)
+  let context = try #require(CGContext(consumer: consumer, mediaBox: &mediaBox, nil))
+  context.beginPDFPage(nil)
+  let regular = CTFontCreateWithName("Helvetica" as CFString, 14, nil)
+  let bold = CTFontCreateWithName("Helvetica-Bold" as CFString, 14, nil)
+  let text = NSMutableAttributedString(
+    string: "Café scientific text ",
+    attributes: [NSAttributedString.Key(kCTFontAttributeName as String): regular]
+  )
+  text.append(NSAttributedString(
+    string: "Bold result",
+    attributes: [NSAttributedString.Key(kCTFontAttributeName as String): bold]
+  ))
+  context.textPosition = CGPoint(x: 30, y: 220)
+  CTLineDraw(CTLineCreateWithAttributedString(text), context)
+  context.endPDFPage()
+  context.closePDF()
+  let page = try #require(PDFDocument(data: bytes as Data)?.page(at: 0))
+  let items = PDFKitTextExtractor.extract(page: page)
+  #expect(items.map(\.text).joined(separator: " ") == "Café scientific text Bold result")
+  #expect(items.filter { $0.text == "Bold" || $0.text == "result" }.allSatisfy { $0.isBold })
+  #expect(items.filter { $0.text == "scientific" }.allSatisfy { !$0.isBold })
+  #expect(items.allSatisfy { $0.x.isFinite && $0.y.isFinite && $0.width > 0 && $0.height > 0 })
 }
 
 private func normalizedText(_ items: [TextItem]) -> String {

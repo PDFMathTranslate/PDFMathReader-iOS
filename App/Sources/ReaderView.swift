@@ -35,6 +35,7 @@ struct ReaderView: View {
   @State private var isLandscape: Bool?
   @State private var sidebarMode: ReaderSidebarMode = .thumbnails
   @State private var isCompactSidebarPresented = false
+  @State private var sidebarInteractionVersion = 0
   @State private var isSearchPresented = false
   @State private var isComparePresented = false
   @State private var exportRequest: ReaderExportKind?
@@ -68,8 +69,9 @@ struct ReaderView: View {
       if let document = model.document {
         if horizontalSizeClass == .regular {
           NavigationSplitView(columnVisibility: $columnVisibility) {
-            ReaderSidebar(model: model, annotations: annotationModel, mode: $sidebarMode)
+            ReaderSidebar(model: model, annotations: annotationModel, drawings: drawingModel, mode: $sidebarMode)
               .navigationSplitViewColumnWidth(256)
+              .simultaneousGesture(sidebarDismissGesture)
               .navigationTitle(L10n.string("ios.reader"))
               .navigationBarTitleDisplayMode(.inline)
               .toolbar {
@@ -98,7 +100,8 @@ struct ReaderView: View {
           readerDetail(document: document, regular: false)
             .sheet(isPresented: $isCompactSidebarPresented) {
               NavigationStack {
-                ReaderSidebar(model: model, annotations: annotationModel, mode: $sidebarMode)
+                ReaderSidebar(model: model, annotations: annotationModel, drawings: drawingModel, mode: $sidebarMode)
+                  .simultaneousGesture(sidebarDismissGesture)
                   .navigationTitle(L10n.string("ios.readerTools"))
                   .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
@@ -129,9 +132,11 @@ struct ReaderView: View {
     .task(id: isLandscape) {
       guard let isLandscape else { return }
       let target = Self.defaultColumnVisibility(landscape: isLandscape)
+      let interactionVersion = sidebarInteractionVersion
       columnVisibility = target
       // Reassert once layout settles in case the split view dropped it.
       try? await Task.sleep(for: .milliseconds(400))
+      guard !Task.isCancelled, sidebarInteractionVersion == interactionVersion else { return }
       if columnVisibility != target { columnVisibility = target }
     }
     .onChange(of: isCompactSidebarPresented) { _, presented in
@@ -204,6 +209,16 @@ struct ReaderView: View {
       onCompare: { isComparePresented = true },
       onExport: { exportRequest = $0 }
     )
+    .simultaneousGesture(
+      DragGesture(minimumDistance: 50)
+        .onEnded { value in
+          guard !drawingModel.isDrawing,
+                value.startLocation.x <= 32,
+                value.translation.width > 60,
+                value.translation.width > abs(value.translation.height) * 2 else { return }
+          setSidebarVisible(true)
+        }
+    )
     .readerReadingAids(
       document: document,
       preferences: model.library.preferences,
@@ -243,16 +258,59 @@ struct ReaderView: View {
   }
 
   private func toggleSidebar() {
-    if horizontalSizeClass == .regular {
-      let visible = columnVisibility == .detailOnly
-      columnVisibility = visible ? .all : .detailOnly
-      model.readingState.sidebarVisible = visible
-      model.persistReadingState()
-    } else {
-      isCompactSidebarPresented = true
-      model.readingState.sidebarVisible = true
-      model.persistReadingState()
+    setSidebarVisible(horizontalSizeClass == .regular ? columnVisibility == .detailOnly : !isCompactSidebarPresented)
+  }
+
+  private var sidebarDismissGesture: some Gesture {
+    DragGesture(minimumDistance: 50)
+      .onEnded { value in
+        guard !drawingModel.isDrawing,
+              value.translation.width < -60,
+              -value.translation.width > abs(value.translation.height) * 2 else { return }
+        setSidebarVisible(false)
+      }
+  }
+
+  private func setSidebarVisible(_ visible: Bool) {
+    sidebarInteractionVersion += 1
+    withAnimation {
+      if horizontalSizeClass == .regular {
+        if let splitView = readerSplitViewController {
+          if visible {
+            // Use the system button's action so portrait gets the same
+            // overlay sidebar instead of forcing a beside-detail column.
+            if splitView.displayMode == .secondaryOnly {
+              let button = splitView.displayModeButtonItem
+              if let action = button.action {
+                UIApplication.shared.sendAction(action, to: button.target, from: button, for: nil)
+              } else {
+                splitView.show(.primary)
+              }
+            }
+          } else {
+            splitView.hide(.primary)
+          }
+        } else {
+          columnVisibility = visible ? .all : .detailOnly
+        }
+      } else {
+        isCompactSidebarPresented = visible
+      }
     }
+    model.readingState.sidebarVisible = visible
+    model.persistReadingState()
+  }
+
+  private var readerSplitViewController: UISplitViewController? {
+    var responder: UIResponder? = model.pdfViewReference.view
+    while let current = responder {
+      if let controller = current as? UIViewController,
+         let splitView = controller.splitViewController {
+        return splitView
+      }
+      responder = current.next
+    }
+    return nil
   }
 }
 
@@ -266,6 +324,7 @@ private struct ReaderDetail: View {
   @State private var importError: String?
   @StateObject private var pagerVisibility = ReaderPagerVisibility()
   @StateObject private var translateAll: TranslateAllPagesJob
+  @StateObject private var kernelAvailability = ReaderKernelMenuAvailability()
   let regular: Bool
   let onToggleSidebar: () -> Void
   let onSearch: () -> Void
@@ -316,6 +375,9 @@ private struct ReaderDetail: View {
       if let coordinator = model.translationCoordinator {
         ReaderAppleTranslationPreparation(coordinator: coordinator)
       }
+    }
+    .background {
+      ReaderKernelAvailabilityMonitor(library: model.library, availability: kernelAvailability)
     }
     .overlay {
       ReaderPager(model: model, visibility: pagerVisibility, compact: !regular)
@@ -391,27 +453,13 @@ private struct ReaderDetail: View {
           .accessibilityIdentifier("reader.toggleAnnotations")
         }
 
-        Button {
-          model.toggleTranslations()
-        } label: {
-          if translateAll.isRunning {
-            Label {
-              Text(L10n.string("toolbar.translating", String(Int(translateAll.progress.fraction * 100))))
-            } icon: {
-              TranslationProgressRing(fraction: translateAll.progress.fraction)
-            }
-          } else {
-            Label(
-              model.translationCoordinator?.showTranslations == true
-                ? L10n.string("toolbar.showOriginalText")
-                : L10n.string("toolbar.showTranslatedText"),
-              systemImage: model.translationCoordinator?.showTranslations == true
-                ? "text.page"
-                : "character.book.closed"
-            )
-          }
+        if let coordinator = model.translationCoordinator {
+          ReaderTranslationButton(
+            coordinator: coordinator,
+            translateAll: translateAll,
+            action: model.toggleTranslations
+          )
         }
-        .accessibilityIdentifier("reader.toggleTranslations")
 
         Button(action: onSearch) {
           Label(L10n.string("toolbar.searchDocument"), systemImage: "magnifyingglass")
@@ -456,6 +504,12 @@ private struct ReaderDetail: View {
 
   @ViewBuilder
   private var moreMenu: some View {
+    ReaderTranslationMenu(library: model.library, availability: kernelAvailability) { preferences in
+      guard preferences != model.library.preferences else { return }
+      translateAll.cancel()
+      model.library.savePreferences(preferences)
+      model.updateTranslationPreferences(model.library.preferences)
+    }
     Section(L10n.string("ios.drawingTools")) {
       Toggle(L10n.string("ios.drawWithFinger"), isOn: $drawings.usesFinger)
         .accessibilityIdentifier("reader.drawWithFinger")
@@ -559,6 +613,7 @@ private struct ReaderDetail: View {
 private struct ReaderSidebar: View {
   @ObservedObject var model: ReaderViewModel
   @ObservedObject var annotations: ReaderAnnotationViewModel
+  @ObservedObject var drawings: ReaderDrawingModel
   @Binding var mode: ReaderSidebarMode
 
   var body: some View {
@@ -582,6 +637,7 @@ private struct ReaderSidebar: View {
       case .annotations:
         ReaderAnnotationsSidebar(
           model: annotations,
+          drawings: drawings,
           pdfViewReference: model.pdfViewReference,
           onJump: model.goToPage
         )
@@ -813,8 +869,35 @@ private struct TranslationStatusProbe: View {
 }
 #endif
 
-/// Desktop-style progress ring shown on the translation toggle while every
-/// page is being translated.
+/// Observe the coordinator directly so paragraph and kernel progress refresh
+/// the toolbar without rebuilding the PDF reader on every update.
+private struct ReaderTranslationButton: View {
+  @ObservedObject var coordinator: ReaderTranslationCoordinator
+  @ObservedObject var translateAll: TranslateAllPagesJob
+  let action: () -> Void
+
+  var body: some View {
+    let fraction = translateAll.isRunning
+      ? translateAll.progress.fraction
+      : coordinator.activeTranslationProgress
+    let title = L10n.string(coordinator.showTranslations
+      ? "toolbar.showOriginalText" : "toolbar.showTranslatedText")
+    Button(action: action) {
+      if let fraction {
+        TranslationProgressRing(fraction: fraction)
+      } else {
+        Image(systemName: coordinator.showTranslations ? "text.page" : "character.book.closed")
+      }
+    }
+    .accessibilityLabel(title)
+    .accessibilityValue(fraction.map {
+      L10n.string("toolbar.translating", String(Int($0 * 100)))
+    } ?? "")
+    .accessibilityIdentifier("reader.toggleTranslations")
+  }
+}
+
+/// Desktop-style progress ring on the translation toggle.
 private struct TranslationProgressRing: View {
   let fraction: Double
 

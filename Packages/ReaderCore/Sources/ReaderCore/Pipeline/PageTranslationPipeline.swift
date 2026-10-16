@@ -150,7 +150,7 @@ public actor PageTranslationPipeline {
   public static let defaultLayoutMaxBytes = 8 * 1024 * 1024
 
   private struct LayoutCacheEntry {
-    let items: [TextItem]
+    let paragraphs: [LayoutParagraph]
     let bytes: Int
   }
 
@@ -159,7 +159,7 @@ public actor PageTranslationPipeline {
     let id: UUID
   }
 
-  private let documentData: Data
+  private let document: PDFDocument
   private let translationService: TranslationService
   private let extractor: PDFKitTextExtractor
   private let pageCount: Int
@@ -172,6 +172,7 @@ public actor PageTranslationPipeline {
   private var streams: [PageStreamKey: AsyncStream<PageTranslationState>.Continuation] = [:]
   private var layoutCache: [Int: LayoutCacheEntry] = [:]
   private var layoutOrder: [Int] = []
+  private var lastSettingsByPage: [Int: PageTranslationSettings] = [:]
   private var layoutBytes = 0
   private var isClosed = false
 
@@ -188,7 +189,7 @@ public actor PageTranslationPipeline {
     guard layoutMaxPages > 0, layoutMaxBytes > 0 else {
       throw PageTranslationPipelineError.invalidDocument
     }
-    self.documentData = documentData
+    self.document = document
     self.translationService = translationService
     self.extractor = PDFKitTextExtractor()
     self.pageCount = document.pageCount
@@ -258,6 +259,27 @@ public actor PageTranslationPipeline {
     let visible = visiblePageIndices.map { $0 + 1 }
     let ahead = aheadPageIndices.map { $0 + 1 }
     let mode = settings.translationMode
+    let pages = prioritizedTranslationPages(
+      mode: mode,
+      currentPage: current,
+      totalPages: pageCount,
+      visiblePages: visible,
+      aheadPages: ahead,
+      direction: direction,
+      moving: moving
+    )
+    let queueSnapshot = await queue.snapshot()
+    let retryPages = Set(pages.filter { page in
+      page > 0 && states[page - 1]?.status == .error &&
+        queueSnapshot.runningPages.contains(page)
+    })
+    while !retryPages.isEmpty {
+      if Task.isCancelled { return }
+      let runningPages = Set((await queue.snapshot()).runningPages)
+      if retryPages.isDisjoint(with: runningPages) { break }
+      try? await Task.sleep(nanoseconds: 1_000_000)
+    }
+    guard !isClosed else { return }
     await queue.schedule(
       totalPages: pageCount,
       currentPage: current,
@@ -269,15 +291,7 @@ public actor PageTranslationPipeline {
       excludedPages: Set(excluded.map { $0 + 1 }),
       context: context
     )
-    let pages = prioritizedTranslationPages(
-      mode: mode,
-      currentPage: current,
-      totalPages: pageCount,
-      visiblePages: visible,
-      aheadPages: ahead,
-      direction: direction,
-      moving: moving
-    )
+    guard !isClosed else { return }
     for page in pages where page > 0 && !excluded.contains(page - 1) {
       var value = state(for: page - 1)
       if [.idle, .error, .cancelled].contains(value.status) {
@@ -313,6 +327,7 @@ public actor PageTranslationPipeline {
     for continuation in streams.values { continuation.finish() }
     streams.removeAll()
     states.removeAll()
+    lastSettingsByPage.removeAll()
     layoutCache.removeAll()
     layoutOrder.removeAll()
     layoutBytes = 0
@@ -358,72 +373,129 @@ public actor PageTranslationPipeline {
     guard pageIndex >= 0, pageIndex < pageCount else {
       throw PageTranslationPipelineError.invalidPage
     }
+    let settings = activeSettings
+    let previousState = states[pageIndex]
+    let previousSettings = lastSettingsByPage[pageIndex]
+    lastSettingsByPage[pageIndex] = settings
+    var publishedFinalStatus = false
     do {
       try Task.checkCancellation()
       update(pageIndex: pageIndex, status: .extracting, error: nil)
-      let document = try loadDocument()
       guard let page = document.page(at: pageIndex) else {
         throw PageTranslationPipelineError.invalidPage
       }
       let bounds = page.bounds(for: .cropBox)
-      let items = try layoutItems(pageIndex: pageIndex, page: page)
-      let paragraphs = LayoutEngine.paragraphs(items: items, pageHeight: Double(bounds.height))
-      var values = paragraphs.map { paragraph in
-        PageTranslationParagraph(
-          paragraph: paragraph,
-          translation: nil,
-          status: Self.shouldSkipTranslation(
-            paragraph.text,
-            minimumLength: activeSettings.minimumTextLength
-          ) ? .skipped : .queued
-        )
-      }
+      let paragraphs = layoutParagraphs(
+        pageIndex: pageIndex,
+        page: page,
+        pageHeight: Double(bounds.height)
+      )
+      var values = translationParagraphs(
+        paragraphs: paragraphs,
+        settings: settings,
+        previousState: previousState,
+        previousSettings: previousSettings
+      )
       update(pageIndex: pageIndex, status: .translating, paragraphs: values, error: nil)
       try await translate(
         pageIndex: pageIndex,
         paragraphs: &values,
-        settings: activeSettings
+        settings: settings
       )
+      try Task.checkCancellation()
       let hasErrors = values.contains { $0.status == .error }
+      let firstError = values.first(where: { $0.status == .error })?.error
       update(
         pageIndex: pageIndex,
         status: hasErrors ? .error : .ready,
         paragraphs: values,
-        error: values.first(where: { $0.status == .error })?.error
+        error: firstError
       )
+      publishedFinalStatus = true
+      if let firstError {
+        throw TranslationServiceError.provider(firstError)
+      }
     } catch is CancellationError {
       update(pageIndex: pageIndex, status: .cancelled)
       throw CancellationError()
     } catch {
-      update(pageIndex: pageIndex, status: .error, error: error.localizedDescription)
+      if !publishedFinalStatus {
+        update(pageIndex: pageIndex, status: .error, error: error.localizedDescription)
+      }
       throw error
     }
   }
 
-  private func loadDocument() throws -> PDFDocument {
-    guard let document = PDFDocument(data: documentData) else {
-      throw PageTranslationPipelineError.invalidDocument
-    }
-    return document
-  }
-
-  private func layoutItems(pageIndex: Int, page: PDFPage) throws -> [TextItem] {
+  private func layoutParagraphs(
+    pageIndex: Int,
+    page: PDFPage,
+    pageHeight: Double
+  ) -> [LayoutParagraph] {
     if let cached = layoutCache[pageIndex] {
       touchLayout(pageIndex)
-      return cached.items
+      return cached.paragraphs
     }
-    let items = extractor.extract(page: page, pageNumber: pageIndex + 1)
-    let bytes = (try? JSONEncoder().encode(items).count) ?? 0
-    guard bytes <= layoutMaxBytes else { return items }
+    let nativeItems = extractor.extract(page: page, pageNumber: pageIndex + 1)
+    let items = nativeItems.isEmpty
+      ? LayoutEngine.normalizeOcrItems(
+          PDFKitOCRTextExtractor.extract(page: page, pageNumber: pageIndex + 1)
+        )
+      : nativeItems
+    let paragraphs = LayoutEngine.paragraphs(items: items, pageHeight: pageHeight)
+    let bytes = (try? JSONEncoder().encode(paragraphs).count) ?? 0
+    guard bytes <= layoutMaxBytes else { return paragraphs }
     while layoutCache.count >= layoutMaxPages || layoutBytes + bytes > layoutMaxBytes {
       guard let oldest = layoutOrder.first else { break }
       layoutOrder.removeFirst()
       if let removed = layoutCache.removeValue(forKey: oldest) { layoutBytes -= removed.bytes }
     }
-    layoutCache[pageIndex] = LayoutCacheEntry(items: items, bytes: bytes)
+    layoutCache[pageIndex] = LayoutCacheEntry(paragraphs: paragraphs, bytes: bytes)
     layoutOrder.append(pageIndex)
     layoutBytes += bytes
-    return items
+    return paragraphs
+  }
+
+  private func translationParagraphs(
+    paragraphs: [LayoutParagraph],
+    settings: PageTranslationSettings,
+    previousState: PageTranslationState?,
+    previousSettings: PageTranslationSettings?
+  ) -> [PageTranslationParagraph] {
+    let canReuseReadyTranslations = previousState.map { value in
+      !settings.forceRetranslation &&
+        (value.status == .error || value.status == .cancelled ||
+          (value.status == .queued && !value.paragraphs.isEmpty)) &&
+        previousSettings == settings &&
+        value.paragraphs.count == paragraphs.count &&
+        zip(value.paragraphs, paragraphs).allSatisfy { $0.paragraph == $1 }
+    } ?? false
+
+    return paragraphs.enumerated().map { index, paragraph in
+      if Self.shouldSkipTranslation(
+        paragraph.text,
+        minimumLength: settings.minimumTextLength
+      ) {
+        return PageTranslationParagraph(
+          paragraph: paragraph,
+          status: .skipped
+        )
+      }
+      if canReuseReadyTranslations,
+         let previousParagraph = previousState?.paragraphs[index],
+         previousParagraph.status == .ready,
+         let translation = previousParagraph.translation,
+         !translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return PageTranslationParagraph(
+          paragraph: paragraph,
+          translation: translation,
+          status: .ready
+        )
+      }
+      return PageTranslationParagraph(
+        paragraph: paragraph,
+        status: .queued
+      )
+    }
   }
 
   private func touchLayout(_ pageIndex: Int) {
@@ -440,7 +512,7 @@ public actor PageTranslationPipeline {
     guard !candidates.isEmpty else { return }
     let limit = max(1, min(12, settings.paragraphConcurrency))
     var next = 0
-    await withTaskGroup(of: (Int, Result<TranslationResult?, Error>).self) { group in
+    try await withThrowingTaskGroup(of: (Int, Result<TranslationResult?, Error>).self) { group in
       func add(_ index: Int) {
         let paragraph = paragraphs[index].paragraph
         group.addTask { [translationService] in
@@ -464,10 +536,12 @@ public actor PageTranslationPipeline {
         }
       }
       while next < min(limit, candidates.count) {
+        try Task.checkCancellation()
         add(candidates[next])
         next += 1
       }
-      while let (index, result) = await group.next() {
+      while let (index, result) = try await group.next() {
+        try Task.checkCancellation()
         switch result {
         case let .success(value):
           if let value, !value.translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -484,11 +558,13 @@ public actor PageTranslationPipeline {
         }
         update(pageIndex: pageIndex, status: .translating, paragraphs: paragraphs, error: nil)
         if next < candidates.count {
+          try Task.checkCancellation()
           add(candidates[next])
           next += 1
         }
       }
     }
+    try Task.checkCancellation()
   }
 
   private func state(for pageIndex: Int) -> PageTranslationState {
@@ -501,6 +577,7 @@ public actor PageTranslationPipeline {
     paragraphs: [PageTranslationParagraph]? = nil,
     error: String? = nil
   ) {
+    guard !isClosed else { return }
     var value = state(for: pageIndex)
     value.status = status
     if let paragraphs { value.paragraphs = paragraphs }

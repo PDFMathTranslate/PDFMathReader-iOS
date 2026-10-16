@@ -50,7 +50,7 @@ struct SettingsView: View {
   var body: some View {
     NavigationStack {
       Form {
-        Section(L10n.string("appearance.interface")) {
+        Section(L10n.string("appearance.section")) {
           Picker(L10n.string("appearance.interfaceLanguage"), selection: $draft.uiLanguage) {
             Text(L10n.string("appearance.system")).tag("system")
             Text(L10n.string("appearance.english")).tag("en")
@@ -61,6 +61,7 @@ struct SettingsView: View {
               Text(theme.displayName).tag(theme)
             }
           }
+          AppIconSettingsRow()
         }
 
         Section {
@@ -70,7 +71,7 @@ struct SettingsView: View {
               Text(translationLanguageLabel(option.name, locale: Locale.current.identifier)).tag(option.code)
             }
           }
-          Picker(L10n.string("recentStatus.language"), selection: $draft.targetLanguage) {
+          Picker(L10n.string("settings.translationLanguage"), selection: $draft.targetLanguage) {
             ForEach(translationLanguageOptions) { option in
               Text(translationLanguageLabel(option.name, locale: Locale.current.identifier)).tag(option.code)
             }
@@ -80,6 +81,17 @@ struct SettingsView: View {
               Text(engine.displayName).tag(engine)
             }
           }
+          Toggle(L10n.string("translation.full"), isOn: $draft.translateFullDocument)
+          NavigationLink {
+            GlossaryEditorView(libraries: $draft.glossaries)
+          } label: {
+            Label(L10n.string("ios.terminologyGlossary"), systemImage: "text.book.closed")
+          }
+        } header: {
+          Text(L10n.string("settings.translation"))
+        }
+
+        Section {
           Picker(L10n.string("settings.translationService"), selection: $draft.translationService) {
             ForEach(availableServices, id: \.self) { service in
               Text(service.displayName).tag(service)
@@ -91,48 +103,45 @@ struct SettingsView: View {
               targetLanguage: draft.targetLanguage
             )
           }
+        } header: {
+          Text(L10n.string("settings.translationService"))
+        } footer: {
+          Text(translationDataDisclosure)
+        }
+
+        if draft.translationService == .openAICompatible {
+          Section {
+            TextField(L10n.string("ios.baseURL"), text: $draft.openAIBaseURL)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+            TextField(L10n.string("ios.model"), text: $draft.openAIModel)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+            SecureField(L10n.string("settings.apiKey"), text: $apiKey)
+              .textInputAutocapitalization(.never)
+              .autocorrectionDisabled()
+          } header: {
+            Text(L10n.string("ios.openAIService"))
+          } footer: {
+            Text(L10n.string("ios.apiKeyStorage"))
+          }
+        }
+
+        Section(L10n.string("settings.reading")) {
           Toggle(L10n.string("toolbar.showTranslatedText"), isOn: $draft.showTranslations)
           Picker(L10n.string("settings.interactionMode"), selection: $draft.interactionMode) {
             Text(L10n.string("settings.readingMode")).tag(ReaderInteractionMode.reading)
             Text(L10n.string("settings.comparisonMode")).tag(ReaderInteractionMode.comparison)
           }
-          Toggle(L10n.string("translation.full"), isOn: $draft.translateFullDocument)
-          NavigationLink {
-            GlossaryEditorView(libraries: $draft.glossaries)
-          } label: {
-            Label(L10n.string("ios.terminologyGlossary"), systemImage: "text.book.closed")
-          }
-
-          if draft.translationService == .openAICompatible {
-            Section {
-              TextField(L10n.string("ios.baseURL"), text: $draft.openAIBaseURL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-              TextField(L10n.string("ios.model"), text: $draft.openAIModel)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-              SecureField(L10n.string("settings.apiKey"), text: $apiKey)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            } header: {
-              Text(L10n.string("ios.openAIService"))
-            } footer: {
-              Text(L10n.string("ios.apiKeyStorage"))
-            }
-          }
-
-          ComputerKernelSettingsSection(preferences: $draft)
-
-          RemoteKernelSettingsSection(preferences: $draft)
-        } header: {
-          Text(L10n.string("settings.translation"))
-        } footer: {
-          Text(translationDataDisclosure)
         }
 
         TranslationFontSettingsSection(preferences: $draft)
 
         ReadingAidsSettingsSection(preferences: $draft)
+
+        ComputerKernelSettingsSection(preferences: $draft)
+
+        RemoteKernelSettingsSection(preferences: $draft)
       }
       .navigationTitle(L10n.string("settings.title"))
       .navigationBarTitleDisplayMode(.inline)

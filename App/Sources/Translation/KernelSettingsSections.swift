@@ -123,7 +123,7 @@ struct RemoteKernelSettingsSection: View {
         KernelCheckRow(
           isChecking: isChecking,
           ok: health?.ok,
-          message: health.map { $0.ok ? L10n.string("ios.connected") : L10n.string("ios.unavailable") },
+          message: health.map { $0.ok ? L10n.string("ios.connected") : $0.reason },
           action: check
         )
       }
