@@ -21,6 +21,11 @@ final class ReaderDrawingModel: NSObject, ObservableObject, PKCanvasViewDelegate
   private var isDirty = false
   private var canSave = true
 
+  /// In Pencil-only drawing, a finger long-press means the Pencil is put away:
+  /// it returns to reading mode and selects text there. iPadOS has no public
+  /// signal for a Pencil being attached to the iPad, so this is the stand-in.
+  var exitsOnFingerPress: Bool { isDrawing && !usesFinger }
+
   init(session: DocumentSession, directory: URL = LibraryDirectory.default.appendingPathComponent("drawings")) {
     // Text annotation saves can rewrite the source bytes and change its content
     // hash. Bind the local drawing to the Files URL, which survives those edits.
@@ -29,6 +34,13 @@ final class ReaderDrawingModel: NSObject, ObservableObject, PKCanvasViewDelegate
     let digest = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
     url = directory.appendingPathComponent(digest).appendingPathExtension("json")
     super.init()
+    // The palette docks over the reader toolbar on iPad, hiding its Pencil
+    // toggle, so the palette carries its own way back to reading mode.
+    let done = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
+      self?.isDrawing = false
+    })
+    done.accessibilityIdentifier = "reader.exitPencilMode"
+    picker.accessoryItem = done
     do {
       if FileManager.default.fileExists(atPath: url.path) {
         let records = try JSONDecoder().decode([Int: Data].self, from: Data(contentsOf: url))
@@ -165,9 +177,10 @@ final class ReaderPencilCanvas: PKCanvasView {
 
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
     guard acceptsDrawing else { return nil }
-    // Finger navigation continues to reach PDFKit in Pencil-only mode.
-    if drawingPolicy == .pencilOnly,
-       event?.allTouches?.contains(where: { $0.type == .pencil }) != true { return nil }
+    // Touch types are unknown during hit-testing, so filtering on them here
+    // dropped Pencil strokes. In Pencil-only mode the drawing recognizer
+    // ignores fingers, and PDFKit's scroll and zoom recognizers on ancestor
+    // views still receive them.
     return super.hitTest(point, with: event)
   }
 

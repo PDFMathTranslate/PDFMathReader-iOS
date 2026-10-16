@@ -325,6 +325,16 @@ private struct ReaderDetail: View {
         TranslationStatusProbe(coordinator: coordinator)
       }
     }
+    // Toolbar buttons drop their accessibility value, so expose drawing mode here.
+    .overlay(alignment: .topTrailing) {
+      if TranslationStatusProbe.isEnabled {
+        Color.clear
+          .frame(width: 1, height: 1)
+          .accessibilityElement()
+          .accessibilityIdentifier("debug.drawingMode")
+          .accessibilityValue(drawings.isDrawing ? "on" : "off")
+      }
+    }
     #endif
     .safeAreaInset(edge: .bottom, spacing: 0) {
       if !regular {

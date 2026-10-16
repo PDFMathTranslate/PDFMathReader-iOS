@@ -103,7 +103,7 @@ struct PDFKitView: UIViewRepresentable {
   }
 
   @MainActor
-  final class Coordinator: NSObject {
+  final class Coordinator: NSObject, UIGestureRecognizerDelegate, @preconcurrency UIEditMenuInteractionDelegate {
     private weak var pdfView: PDFView?
     // PDFKit only asks for overlay views while laying out pages, so the
     // bridge must be installed before the document and then kept stable.
@@ -115,6 +115,11 @@ struct PDFKitView: UIViewRepresentable {
     private var scrollObservation: NSKeyValueObservation?
     private weak var observedScrollView: UIScrollView?
     private var isReloadingAppearance = false
+    private weak var drawingModel: ReaderDrawingModel?
+    private var drawingSubscription: AnyCancellable?
+    private let fingerPress = UILongPressGestureRecognizer()
+    private lazy var editMenu = UIEditMenuInteraction(delegate: self)
+    private var defaultPanTouchTypes: [NSNumber]?
 
     init(
       onStateChanged: @escaping (PDFView) -> Void,
@@ -133,6 +138,12 @@ struct PDFKitView: UIViewRepresentable {
       overlayBridge.provider = overlayProvider
       view.pageOverlayViewProvider = overlayBridge
       view.document = document
+      fingerPress.addTarget(self, action: #selector(fingerPressed(_:)))
+      fingerPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+      fingerPress.delegate = self
+      view.addGestureRecognizer(fingerPress)
+      view.addInteraction(editMenu)
+      syncDrawingMode()
       view.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: PDFView, _) in
         self?.setDarkAppearance(view.traitCollection.userInterfaceStyle == .dark, in: view)
       }
@@ -200,7 +211,67 @@ struct PDFKitView: UIViewRepresentable {
 
     func setDrawingModel(_ model: ReaderDrawingModel?) {
       overlayBridge.drawingModel = model
-      pdfView?.isInMarkupMode = model?.isDrawing == true
+      guard model !== drawingModel else { return }
+      drawingModel = model
+      // @Published emits before the property changes, so use the sent values.
+      drawingSubscription = model.map {
+        $0.$isDrawing.combineLatest($0.$usesFinger).sink { [weak self] drawing, finger in
+          self?.syncDrawingMode(drawing: drawing, finger: finger)
+        }
+      }
+      syncDrawingMode()
+    }
+
+    private func syncDrawingMode() {
+      syncDrawingMode(drawing: drawingModel?.isDrawing == true, finger: drawingModel?.usesFinger == true)
+    }
+
+    private func syncDrawingMode(drawing: Bool, finger: Bool) {
+      guard let view = pdfView else { return }
+      // Markup mode stops PDFKit text selection from competing with ink.
+      view.isInMarkupMode = drawing
+      let pencilOnly = drawing && !finger
+      fingerPress.isEnabled = pencilOnly
+      // Pencil drags ink instead of scrolling; fingers keep scrolling.
+      guard let pan = Self.scrollView(in: view)?.panGestureRecognizer else { return }
+      if defaultPanTouchTypes == nil { defaultPanTouchTypes = pan.allowedTouchTypes }
+      pan.allowedTouchTypes = pencilOnly
+        ? pan.allowedTouchTypes.filter { $0.intValue != UITouch.TouchType.pencil.rawValue }
+        : defaultPanTouchTypes ?? pan.allowedTouchTypes
+    }
+
+    /// A finger long-press in Pencil mode returns to reading mode and selects
+    /// the pressed word with the annotation menu, as a long-press does there.
+    @objc private func fingerPressed(_ gesture: UILongPressGestureRecognizer) {
+      guard gesture.state == .began, let view = pdfView,
+            let model = drawingModel, model.exitsOnFingerPress else { return }
+      model.isDrawing = false
+      let point = gesture.location(in: view)
+      guard let page = view.page(for: point, nearest: false),
+            let word = page.selectionForWord(at: view.convert(point, to: page)),
+            word.string?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+      else { return }
+      view.setCurrentSelection(word, animate: false)
+      view.becomeFirstResponder()
+      editMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
+    }
+
+    nonisolated func gestureRecognizer(
+      _ gestureRecognizer: UIGestureRecognizer,
+      shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool { true }
+
+    func editMenuInteraction(
+      _ interaction: UIEditMenuInteraction,
+      menuFor configuration: UIEditMenuConfiguration,
+      suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+      let id = UIMenu.Identifier("com.pdfmathreader.annotate")
+      guard !suggestedActions.contains(where: { ($0 as? UIMenu)?.identifier == id }),
+            let commands = annotationController?.menuCommands(), !commands.isEmpty
+      else { return UIMenu(children: suggestedActions) }
+      let annotate = UIMenu(title: L10n.string("ios.annotate"), identifier: id, options: .displayInline, children: commands)
+      return UIMenu(children: [annotate] + suggestedActions)
     }
 
     @objc private func handleViewChanged(_ notification: Notification) {
