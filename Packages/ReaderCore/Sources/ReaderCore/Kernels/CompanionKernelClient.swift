@@ -468,7 +468,7 @@ public actor CompanionKernelClient {
     let request = request(base, "/companion/v1/jobs/\(id)", code: code, method: "DELETE")
     let session = session
     Task.detached {
-      _ = try? await session.data(for: request)
+      _ = try? await session.data(for: CompanionDeviceIdentity.identify(request))
     }
   }
 
@@ -491,6 +491,7 @@ public actor CompanionKernelClient {
     operation: String
   ) async throws -> (Data, URLResponse) {
     try Task.checkCancellation()
+    let request = await CompanionDeviceIdentity.identify(request)
     let session = session
     return try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
       group.addTask {

@@ -537,6 +537,7 @@ public actor CompanionDocumentClient: CompanionDocumentServing {
     responseLimit: Int
   ) async throws -> (Data, URLResponse) {
     try Task.checkCancellation()
+    let request = await CompanionDeviceIdentity.identify(request)
     let urlSessionConfiguration = session.configuration
     let delegate = BoundedResponseDelegate(limit: responseLimit)
     let boundedSession = URLSession(

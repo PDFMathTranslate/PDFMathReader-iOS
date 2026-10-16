@@ -202,7 +202,11 @@ struct CompanionKernelClientTests {
 
   @Test
   func healthReportsKernelsAndCaches() async {
-    companionMock.install { _ in CompanionMockResponse(body: healthyBody) }
+    let deviceName = await CompanionDeviceIdentity.name
+    companionMock.install { request in
+      #expect(request.value(forHTTPHeaderField: "X-PDFMathReader-Device-Name") == deviceName)
+      return CompanionMockResponse(body: healthyBody)
+    }
     let client = CompanionKernelClient(session: companionSession())
     let first = await client.health("mac.test", pairingCode: "abcd-efgh")
     let second = await client.health("http://mac.test:8891", pairingCode: "ABCDEFGH")
