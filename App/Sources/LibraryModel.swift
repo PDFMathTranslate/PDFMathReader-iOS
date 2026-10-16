@@ -194,6 +194,11 @@ final class LibraryModel: ObservableObject {
     return try result.get()
   }
 
+  func isRemoteDocument(_ recent: RecentDocument) -> Bool {
+    guard let url = try? recentsStore.resolveBookmarkData(recent.bookmarkData) else { return false }
+    return computerDocuments.handles(url)
+  }
+
   func makeSession(for recent: RecentDocument) async -> DocumentSession? {
     guard !recent.bookmarkData.isEmpty else {
       lastError = L10n.string("ios.missingBookmark")

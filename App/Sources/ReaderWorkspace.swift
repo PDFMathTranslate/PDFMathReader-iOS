@@ -150,7 +150,8 @@ struct ReaderWorkspace: View {
                 Button {
                   tabs.select(tab.id)
                 } label: {
-                  Label(tab.session.title, systemImage: "doc.richtext")
+                  Label(tab.session.title, systemImage:
+                    library.computerDocuments.isManaged(tab.session) ? "desktopcomputer" : "doc.richtext")
                     .lineLimit(1)
                     .frame(minWidth: 80, maxWidth: 200, alignment: .leading)
                     .padding(.leading, 12)

@@ -30,7 +30,7 @@ struct LibraryView: View {
         } else {
           LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
             ForEach(library.recents) { recent in
-              RecentDocumentCard(document: recent) {
+              RecentDocumentCard(document: recent, isRemote: library.isRemoteDocument(recent)) {
                 guard !isOpeningDocument else { return }
                 isOpeningDocument = true
                 Task {
@@ -175,6 +175,7 @@ struct LibraryView: View {
 
 private struct RecentDocumentCard: View {
   let document: RecentDocument
+  let isRemote: Bool
   let action: () -> Void
 
   var body: some View {
@@ -186,10 +187,16 @@ private struct RecentDocumentCard: View {
           .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
         VStack(alignment: .leading, spacing: 3) {
-          Text(document.title)
-            .font(.headline)
-            .lineLimit(2)
-            .multilineTextAlignment(.leading)
+          HStack(alignment: .firstTextBaseline, spacing: 5) {
+            if isRemote {
+              Image(systemName: "desktopcomputer")
+                .foregroundStyle(.tint)
+            }
+            Text(document.title)
+              .lineLimit(2)
+              .multilineTextAlignment(.leading)
+          }
+          .font(.headline)
           HStack(spacing: 5) {
             if let pageCount = document.pageCount {
               Text(L10n.string("ios.pagesCount", String(pageCount)))
