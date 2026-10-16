@@ -716,6 +716,17 @@ private struct ReaderThumbnail: View {
   @State private var image: UIImage?
   @ScaledMetric(relativeTo: .caption) private var labelHeight = 20
 
+  private var thumbnailAspectRatio: CGFloat {
+    if let image, image.size.width > 0, image.size.height > 0 {
+      return image.size.width / image.size.height
+    }
+    let bounds = page.bounds(for: .cropBox)
+    guard bounds.width > 0, bounds.height > 0 else { return 140 / 188 }
+    return page.rotation % 180 == 0
+      ? bounds.width / bounds.height
+      : bounds.height / bounds.width
+  }
+
   var body: some View {
     VStack(spacing: 8) {
       Group {
@@ -725,7 +736,7 @@ private struct ReaderThumbnail: View {
           Rectangle().fill(.quaternary)
         }
       }
-      .frame(width: max(0, width - 12), height: max(0, width - 12) * 188 / 140)
+      .frame(width: max(0, width - 12), height: max(0, width - 12) / thumbnailAspectRatio)
       .padding(6)
       .background(isSelected ? Color.accentColor.opacity(0.12) : .clear,
                   in: RoundedRectangle(cornerRadius: 8))
