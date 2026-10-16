@@ -370,15 +370,26 @@ final class ReaderAnnotationInteractionController: NSObject {
   }
 
   func menuCommands() -> [UIMenuElement] {
+    // Highlight colors show as swatches. The edit menu prints a title whenever
+    // one is set, so these commands have none; the swatch carries the name
+    // as its accessibility label for VoiceOver.
+    let swatches: [(String, String, Selector)] = [
+      (L10n.string("ios.highlightYellow"), "#fff36a", #selector(highlightYellow(_:))),
+      (L10n.string("ios.highlightPink"), "#ffb6c1", #selector(highlightPink(_:))),
+      (L10n.string("ios.highlightBlue"), "#9bd7ff", #selector(highlightBlue(_:))),
+      (L10n.string("ios.highlightGreen"), "#b8e986", #selector(highlightGreen(_:))),
+    ]
+    var commands = swatches.compactMap { title, hex, action -> UIMenuElement? in
+      guard canPerform(action) else { return nil }
+      let image = Self.swatch(hex: hex)
+      image.accessibilityLabel = title
+      return UICommand(title: "", image: image, action: action)
+    }
     let actions: [(String, Selector)] = [
-      (L10n.string("ios.highlightYellow"), #selector(highlightYellow(_:))),
-      (L10n.string("ios.highlightPink"), #selector(highlightPink(_:))),
-      (L10n.string("ios.highlightBlue"), #selector(highlightBlue(_:))),
-      (L10n.string("ios.highlightGreen"), #selector(highlightGreen(_:))),
       (L10n.string("ios.addComment"), #selector(addComment(_:))),
       (L10n.string("ios.createQuickLink"), #selector(createQuickLink(_:))),
     ]
-    var commands = actions.compactMap { title, action -> UIMenuElement? in
+    commands += actions.compactMap { title, action -> UIMenuElement? in
       canPerform(action) ? UICommand(title: title, action: action) : nil
     }
     if canPerform(#selector(copyEmail(_:))) {
@@ -390,6 +401,20 @@ final class ReaderAnnotationInteractionController: NSObject {
       )
     }
     return commands
+  }
+
+  /// A filled color circle with a faint rim so pale colors stay visible on the menu.
+  private static func swatch(hex: String) -> UIImage {
+    let side: CGFloat = 22
+    let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+      let circle = UIBezierPath(ovalIn: CGRect(x: 1, y: 1, width: side - 2, height: side - 2))
+      UIColor(hex: hex).setFill()
+      circle.fill()
+      UIColor.black.withAlphaComponent(0.18).setStroke()
+      circle.lineWidth = 1
+      circle.stroke()
+    }
+    return image.withRenderingMode(.alwaysOriginal)
   }
 
   private func email(in text: String) -> String? {

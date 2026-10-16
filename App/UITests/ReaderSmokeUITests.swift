@@ -71,7 +71,8 @@ final class ReaderSmokeUITests: XCTestCase {
     highlight.tap()
     sleep(1)
     attachScreenshot(app, name: "3-reading-highlighted")
-    XCTAssertEqual(displayedTranslations(in: app), before, "Translations changed after highlighting")
+    // More paragraphs may finish translating meanwhile; none may disappear.
+    XCTAssertGreaterThanOrEqual(displayedTranslations(in: app), before, "Translations disappeared after highlighting")
   }
 
   /// Paragraphs the overlays currently show in translation (Han text).

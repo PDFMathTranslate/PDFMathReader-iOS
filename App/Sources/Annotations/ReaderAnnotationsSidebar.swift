@@ -194,7 +194,7 @@ private struct AnnotationCommentEditor: View {
   }
 }
 
-private extension UIColor {
+extension UIColor {
   convenience init(hex: String) {
     let digits = Array(hex.dropFirst().prefix(6))
     guard digits.count == 6,
