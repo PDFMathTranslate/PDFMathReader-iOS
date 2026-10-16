@@ -19,6 +19,7 @@ final class ReaderSmokeUITests: XCTestCase {
     let probe = translatedProbe(in: app)
     if !probe.waitForExistence(timeout: 120) {
       attachScreenshot(app, name: "translation-missing")
+      attachPipelineStatus(app)
       XCTFail("No translated paragraph appeared")
       return
     }
@@ -53,6 +54,7 @@ final class ReaderSmokeUITests: XCTestCase {
     XCTAssertTrue(translationProbes(in: app).firstMatch.waitForExistence(timeout: 30), "Reader did not open")
     if !translatedProbe(in: app).waitForExistence(timeout: 120) {
       attachScreenshot(app, name: "translation-missing")
+      attachPipelineStatus(app)
       XCTFail("No translated paragraph appeared")
       return
     }
@@ -174,6 +176,51 @@ final class ReaderSmokeUITests: XCTestCase {
     expectSidebar(hidden, "portrait-again-sidebar-hidden")
   }
 
+  /// Desktop parity: the pager sits in the bottom-right corner, appears when
+  /// the document scrolls, and hides again about a second later.
+  @MainActor
+  func testPagerAutoShowsInBottomRightCorner() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf"]
+    app.launch()
+
+    let pageText = app.staticTexts.matching(
+      NSPredicate(format: "label BEGINSWITH %@", "The grass-blade is worthy")
+    ).firstMatch
+    XCTAssertTrue(pageText.waitForExistence(timeout: 30), "Reader did not open")
+    let pager = app.descendants(matching: .any).matching(identifier: "reader.pager").firstMatch
+    let gone = NSPredicate(format: "exists == false")
+    XCTAssertEqual(
+      XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: pager)], timeout: 5),
+      .completed,
+      "Pager stayed up without scrolling"
+    )
+
+    // Drag on blank page space; starting on text would select it instead.
+    // Zoom in first: the one-page sample fits an iPhone screen and would not scroll.
+    let window = app.windows.firstMatch
+    window.pinch(withScale: 2, velocity: 2)
+    // The pager hides 1 s after the last scroll, so query it right away.
+    window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.72))
+      .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.42)))
+    guard pager.exists else {
+      attachScreenshot(app, name: "pager-missing")
+      XCTFail("Pager did not appear on scroll")
+      return
+    }
+    let shownFrame = pager.frame
+    attachScreenshot(app, name: "pager-shown")
+    XCTAssertGreaterThan(shownFrame.minX, window.frame.midX, "Pager is not on the right")
+    XCTAssertGreaterThan(shownFrame.minY, window.frame.midY, "Pager is not at the bottom")
+
+    XCTAssertEqual(
+      XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: gone, object: pager)], timeout: 4),
+      .completed,
+      "Pager did not hide after scrolling stopped"
+    )
+    attachScreenshot(app, name: "pager-hidden")
+  }
+
   /// iPad reader: the sidebar's close button closes the document window and
   /// returns to the library.
   @MainActor
@@ -273,6 +320,7 @@ final class ReaderSmokeUITests: XCTestCase {
     // A file opened from Files must translate like one in the app's Documents.
     if !translatedProbe(in: app).waitForExistence(timeout: 120) {
       attachScreenshot(app, name: "files-translation-missing")
+      attachPipelineStatus(app)
       XCTFail("No translated paragraph appeared for the picked PDF")
       return
     }
@@ -329,6 +377,16 @@ final class ReaderSmokeUITests: XCTestCase {
     XCTAssertTrue(app.buttons[other].firstMatch.exists, "Translation toggle not in overflow menu")
     // Already in the wanted state; dismiss the menu.
     app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.95)).tap()
+  }
+
+  @MainActor
+  private func attachPipelineStatus(_ app: XCUIApplication) {
+    let probes = app.descendants(matching: .any).matching(identifier: "debug.pipelineStatus")
+    let values = probes.allElementsBoundByIndex.map { $0.value as? String ?? "" }
+    let attachment = XCTAttachment(string: values.joined(separator: "\n---\n"))
+    attachment.name = "pipeline-status"
+    attachment.lifetime = .keepAlways
+    add(attachment)
   }
 
   @MainActor

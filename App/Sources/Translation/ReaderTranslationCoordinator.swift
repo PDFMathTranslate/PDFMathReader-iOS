@@ -118,6 +118,19 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       .joined(separator: "\n")
   }
 
+  /// Per-page pipeline status and errors; lets UI tests report why a page
+  /// never produced a translation.
+  var debugPipelineStatus: String {
+    var lines = latestStates.sorted { $0.key < $1.key }.map { index, state in
+      let paragraphErrors = state.paragraphs.compactMap(\.error)
+      let errors = ([state.error].compactMap { $0 } + paragraphErrors).joined(separator: " | ")
+      return "page \(index): \(state.status) paragraphs=\(state.paragraphs.count) \(errors)"
+    }
+    if pipeline == nil { lines.insert("pipeline not ready", at: 0) }
+    if let configurationMessage { lines.insert("config: \(configurationMessage)", at: 0) }
+    return lines.joined(separator: "\n")
+  }
+
   /// Text the on-screen overlays show (translation or original), one
   /// paragraph per line; lets UI tests see what the reader displays.
   var debugDisplayedText: String {

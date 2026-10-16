@@ -26,14 +26,29 @@ struct ReaderView: View {
   @State private var sidebarMode: ReaderSidebarMode = .thumbnails
   @State private var isCompactSidebarPresented = false
   @State private var isSearchPresented = false
-  @State private var isGoToPagePresented = false
   @State private var isComparePresented = false
   private let onClose: (() -> Void)?
 
   init(session: DocumentSession, library: LibraryModel, onClose: (() -> Void)? = nil) {
     _model = StateObject(wrappedValue: ReaderViewModel(session: session, library: library))
     _annotationModel = StateObject(wrappedValue: ReaderAnnotationViewModel(session: session))
+    _columnVisibility = State(initialValue: Self.defaultColumnVisibility(landscape: Self.sceneIsLandscape()))
     self.onClose = onClose
+  }
+
+  private static func defaultColumnVisibility(landscape: Bool) -> NavigationSplitViewVisibility {
+    landscape ? .all : .detailOnly
+  }
+
+  /// Best guess before the first layout: the split view applies its initial
+  /// visibility reliably but can drop a change made while it first lays out.
+  private static func sceneIsLandscape() -> Bool {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else {
+      return true
+    }
+    let size = scene.coordinateSpace.bounds.size
+    return size.width > size.height
   }
 
   var body: some View {
@@ -100,7 +115,11 @@ struct ReaderView: View {
     // first layout pass.
     .task(id: isLandscape) {
       guard let isLandscape else { return }
-      columnVisibility = isLandscape ? .all : .detailOnly
+      let target = Self.defaultColumnVisibility(landscape: isLandscape)
+      columnVisibility = target
+      // Reassert once layout settles in case the split view dropped it.
+      try? await Task.sleep(for: .milliseconds(400))
+      if columnVisibility != target { columnVisibility = target }
     }
     .onChange(of: isCompactSidebarPresented) { _, presented in
       if !presented && model.readingState.sidebarVisible {
@@ -145,9 +164,6 @@ struct ReaderView: View {
     .sheet(isPresented: $isSearchPresented) {
       SearchSheet(model: model)
     }
-    .sheet(isPresented: $isGoToPagePresented) {
-      GoToPageSheet(model: model)
-    }
   }
 
   @ViewBuilder
@@ -158,7 +174,6 @@ struct ReaderView: View {
       regular: regular,
       onToggleSidebar: toggleSidebar,
       onSearch: { isSearchPresented = true },
-      onGoToPage: { isGoToPagePresented = true },
       onCompare: { isComparePresented = true }
     )
     .readerReadingAids(
@@ -215,10 +230,10 @@ private struct ReaderDetail: View {
   @Environment(\.openWindow) private var openWindow
   @State private var isImporting = false
   @State private var importError: String?
+  @StateObject private var pagerVisibility = ReaderPagerVisibility()
   let regular: Bool
   let onToggleSidebar: () -> Void
   let onSearch: () -> Void
-  let onGoToPage: () -> Void
   let onCompare: () -> Void
 
   var body: some View {
@@ -233,9 +248,13 @@ private struct ReaderDetail: View {
       reference: model.pdfViewReference,
       overlayProvider: ReaderPageOverlayCompositeProvider(providers: overlayProviders),
       annotationModel: annotations,
-      onStateChanged: model.receivePDFViewState
+      onStateChanged: model.receivePDFViewState,
+      onScroll: pagerVisibility.show
     )
     .background(Color(uiColor: .secondarySystemBackground))
+    .overlay {
+      ReaderPager(model: model, visibility: pagerVisibility, compact: !regular)
+    }
     #if DEBUG
     .overlay(alignment: .topLeading) {
       if let coordinator = model.translationCoordinator, TranslationStatusProbe.isEnabled {
@@ -272,19 +291,6 @@ private struct ReaderDetail: View {
           }
           .labelStyle(.iconOnly)
         }
-
-        Button(action: onGoToPage) {
-          Text(
-            L10n.string(
-              "status.pageOf",
-              String(model.readingState.page),
-              String(model.pageCount)
-            )
-          )
-            .monospacedDigit()
-            .font(.subheadline.weight(.semibold))
-        }
-        .accessibilityLabel(L10n.string("ios.goToPage"))
       }
 
       ToolbarItemGroup(placement: .topBarTrailing) {
@@ -522,44 +528,6 @@ private struct SearchSheet: View {
   }
 }
 
-private struct GoToPageSheet: View {
-  @ObservedObject var model: ReaderViewModel
-  @Environment(\.dismiss) private var dismiss
-  @State private var pageText = ""
-
-  var body: some View {
-    NavigationStack {
-      Form {
-        Section(L10n.string("navigator.pageNumber")) {
-          TextField(L10n.string("ios.pageRange", String(model.pageCount)), text: $pageText)
-            .keyboardType(.numberPad)
-            .submitLabel(.go)
-            .onSubmit { submit() }
-        }
-      }
-      .navigationTitle(L10n.string("ios.goToPage"))
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button(L10n.string("ios.cancel")) { dismiss() }
-        }
-        ToolbarItem(placement: .confirmationAction) {
-          Button(L10n.string("menu.extra.messages.Go")) { submit() }
-            .disabled(Int(pageText) == nil)
-        }
-      }
-    }
-    .presentationDetents([.height(170)])
-    .onAppear { pageText = "\(model.readingState.page)" }
-  }
-
-  private func submit() {
-    guard let page = Int(pageText) else { return }
-    model.goToPage(page)
-    dismiss()
-  }
-}
-
 #if DEBUG
 /// PDFKit replaces page accessibility children with its own text elements, so
 /// translation overlays are invisible to XCUITest. With `-PMRUITestProbe`, this
@@ -582,6 +550,11 @@ private struct TranslationStatusProbe: View {
         .accessibilityElement()
         .accessibilityIdentifier("debug.overlayText")
         .accessibilityValue(coordinator.debugDisplayedText)
+      Color.clear
+        .frame(width: 1, height: 1)
+        .accessibilityElement()
+        .accessibilityIdentifier("debug.pipelineStatus")
+        .accessibilityValue(coordinator.debugPipelineStatus)
     }
   }
 }

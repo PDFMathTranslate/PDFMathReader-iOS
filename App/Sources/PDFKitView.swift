@@ -49,6 +49,7 @@ struct PDFKitView: UIViewRepresentable {
   let overlayProvider: (any ReaderPageOverlayProviding)?
   let annotationModel: ReaderAnnotationViewModel?
   let onStateChanged: (PDFView) -> Void
+  var onScroll: (() -> Void)?
 
   func makeCoordinator() -> Coordinator {
     Coordinator(onStateChanged: onStateChanged, annotationModel: annotationModel)
@@ -73,6 +74,8 @@ struct PDFKitView: UIViewRepresentable {
       view.document = document
     }
     context.coordinator.updateOverlayProvider(overlayProvider)
+    context.coordinator.onScroll = onScroll
+    context.coordinator.observeScrolling()
     context.coordinator.apply(readingState)
   }
 
@@ -85,6 +88,9 @@ struct PDFKitView: UIViewRepresentable {
     private var annotationController: ReaderAnnotationInteractionController?
     private let onStateChanged: (PDFView) -> Void
     private let annotationModel: ReaderAnnotationViewModel?
+    var onScroll: (() -> Void)?
+    private var scrollObservation: NSKeyValueObservation?
+    private weak var observedScrollView: UIScrollView?
 
     init(
       onStateChanged: @escaping (PDFView) -> Void,
@@ -124,12 +130,33 @@ struct PDFKitView: UIViewRepresentable {
       )
     }
 
+    /// PDFView scrolls through a private UIScrollView; watch its offset so
+    /// floating controls can react to every scroll, including programmatic ones.
+    func observeScrolling() {
+      guard let view = pdfView, let scrollView = Self.scrollView(in: view),
+            scrollView !== observedScrollView else { return }
+      observedScrollView = scrollView
+      scrollObservation = scrollView.observe(\.contentOffset, options: [.new, .old]) { [weak self] _, change in
+        guard change.newValue != change.oldValue else { return }
+        MainActor.assumeIsolated { self?.onScroll?() }
+      }
+    }
+
+    private static func scrollView(in view: UIView) -> UIScrollView? {
+      for subview in view.subviews {
+        if let scrollView = subview as? UIScrollView { return scrollView }
+        if let nested = scrollView(in: subview) { return nested }
+      }
+      return nil
+    }
+
     func updateOverlayProvider(_ provider: (any ReaderPageOverlayProviding)?) {
       overlayBridge.provider = provider
     }
 
     @objc private func handleViewChanged(_ notification: Notification) {
       guard let view = pdfView else { return }
+      observeScrolling()
       onStateChanged(view)
     }
 
