@@ -24,7 +24,6 @@ struct LibraryView: View {
           .font(.largeTitle.bold())
           .accessibilityAddTraits(.isHeader)
         header
-        computerDocumentsSection
         if library.recents.isEmpty {
           emptyState
         } else {
@@ -47,6 +46,13 @@ struct LibraryView: View {
       .padding(.vertical, 24)
       .frame(maxWidth: 1120, alignment: .leading)
       .frame(maxWidth: .infinity, alignment: .center)
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      computerDocumentsSection
+        .frame(maxWidth: 1080)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
     }
     .disabled(isOpeningDocument)
     .overlay {
