@@ -79,7 +79,7 @@ final class ReaderKernelMenuAvailability: ObservableObject {
   func loadAppleLanguages() async {
     let languages = await Self.supportedAppleLanguages()
     guard !Task.isCancelled else { return }
-    appleLanguages = languages
+    publish(\.appleLanguages, languages)
   }
 
   private nonisolated static func supportedAppleLanguages() async -> Set<String> {
@@ -94,9 +94,18 @@ final class ReaderKernelMenuAvailability: ObservableObject {
   }
 
   func reset() {
-    engines = [.ultraFast]
-    remotePreciseAvailable = false
-    computerHealth = nil
+    publish(\.engines, [.ultraFast])
+    publish(\.remotePreciseAvailable, false)
+    publish(\.computerHealth, nil)
+  }
+
+  /// The monitor polls every 15 seconds. Every publish rebuilds the reader's
+  /// More menu, and UIKit collapses an open submenu when its menu is
+  /// replaced, so unchanged results must not publish.
+  private func publish<Value: Equatable>(
+    _ keyPath: ReferenceWritableKeyPath<ReaderKernelMenuAvailability, Value>, _ value: Value
+  ) {
+    if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
   }
 
   func refresh(_ preferences: ReaderPreferences) async {
@@ -106,18 +115,18 @@ final class ReaderKernelMenuAvailability: ObservableObject {
     // rather than withholding it until the unrelated computer probe finishes.
     let serverHealth = await server
     guard !Task.isCancelled else { return }
-    remotePreciseAvailable = serverHealth?.ok == true
-    engines = ReaderKernelAvailability.availableEngines(
+    publish(\.remotePreciseAvailable, serverHealth?.ok == true)
+    publish(\.engines, ReaderKernelAvailability.availableEngines(
       companion: computerHealth, remote: serverHealth, remoteEnabled: preferences.remoteKernelEnabled
-    )
+    ))
     let computerHealth = await computer
     guard !Task.isCancelled else { return }
-    self.computerHealth = computerHealth
-    engines = ReaderKernelAvailability.availableEngines(
+    publish(\.computerHealth, computerHealth)
+    publish(\.engines, ReaderKernelAvailability.availableEngines(
       companion: computerHealth,
       remote: serverHealth,
       remoteEnabled: preferences.remoteKernelEnabled
-    )
+    ))
   }
 
   private func computerHealth(_ address: String) async -> CompanionHealth? {

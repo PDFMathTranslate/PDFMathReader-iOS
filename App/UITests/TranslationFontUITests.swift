@@ -5,7 +5,7 @@ final class TranslationFontUITests: XCTestCase {
   func testSelectedTranslationFontPersistsAfterRelaunch() throws {
     continueAfterFailure = false
     let app = XCUIApplication()
-    app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+    app.launchArguments = ["-AppleLanguages", "(en)", "-PMRUILanguage", "en", "-AppleLocale", "en_US"]
     app.launch()
 
     func openFontSettings() {

@@ -15,7 +15,7 @@ final class ReaderSmokeUITests: XCTestCase {
   @MainActor
   func testRecentLongPressPinRemoveAndReopen() throws {
     let app = XCUIApplication()
-    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-AppleLanguages", "(en)"]
+    app.launchArguments = ["-PMROpenPDF", "sample.pdf", "-AppleLanguages", "(en)", "-PMRUILanguage", "en"]
     app.launch()
     XCTAssertTrue(pageLine(in: app).waitForExistence(timeout: 30))
     closeReaderToLibrary(app)

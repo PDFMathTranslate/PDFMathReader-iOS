@@ -81,11 +81,18 @@ final class LibraryModel: ObservableObject {
       preferences.translationService = service
       translationServiceOverride = service
     }
+    // `-PMRUILanguage <code>` pins the interface language; the in-app choice
+    // otherwise wins over `-AppleLanguages`.
+    if let flag = arguments.firstIndex(of: "-PMRUILanguage"), flag + 1 < arguments.count {
+      uiLanguageOverride = arguments[flag + 1]
+      L10n.languageChoice = arguments[flag + 1]
+    }
     #endif
   }
 
   #if DEBUG
   private var translationServiceOverride: ReaderTranslationService?
+  private var uiLanguageOverride: String?
   #endif
 
   func makeSession(for url: URL, computerAuthorized: Bool = false, displayTitle: String? = nil, allowWidthAlignment: Bool = true) async -> DocumentSession? {
@@ -547,6 +554,9 @@ final class LibraryModel: ObservableObject {
       #endif
       try preferencesStore.save(stored)
       L10n.languageChoice = value.uiLanguage
+      #if DEBUG
+      if let uiLanguageOverride { L10n.languageChoice = uiLanguageOverride }
+      #endif
       preferences = value
     } catch {
       lastError = L10n.string("ios.preferencesSaveFailed")
