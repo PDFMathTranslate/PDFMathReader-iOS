@@ -97,7 +97,9 @@ struct ReaderWorkspace: View {
         })
       }
     }
-    .task {
+    .task(id: scenePhase == .active) {
+      // Leaving the active phase syncs once below; periodic sync is foreground-only.
+      guard scenePhase == .active else { return }
       while !Task.isCancelled {
         do { try await Task.sleep(for: .seconds(20)) } catch { break }
         for tab in tabs.tabs where library.computerDocuments.isManaged(tab.session) {

@@ -34,6 +34,7 @@ final class ReaderViewModel: ObservableObject {
   @Published private var cachedGeneratedTOC: [OutlineEntry]?
   private var cancellables = Set<AnyCancellable>()
   private var readingStateSaveTask: Task<Void, Never>?
+  private(set) var isReaderActive = true
 
   init(session: DocumentSession, library: LibraryModel) {
     self.session = session
@@ -77,6 +78,7 @@ final class ReaderViewModel: ObservableObject {
       translationCoordinator = ReaderTranslationCoordinator(
         document: document, documentID: session.id, preferences: library.preferences
       )
+      translationCoordinator?.setActive(isReaderActive)
       translationCoordinator?.$showTranslations
         .removeDuplicates()
         .sink { [weak self] _ in self?.objectWillChange.send() }
@@ -242,6 +244,17 @@ final class ReaderViewModel: ObservableObject {
 
   func updateTranslationPreferences(_ preferences: ReaderPreferences) {
     translationCoordinator?.updatePreferences(preferences)
+  }
+
+  /// A reader is active while it is mounted in a scene that is not in the
+  /// background. Inactive readers keep results but start no new UI work.
+  func setReaderActive(_ active: Bool) {
+    isReaderActive = active
+    translationCoordinator?.setActive(active)
+  }
+
+  func releaseDetachedResources() {
+    translationCoordinator?.releaseDetachedResources()
   }
 
   func toggleTranslations() {

@@ -52,11 +52,17 @@ extension TranslationMode {
 struct SettingsView: View {
   @EnvironmentObject private var library: LibraryModel
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.scenePhase) private var scenePhase
   @State private var draft = ReaderPreferences()
   @State private var apiKey = ""
   @State private var didLoadAPIKey = false
   @StateObject private var availability = ReaderKernelMenuAvailability()
   @State private var pairingRevision = 0
+  @State private var lastConnectionID: [String] = []
+
+  private var connectionID: [String] {
+    [draft.companionURL, draft.remoteKernelURL, String(draft.remoteKernelEnabled), String(pairingRevision)]
+  }
   private let credentialStore = KeychainCredentialStore()
 
   var body: some View {
@@ -258,8 +264,14 @@ struct SettingsView: View {
         didLoadAPIKey = true
       }
     }
-    .task(id: [draft.companionURL, draft.remoteKernelURL, String(draft.remoteKernelEnabled), String(pairingRevision)]) {
-      availability.reset()
+    .task(id: connectionID + [String(scenePhase == .active)]) {
+      // Background scenes skip health polling; returning restarts it at once
+      // without discarding results for an unchanged connection.
+      guard scenePhase == .active else { return }
+      if lastConnectionID != connectionID {
+        availability.reset()
+        lastConnectionID = connectionID
+      }
       while !Task.isCancelled {
         await availability.refresh(draft)
         availability.normalizeSelection(&draft)

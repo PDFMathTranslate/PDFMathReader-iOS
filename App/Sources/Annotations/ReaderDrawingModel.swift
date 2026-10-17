@@ -238,7 +238,17 @@ final class ReaderDrawingModel: NSObject, ObservableObject, PKCanvasViewDelegate
     flush()
     picker.setVisible(false, forFirstResponder: canvas)
     picker.removeObserver(canvas)
-    if canvases[canvas.pageIndex] === canvas { canvases[canvas.pageIndex] = nil }
+    if canvases[canvas.pageIndex] === canvas {
+      canvases[canvas.pageIndex] = nil
+      pages[canvas.pageIndex] = nil
+    }
+  }
+
+  /// A closed PDF view may not report every page that stopped displaying.
+  /// Saves and drops canvases that left the window, with their page references.
+  func releaseDetachedCanvases() {
+    for canvas in canvases.values where canvas.window == nil { release(canvas) }
+    pages = pages.filter { canvases[$0.key] != nil }
   }
 
   func activate(_ canvas: ReaderPencilCanvas) {

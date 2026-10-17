@@ -83,6 +83,12 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   private var compactedPageIndices: Set<Int> = []
   private var compactionSuspended = false
   private var analyzedCompactionPages: [Int: PDFPage] = [:]
+  // Mirrors the desktop's reader activity: while the reader is hidden or the
+  // scene is backgrounded, in-flight pages finish but no UI work or new
+  // viewport requests start, and settings changes rebuild the pipeline later.
+  private var isActive = true
+  private var needsConfigure = false
+  private var memoryWarningObserver: AnyCancellable?
 
   private func requestRender(for pageIndex: Int, revision: Bool = false) {
     guard (0..<document.pageCount).contains(pageIndex) else { return }
@@ -104,7 +110,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   }
 
   private func scheduleRenderFlush() {
-    guard renderTask == nil else { return }
+    guard renderTask == nil, isActive else { return }
     let renderGeneration = generation
     renderTask = Task(priority: .utility) { @MainActor [weak self] in
       defer {
@@ -129,6 +135,8 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   }
 
   private func renderGateState() -> (hasPending: Bool, isActive: Bool)? {
+    // Returning nil ends the flush loop; reactivation starts a new one.
+    guard isActive else { return nil }
     guard !pendingRenderPages.isEmpty || pendingTranslationRevision else { return (false, false) }
     guard let view = displayPDFView else { return nil }
     return (true, readerPDFInteractionIsActive(view))
@@ -247,7 +255,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   }
 
   private func refreshCompaction() {
-    guard let view = displayPDFView, let display = view.document, display.pageCount > 0 else { return }
+    guard isActive, let view = displayPDFView, let display = view.document, display.pageCount > 0 else { return }
     // Translation may finish hundreds of offscreen pages. Prepare only the
     // viewport's neighbors; restoring existing compacted pages remains global.
     let visible = visiblePageIndices.isEmpty ? [currentPageIndex ?? 0] : visiblePageIndices
@@ -262,7 +270,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   }
 
   private func scheduleCompaction(_ index: Int, in view: PDFView) {
-    guard let page = view.document?.page(at: index) else { return }
+    guard isActive, let page = view.document?.page(at: index) else { return }
     let compacted = (page as? ReaderPDFPage)?.compaction != nil
     let enabled = preferences.paragraphGapOptimization && showTranslations && !compactionSuspended
     let ready = remotePageDataByPage[index] != nil || latestStates[index]?.status == .ready
@@ -413,7 +421,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       .sink { [weak self] _ in
         MainActor.assumeIsolated {
           guard let self, self.preferences.engine != .ultraFast else { return }
-          self.configure()
+          self.configureWhenActive()
         }
       }
     cacheObserver = NotificationCenter.default.publisher(for: .translationCacheDidClear)
@@ -421,8 +429,13 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
         MainActor.assumeIsolated {
           guard let self else { return }
           if let id = notification.userInfo?["documentID"] as? String, id != self.documentID { return }
-          self.configure()
+          self.configureWhenActive()
         }
+      }
+    memoryWarningObserver = NotificationCenter.default
+      .publisher(for: UIApplication.didReceiveMemoryWarningNotification)
+      .sink { [weak self] _ in
+        MainActor.assumeIsolated { self?.releaseDetachedResources() }
       }
     let sourceURL = document.documentURL
     sourcePreparationTask = Task { @MainActor [weak self] in
@@ -444,7 +457,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       }
       self.documentData = prepared.data
       self.languageSample = prepared.languageSample
-      self.configure()
+      self.configureWhenActive()
     }
   }
 
@@ -500,7 +513,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     // UI-only changes (visibility, theme, reading aids) must not restart the
     // pipeline: a restart clears the page states the overlays rely on.
     if openModeChanged || translationConfigurationID != previousConfigurationID {
-      configure()
+      configureWhenActive()
     } else if preferences.translationMode != previousMode {
       scheduleViewport()
     }
@@ -515,6 +528,50 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       }
     }
     requestRender(for: Array(overlays.keys))
+  }
+
+  func setActive(_ active: Bool) {
+    guard active != isActive else { return }
+    isActive = active
+    if active {
+      if needsConfigure {
+        configure()
+      } else {
+        scheduleViewport()
+        refreshCompaction()
+      }
+      requestRender(for: Array(overlays.keys), revision: true)
+    } else {
+      // Like the desktop's suspendRendering(): stop UI work and new viewport
+      // scheduling, but let pages already requested finish into the cache.
+      // Render and compaction loops observe isActive and end on their own.
+      schedulingTask?.cancel()
+      schedulingTask = nil
+      pendingCompactionPages.removeAll()
+    }
+  }
+
+  /// Drops overlays that are no longer mounted and the pages kept for
+  /// compaction analysis. Completed results stay, so remounting rehydrates
+  /// overlays without new translation work.
+  func releaseDetachedResources() {
+    let detached = overlays.compactMap { index, overlay in overlay.window == nil ? index : nil }
+    for index in detached {
+      overlays.removeValue(forKey: index)
+      pendingRenderPages.remove(index)
+      pendingRemoteResetPages.remove(index)
+      pendingRemoteClearPages.remove(index)
+    }
+    overlayAccessOrder.removeAll { detached.contains($0) }
+    analyzedCompactionPages.removeAll()
+  }
+
+  private func configureWhenActive() {
+    if isActive {
+      configure()
+    } else {
+      needsConfigure = true
+    }
   }
 
   func forceRetranslate() {
@@ -656,6 +713,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       await preparationTask?.value
     }
     guard !Task.isCancelled else { return nil }
+    if needsConfigure { configure() }
     guard let documentData, !documentData.isEmpty, document.pageCount > 0 else { return nil }
     let validExcluded = Set(pageIndices.filter { (0..<document.pageCount).contains($0) })
     for _ in 0..<300 {
@@ -833,6 +891,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   }
 
   private func configure() {
+    needsConfigure = false
     appleTranslationLanguages = translationEnabled && preferences.translationService == .appleOnDevice
       ? AppleTranslationLanguages(source: appleSourceLanguage, target: preferences.targetLanguage)
       : nil
@@ -961,6 +1020,8 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
 
   private func scheduleViewport() {
     schedulingTask?.cancel()
+    // Hidden readers keep scheduling only in full-document mode, as on desktop.
+    guard isActive || preferences.translationMode == .full else { return }
     guard translationEnabled, let pipeline, let currentPageIndex else { return }
     let settings = makePipelineSettings()
     let visible = visiblePageIndices

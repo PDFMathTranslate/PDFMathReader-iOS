@@ -113,6 +113,26 @@ struct ReaderView: View {
       && model.library.preferences.keepAwakeWhileReading
   }
 
+  /// `.inactive` is transient on iOS (app switcher, Control Center), so only
+  /// a hidden reader or a backgrounded scene suspends reader work.
+  private var isReaderActive: Bool {
+    isReaderVisible && scenePhase != .background
+  }
+
+  /// Matches the desktop's delayed bitmap reset: a quick tab switch or
+  /// return keeps overlays; a reader still inactive after 1 s releases them.
+  private func deactivateReader() {
+    model.setReaderActive(false)
+    let model = model
+    let drawings = drawingModel
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1))
+      guard !model.isReaderActive else { return }
+      model.releaseDetachedResources()
+      drawings.releaseDetachedCanvases()
+    }
+  }
+
   private static func defaultColumnVisibility(landscape: Bool) -> NavigationSplitViewVisibility {
     landscape ? .all : .detailOnly
   }
@@ -230,6 +250,7 @@ struct ReaderView: View {
     }
     .onDisappear {
       isReaderVisible = false
+      deactivateReader()
       ReaderIdleTimer.update(owner: idleTimerOwner, keepAwake: false)
       drawingModel.isDrawing = false
       drawingModel.flush()
@@ -241,6 +262,16 @@ struct ReaderView: View {
         drawingModel.flush()
         model.persistReadingState()
       }
+      if phase == .background {
+        Task { await ReaderThumbnailCache.shared.clear() }
+      }
+    }
+    .onChange(of: isReaderActive) { _, active in
+      if active { model.setReaderActive(true) } else { deactivateReader() }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+      Task { await ReaderThumbnailCache.shared.clear() }
+      drawingModel.releaseDetachedCanvases()
     }
     .alert(L10n.string("ios.drawingSaveFailed"), isPresented: Binding(
       get: { drawingModel.lastError != nil },

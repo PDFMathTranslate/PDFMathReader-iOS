@@ -138,10 +138,10 @@ final class ReaderKernelMenuAvailability: ObservableObject {
 /// Lives in the reader, rather than inside the lazily presented native menu,
 /// so its first opening already has connection results.
 struct ReaderKernelAvailabilityMonitor: View {
+  @Environment(\.scenePhase) private var scenePhase
   @ObservedObject var library: LibraryModel
   @ObservedObject var availability: ReaderKernelMenuAvailability
   @State private var pairingRevision = 0
-  @State private var activationRevision = 0
   @State private var lastConnectionID: [String] = []
 
   private var connectionID: [String] {
@@ -153,7 +153,9 @@ struct ReaderKernelAvailabilityMonitor: View {
   var body: some View {
     Color.clear
       .task { await availability.loadAppleLanguages() }
-      .task(id: connectionID + [String(activationRevision)]) {
+      .task(id: connectionID + [String(scenePhase == .active)]) {
+        // Poll only in the foreground; becoming active again refreshes at once.
+        guard scenePhase == .active else { return }
         // Only invalidate results when the server or pairing actually changes.
         // Transient scene inactivity must not erase a successful health check.
         if lastConnectionID != connectionID {
@@ -171,9 +173,6 @@ struct ReaderKernelAvailabilityMonitor: View {
       }
       .onReceive(NotificationCenter.default.publisher(for: .companionPairingCodeDidChange)) { _ in
         pairingRevision &+= 1
-      }
-      .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-        activationRevision &+= 1
       }
   }
 }
