@@ -869,7 +869,7 @@ private struct ReaderDetail: View {
     }
 
     Section {
-      Button(ReaderExportKind.airDrop.title, systemImage: "airdrop") { onExport(.airDrop) }
+      Button(ReaderExportKind.airDrop.title, systemImage: "desktopcomputer") { onExport(.airDrop) }
         .disabled(!annotations.isPrepared || !drawings.isPrepared)
         .accessibilityIdentifier("reader.airDropToComputer")
       Menu {
