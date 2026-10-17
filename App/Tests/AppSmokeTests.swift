@@ -1,10 +1,88 @@
 import XCTest
 import PDFKit
+import UIKit
 import ReaderCore
 
 @testable import PDFMathReader
 
 final class AppSmokeTests: XCTestCase {
+  @MainActor
+  func testPDFFitUpdatesAfterSidebarViewportResizeWithoutResettingCustomZoom() async throws {
+    let image = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 900)).image { context in
+      UIColor.white.setFill()
+      context.fill(CGRect(x: 0, y: 0, width: 600, height: 900))
+    }
+    let document = PDFDocument()
+    document.insert(try XCTUnwrap(PDFPage(image: image)), at: 0)
+    let view = ReaderAnnotationPDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+    view.displaysPageBreaks = false
+    view.minScaleFactor = 0.1
+    view.maxScaleFactor = 5
+    let coordinator = PDFKitView.Coordinator(onStateChanged: { _ in }, annotationModel: nil)
+    coordinator.attach(view, document: document, overlayProvider: nil)
+    var state = ReadingState()
+    state.scaleMode = .fitPage
+    coordinator.apply(state)
+    let initialScale = view.scaleFactor
+    let resize = expectation(description: "Fit recalculated after viewport expands")
+    let update = view.onViewportLayout
+    view.onViewportLayout = { update?(); resize.fulfill() }
+    view.frame.size.width = 800
+    view.setNeedsLayout()
+    view.layoutIfNeeded()
+    await fulfillment(of: [resize], timeout: 3)
+    XCTAssertGreaterThan(view.scaleFactor, initialScale + 0.05)
+    XCTAssertEqual(view.scaleFactor, min(800.0 / 600, 800.0 / 900), accuracy: 0.01)
+
+    state.scaleMode = .custom
+    state.zoom = 1.25
+    coordinator.apply(state)
+    let customResize = expectation(description: "Custom zoom survives viewport resize")
+    view.onViewportLayout = { update?(); customResize.fulfill() }
+    view.frame.size.width = 500
+    view.setNeedsLayout()
+    view.layoutIfNeeded()
+    await fulfillment(of: [customResize], timeout: 3)
+    XCTAssertEqual(view.scaleFactor, 1.25, accuracy: 0.01)
+  }
+
+  @MainActor
+  func testFitWidthAndPageUseDistinctCroppedGeometryWithAndWithoutPadding() throws {
+    let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 600, height: 900)).pdfData {
+      $0.beginPage()
+    }
+    let document = try XCTUnwrap(ReaderPDFDocument(data: data))
+    let view = ReaderAnnotationPDFView(frame: CGRect(x: 0, y: 0, width: 800, height: 400))
+    view.displayBox = .artBox
+    view.minScaleFactor = 0.1
+    view.maxScaleFactor = 5
+    let coordinator = PDFKitView.Coordinator(onStateChanged: { _ in }, annotationModel: nil)
+    coordinator.attach(view, document: document, overlayProvider: nil)
+    var state = ReadingState(pageCrop: PageCrop(x: 0.2, y: 0.2))
+    for breaks in [true, false, true] {
+      view.displaysPageBreaks = breaks
+      let margins = view.pageBreakMargins
+      state.scaleMode = .fitWidth
+      coordinator.apply(state)
+      XCTAssertEqual(view.scaleFactor, 800 / (480 + margins.left + margins.right), accuracy: 0.01)
+      state.scaleMode = .fitPage
+      coordinator.apply(state)
+      XCTAssertEqual(view.scaleFactor, 400 / (720 + margins.top + margins.bottom), accuracy: 0.01)
+    }
+    let fitted = view.scaleFactor
+    view.scaleFactor = 1.5
+    coordinator.apply(state)
+    XCTAssertEqual(view.scaleFactor, 1.5, accuracy: 0.01, "Unrelated refresh preserves a pinch")
+    coordinator.apply(state, scaleRevision: 1)
+    XCTAssertEqual(view.scaleFactor, fitted, accuracy: 0.01, "Selecting fit again reapplies it")
+    state.scaleMode = .custom
+    state.zoom = 1.25
+    coordinator.apply(state)
+    view.displaysPageBreaks = false
+    coordinator.apply(state)
+    XCTAssertEqual(view.scaleFactor, 1.25, accuracy: 0.01)
+  }
+
   func testLaunchTypeExists() {
     XCTAssertNotNil(PDFMathReaderApp.self)
   }
@@ -121,6 +199,94 @@ final class AppSmokeTests: XCTestCase {
     XCTAssertEqual(after.documentCount, 1)
     XCTAssertEqual(after.imageCount, 0)
     XCTAssertEqual(after.imageBytes, 0)
+  }
+
+  @MainActor
+  func testRecentThumbnailPersistsAcrossLibraryReloadAfterOriginalPDFIsRemoved() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("PDFMathReader-RecentThumbnailTests", isDirectory: true)
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    let pdfURL = root.appendingPathComponent("paper.pdf")
+    try thumbnailPDF(pageCount: 1).write(to: pdfURL)
+    let libraryDirectory = root.appendingPathComponent("Library", isDirectory: true)
+    let library = LibraryModel(directory: libraryDirectory)
+    let opened = await library.makeSession(for: pdfURL)
+    let session = try XCTUnwrap(opened)
+
+    let firstRecent = try XCTUnwrap(library.recents.first)
+    let generatedThumbnail = await library.recentThumbnailURL(for: firstRecent)
+    let firstThumbnail = try XCTUnwrap(generatedThumbnail)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: firstThumbnail.path))
+    XCTAssertNotNil(UIImage(contentsOfFile: firstThumbnail.path))
+
+    let reopenedLibrary = LibraryModel(directory: libraryDirectory)
+    let reopenedRecent = try XCTUnwrap(reopenedLibrary.recents.first)
+    XCTAssertEqual(reopenedRecent.id, session.id)
+    try FileManager.default.removeItem(at: pdfURL)
+
+    let persistedThumbnail = await reopenedLibrary.recentThumbnailURL(for: reopenedRecent)
+    XCTAssertEqual(persistedThumbnail?.standardizedFileURL, firstThumbnail.standardizedFileURL)
+    XCTAssertNotNil(persistedThumbnail.flatMap { UIImage(contentsOfFile: $0.path) })
+  }
+
+  @MainActor
+  func testRecentThumbnailRegeneratesMissingAndCorruptPNGWithoutChangingLastOpened() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("PDFMathReader-RecentThumbnailTests", isDirectory: true)
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    let pdfURL = root.appendingPathComponent("paper.pdf")
+    try thumbnailPDF(pageCount: 1).write(to: pdfURL)
+    let library = LibraryModel(directory: root.appendingPathComponent("Library", isDirectory: true))
+    let opened = await library.makeSession(for: pdfURL)
+    _ = try XCTUnwrap(opened)
+    let recent = try XCTUnwrap(library.recents.first)
+    let originalLastOpened = try XCTUnwrap(library.recentsStore.document(id: recent.id)?.lastOpened)
+    let thumbnailURL = library.recentsStore.thumbnailURL(for: recent.id)
+
+    let missingResult = await library.recentThumbnailURL(for: recent)
+    XCTAssertEqual(missingResult?.standardizedFileURL, thumbnailURL.standardizedFileURL)
+    XCTAssertNotNil(UIImage(contentsOfFile: thumbnailURL.path))
+
+    try Data("corrupt preview".utf8).write(to: thumbnailURL, options: [.atomic])
+    XCTAssertNil(UIImage(contentsOfFile: thumbnailURL.path))
+    let corruptResult = await library.recentThumbnailURL(for: recent)
+    XCTAssertEqual(corruptResult?.standardizedFileURL, thumbnailURL.standardizedFileURL)
+    XCTAssertNotNil(UIImage(contentsOfFile: thumbnailURL.path))
+
+    let savedRecent = try XCTUnwrap(library.recentsStore.document(id: recent.id))
+    XCTAssertEqual(savedRecent.lastOpened, originalLastOpened)
+    XCTAssertEqual(try XCTUnwrap(library.recents.first).lastOpened, originalLastOpened)
+  }
+
+  @MainActor
+  func testCancelledThumbnailCallerStillPersistsPreview() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("PDFMathReader-RecentThumbnailTests", isDirectory: true)
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+    let pdfURL = root.appendingPathComponent("paper.pdf")
+    try thumbnailPDF(pageCount: 1).write(to: pdfURL)
+    let library = LibraryModel(directory: root.appendingPathComponent("Library", isDirectory: true))
+    let opened = await library.makeSession(for: pdfURL)
+    let session = try XCTUnwrap(opened)
+    let thumbnailURL = library.recentsStore.thumbnailURL(for: session.id)
+
+    let caller = Task { @MainActor in
+      await library.prepareThumbnail(for: session)
+    }
+    caller.cancel()
+    await caller.value
+
+    XCTAssertTrue(FileManager.default.fileExists(atPath: thumbnailURL.path))
+    XCTAssertNotNil(UIImage(contentsOfFile: thumbnailURL.path))
   }
 
   private func thumbnailPDF(pageCount: Int) throws -> Data {

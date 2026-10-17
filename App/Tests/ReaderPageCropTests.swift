@@ -8,6 +8,35 @@ import XCTest
 
 @MainActor
 final class ReaderPageCropTests: XCTestCase {
+  func testOriginalRenderingClipsRemovedMarginsWithoutScalingContent() throws {
+    let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 100, height: 100)).pdfData {
+      $0.beginPage()
+      UIColor.black.setFill()
+      $0.cgContext.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+    }
+    let document = try XCTUnwrap(ReaderPDFDocument(data: data))
+    let page = try XCTUnwrap(document.page(at: 0) as? ReaderPDFPage)
+    document.pageCrop = PageCrop(x: 0.4, y: 0.2)
+    for inverted in [false, true] {
+      document.invertsPages = inverted
+      for uninverted in [false, true] {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 100, height: 100,
+          bitsPerComponent: 8, bytesPerRow: 400, space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        if uninverted { page.drawUninverted(with: .artBox, to: context) }
+        else { page.draw(with: .artBox, to: context) }
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        func alpha(_ x: Int, _ y: Int) -> UInt8 { pixels[y * 400 + x * 4 + 3] }
+        XCTAssertEqual(alpha(5, 50), 0)
+        XCTAssertEqual(alpha(95, 50), 0)
+        XCTAssertEqual(alpha(50, 5), 0)
+        XCTAssertEqual(alpha(50, 95), 0)
+        XCTAssertEqual(alpha(21, 11), 255)
+        XCTAssertEqual(alpha(79, 89), 255)
+      }
+    }
+  }
+
   func testVirtualArtBoxUsesCropBoxAndSwapsAxesForRotatedPages() throws {
     let mediaBox = CGRect(x: 10, y: 20, width: 400, height: 600)
     let cropBox = CGRect(x: 30, y: 50, width: 300, height: 500)

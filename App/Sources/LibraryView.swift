@@ -83,6 +83,7 @@ struct LibraryView: View {
       if isOpeningDocument { ProgressView(L10n.string(library.epubConversionsInProgress > 0 ? "ios.preparingEPUB" : "status.openingPDF")).padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
     }
     .background(Color(uiColor: .systemGroupedBackground))
+    .task { await library.reconcileRecentDocuments() }
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItemGroup(placement: .topBarTrailing) {
@@ -241,7 +242,7 @@ private struct RecentDocumentCard: View {
   var body: some View {
     Button(action: action) {
       VStack(alignment: .leading, spacing: 10) {
-        RecentThumbnail(path: document.thumbnailCachePath)
+        RecentThumbnail(document: document)
           .frame(maxWidth: .infinity)
           .aspectRatio(0.72, contentMode: .fit)
           .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -284,12 +285,14 @@ private struct RecentDocumentCard: View {
 }
 
 private struct RecentThumbnail: View {
-  let path: String?
+  let document: RecentDocument
+  @EnvironmentObject private var library: LibraryModel
   @Environment(\.colorScheme) private var colorScheme
+  @State private var image: UIImage?
 
   var body: some View {
     Group {
-      if let path, let image = UIImage(contentsOfFile: path) {
+      if let image {
         // Cached previews are drawn uninverted; dim them like open pages.
         Image(uiImage: colorScheme == .dark ? ReaderDarkPDF.inverted(image) : image)
           .resizable()
@@ -309,5 +312,10 @@ private struct RecentThumbnail: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .task(id: document) {
+      let url = await library.recentThumbnailURL(for: document)
+      guard !Task.isCancelled else { return }
+      image = url.flatMap { UIImage(contentsOfFile: $0.path) }
+    }
   }
 }

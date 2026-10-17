@@ -101,6 +101,58 @@ final class CompanionDocumentManagerTests: XCTestCase {
     XCTAssertEqual(state?.annotations, [])
   }
 
+  func testReleasedRemoteReopenRetainsOneRecentIdentity() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let server = DocumentServerStub(pdf: try fixture())
+    let library = LibraryModel(directory: root.appendingPathComponent("Library"))
+    var preferences = library.preferences
+    preferences.companionURL = "http://computer.local:8891"
+    library.savePreferences(preferences)
+    let remote = root.appendingPathComponent("Library/Computer Documents")
+    let recent = CompanionRecentDocument(id: "document-1", title: "Paper", pageCount: 1)
+    let manager = CompanionDocumentManager(directory: remote, client: server,
+      readPairingCode: { "TESTCODE" })
+
+    let openedResult = await manager.open(recent, library: library)
+    let opened = try XCTUnwrap(openedResult)
+    let tab = ReaderTab(session: opened, library: library)
+    let released = await manager.sync(tab, release: true)
+    XCTAssertTrue(released)
+
+    let restored = CompanionDocumentManager(directory: remote, client: server,
+      readPairingCode: { "TESTCODE" })
+    let reopenedResult = await restored.open(recent, library: library)
+    let reopened = try XCTUnwrap(reopenedResult)
+
+    XCTAssertEqual(reopened.id, opened.id)
+    XCTAssertEqual(library.recents.count, 1)
+    XCTAssertEqual(library.recents.first?.id, opened.id)
+  }
+
+  func testDifferentRemoteIDsWithSameBytesRemainSeparateRecents() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let server = DocumentServerStub(pdf: try fixture())
+    let library = LibraryModel(directory: root.appendingPathComponent("Library"))
+    var preferences = library.preferences
+    preferences.companionURL = "http://computer.local:8891"
+    library.savePreferences(preferences)
+    let manager = CompanionDocumentManager(directory: root.appendingPathComponent("Library/Computer Documents"), client: server,
+      readPairingCode: { "TESTCODE" })
+
+    let firstResult = await manager.open(
+      .init(id: "document-1", title: "Same paper", pageCount: 1), library: library)
+    let first = try XCTUnwrap(firstResult)
+    let secondResult = await manager.open(
+      .init(id: "document-2", title: "Same paper", pageCount: 1), library: library)
+    let second = try XCTUnwrap(secondResult)
+
+    XCTAssertNotEqual(first.id, second.id)
+    XCTAssertEqual(library.recents.count, 2)
+    XCTAssertEqual(Set(library.recents.map(\.id)), Set([first.id, second.id]))
+  }
+
   func testResumedSessionRejectsChangedBaseWithoutReplacingLocalFile() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

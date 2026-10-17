@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum AppIconStyle: String, CaseIterable, Identifiable {
-  case base, warm, spring, hist, tech, moon, modern
+  case base, warm, spring, hist, tech, moon, modern, art, zotero
 
   var id: String { rawValue }
   var previewName: String { "AppIconPreview-\(rawValue)" }
@@ -16,6 +16,8 @@ private enum AppIconStyle: String, CaseIterable, Identifiable {
     case .tech: "AppIconBlueprint"
     case .moon: "AppIconMoon"
     case .modern: "AppIconModern"
+    case .art: "AppIconArt"
+    case .zotero: "AppIconZotero"
     }
   }
 
@@ -28,6 +30,8 @@ private enum AppIconStyle: String, CaseIterable, Identifiable {
     case .tech: "appearance.iconBlueprint"
     case .moon: "appearance.iconMoon"
     case .modern: "appearance.iconModern"
+    case .art: "appearance.iconArt"
+    case .zotero: "appearance.iconZotero"
     }
     return L10n.string(key)
   }

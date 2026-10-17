@@ -71,6 +71,20 @@ final class EPUBConversionTests: XCTestCase {
     }
   }
 
+  func testMissingStylesheetDoesNotPreventRenderingChapters() async throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let url = try await EPUBConverter.convert(
+      data: fixtureEPUB(missingStylesheet: true), directory: root
+    )
+    let document = try XCTUnwrap(PDFDocument(url: url))
+    let text = try XCTUnwrap(document.string)
+    XCTAssertTrue(text.contains("Chapter One"))
+    XCTAssertTrue(text.contains("Second chapter text remains selectable after conversion."))
+    XCTAssertEqual(document.outlineRoot?.numberOfChildren, 2)
+  }
+
   func testPercentLiteralAssetNamesRemainDistinctAndHonorManifestMIME() async throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -134,14 +148,16 @@ final class EPUBConversionTests: XCTestCase {
     return directory
   }
 
-  private func fixtureEPUB() throws -> Data {
+  private func fixtureEPUB(missingStylesheet: Bool = false) throws -> Data {
     let chapterText = String(
       repeating: "This is selectable EPUB text used by the conversion test. ",
       count: 240
     )
+    let optionalStylesheet = missingStylesheet
+      ? "<link rel=\"stylesheet\" href=\"style/0001.css\" />" : ""
     let chapterOne = """
     <?xml version="1.0" encoding="utf-8"?>
-    <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter One</title><link rel="stylesheet" href="styles/book.css" /></head><body><h1>Chapter One</h1><p>\(chapterText)</p><img src="images/mark.svg" alt="fixture image" /></body></html>
+    <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter One</title><link rel="stylesheet" href="styles/book.css" />\(optionalStylesheet)</head><body><h1>Chapter One</h1><p>\(chapterText)</p><img src="images/mark.svg" alt="fixture image" /></body></html>
     """
     let chapterTwo = """
     <?xml version="1.0" encoding="utf-8"?>

@@ -205,45 +205,41 @@ struct ReaderTranslationMenu: View {
       }
       .accessibilityIdentifier("reader.kernel")
 
-      Picker(selection: preference(\.sourceLanguage)) {
-        Label(L10n.string("settings.automaticDetection"), systemImage: "sparkle.magnifyingglass").tag("")
+      Menu {
+        choice(L10n.string("settings.automaticDetection"), systemImage: "sparkle.magnifyingglass", value: "", keyPath: \.sourceLanguage)
         languageChoices(direction: "source", current: library.preferences.sourceLanguage)
       } label: {
         Label(L10n.string("settings.sourceLanguage"), systemImage: "arrow.left")
       }
-      .pickerStyle(.menu)
       .accessibilityIdentifier("reader.sourceLanguage")
 
-      Picker(selection: preference(\.targetLanguage)) {
+      Menu {
         languageChoices(direction: "target", current: library.preferences.targetLanguage)
       } label: {
         Label(L10n.string("menu.extra.messages.Target Language"), systemImage: "arrow.right")
       }
-      .pickerStyle(.menu)
       .accessibilityIdentifier("reader.targetLanguage")
 
       Divider()
 
       if !availability.services(library.preferences).isEmpty {
-        Picker(selection: preference(\.companionService)) {
+        Menu {
           ForEach(availability.services(library.preferences)) { service in
-            Label(service.id == "auto" ? L10n.string("settings.translationServiceAuto") : service.name, systemImage: service.id == "auto" ? "wand.and.stars" : "desktopcomputer").tag(service.id)
+            choice(service.id == "auto" ? L10n.string("settings.translationServiceAuto") : service.name, systemImage: service.id == "auto" ? "wand.and.stars" : "desktopcomputer", value: service.id, keyPath: \.companionService)
           }
         } label: {
           Label(L10n.string("settings.translationService"), systemImage: "desktopcomputer")
         }
-        .pickerStyle(.menu)
         .accessibilityIdentifier("reader.companionService")
       }
 
-      Picker(selection: preference(\.translationMode)) {
+      Menu {
         ForEach(TranslationMode.allCases, id: \.self) { mode in
-          Label(mode.displayName, systemImage: "text.bubble").tag(mode)
+          choice(mode.displayName, systemImage: "text.bubble", value: mode, keyPath: \.translationMode)
         }
       } label: {
         Label(L10n.string("settings.translationMode"), systemImage: "text.bubble")
       }
-      .pickerStyle(.menu)
       .accessibilityIdentifier("reader.translationMode")
 
       Divider()
@@ -299,10 +295,25 @@ struct ReaderTranslationMenu: View {
     // Custom codes remain usable by the general translation services.
     if !current.isEmpty, !appleOnly, !availability.hasComputerOptions(library.preferences),
        !translationLanguageOptions.contains(where: { $0.code == current }) {
-      Label(languageLabel(current), systemImage: "globe").tag(current)
+      choice(languageLabel(current), systemImage: "globe", value: current, keyPath: direction == "source" ? \.sourceLanguage : \.targetLanguage)
     }
     ForEach(options) { option in
-      Label(translationLanguageLabel(option.name, locale: Locale.current.identifier), systemImage: "globe").tag(option.code)
+      choice(translationLanguageLabel(option.name, locale: Locale.current.identifier), systemImage: "globe", value: option.code, keyPath: direction == "source" ? \.sourceLanguage : \.targetLanguage)
+    }
+  }
+
+  private func choice<Value: Equatable>(
+    _ title: String, systemImage: String, value: Value,
+    keyPath: WritableKeyPath<ReaderPreferences, Value>
+  ) -> some View {
+    Toggle(isOn: Binding(
+      get: { library.preferences[keyPath: keyPath] == value },
+      set: { selected in
+        guard selected else { return }
+        preference(keyPath).wrappedValue = value
+      }
+    )) {
+      Label(title, systemImage: systemImage)
     }
   }
 

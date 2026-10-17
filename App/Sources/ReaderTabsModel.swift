@@ -60,12 +60,17 @@ final class ReaderTabsModel: ObservableObject {
     selectedID = id
   }
 
-  func close(_ id: String) {
+  func close(_ id: String, showStartPage: Bool = false) {
     guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
     let wasSelected = selectedID == id
     tabs[index].persistModelIfInitialized()
 
     tabs.remove(at: index)
+    if showStartPage {
+      selectedTab?.persistModelIfInitialized()
+      selectedID = nil
+      return
+    }
     guard wasSelected else { return }
     selectedID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id
   }

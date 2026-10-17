@@ -8,6 +8,8 @@ public struct RecentDocument: Codable, Hashable, Identifiable, Sendable {
   public var thumbnailCachePath: String?
   public var bookmarkData: Data
   public var pinned: Bool
+  public var contentHash: String?
+  public var sourceIdentity: String?
 
   private enum CodingKeys: String, CodingKey {
     case id
@@ -17,6 +19,8 @@ public struct RecentDocument: Codable, Hashable, Identifiable, Sendable {
     case thumbnailCachePath
     case bookmarkData
     case pinned
+    case contentHash
+    case sourceIdentity
   }
 
   public init(
@@ -26,7 +30,9 @@ public struct RecentDocument: Codable, Hashable, Identifiable, Sendable {
     lastOpened: Date = .now,
     pageCount: Int? = nil,
     thumbnailCachePath: String? = nil,
-    bookmarkData: Data
+    bookmarkData: Data,
+    contentHash: String? = nil,
+    sourceIdentity: String? = nil
   ) {
     self.id = id
     self.title = title
@@ -35,6 +41,8 @@ public struct RecentDocument: Codable, Hashable, Identifiable, Sendable {
     self.thumbnailCachePath = thumbnailCachePath
     self.bookmarkData = bookmarkData
     self.pinned = pinned
+    self.contentHash = contentHash
+    self.sourceIdentity = sourceIdentity
   }
 
   public init(from decoder: Decoder) throws {
@@ -46,6 +54,8 @@ public struct RecentDocument: Codable, Hashable, Identifiable, Sendable {
     thumbnailCachePath = try container.decodeIfPresent(String.self, forKey: .thumbnailCachePath)
     bookmarkData = try container.decode(Data.self, forKey: .bookmarkData)
     pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+    contentHash = try container.decodeIfPresent(String.self, forKey: .contentHash)
+    sourceIdentity = try container.decodeIfPresent(String.self, forKey: .sourceIdentity)
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -57,6 +67,8 @@ public struct RecentDocument: Codable, Hashable, Identifiable, Sendable {
     try container.encodeIfPresent(thumbnailCachePath, forKey: .thumbnailCachePath)
     try container.encode(bookmarkData, forKey: .bookmarkData)
     try container.encode(pinned, forKey: .pinned)
+    try container.encodeIfPresent(contentHash, forKey: .contentHash)
+    try container.encodeIfPresent(sourceIdentity, forKey: .sourceIdentity)
   }
 }
 
@@ -78,18 +90,37 @@ public final class RecentsStore: @unchecked Sendable {
 
   public func list() -> [RecentDocument] {
     lock.withLock {
-      sorted(file.read() ?? [])
+      let documents = file.read() ?? []
+      let deduplicated = deduplicate(documents)
+      if deduplicated != documents {
+        try? file.write(deduplicated)
+      }
+      return sorted(deduplicated.map(resolveThumbnailPath(for:)))
     }
   }
 
   @discardableResult
   public func upsert(_ document: RecentDocument) throws -> [RecentDocument] {
     try lock.withLock {
-      var documents = file.read() ?? []
-      documents.removeAll { $0.id == document.id }
-      documents.append(document)
-      try file.write(documents)
-      return sorted(documents)
+      let documents = (file.read() ?? []).map(resolveThumbnailPath(for:))
+      let incoming = resolveThumbnailPath(for: document)
+      let allDocuments = documents + [incoming]
+      let incomingIndex = allDocuments.count - 1
+      let matchingIndices = connectedComponent(
+        containing: incomingIndex,
+        in: allDocuments
+      )
+      let merged = merge(
+        allDocuments,
+        indices: matchingIndices,
+        preferredIndex: incomingIndex
+      )
+      var updated = allDocuments.enumerated()
+        .filter { !matchingIndices.contains($0.offset) }
+        .map(\.element)
+      updated.append(merged)
+      try file.write(updated)
+      return sorted(updated.map(resolveThumbnailPath(for:)))
     }
   }
 
@@ -100,13 +131,7 @@ public final class RecentsStore: @unchecked Sendable {
       let removed = documents.first { $0.id == id }
       documents.removeAll { $0.id == id }
       try file.write(documents)
-      if let path = removed?.thumbnailCachePath,
-         !documents.contains(where: { document in
-           guard let remainingPath = document.thumbnailCachePath else { return false }
-           return canonicalPath(for: remainingPath) == canonicalPath(for: path)
-         }) {
-        removeThumbnailIfOwned(at: URL(fileURLWithPath: path))
-      }
+      removeThumbnails(for: removed, remaining: documents)
       return sorted(documents)
     }
   }
@@ -142,11 +167,38 @@ public final class RecentsStore: @unchecked Sendable {
     list().first { $0.id == id }
   }
 
+  public func document(
+    matching url: URL,
+    contentHash: String? = nil,
+    sourceIdentity: String? = nil
+  ) -> RecentDocument? {
+    lock.withLock {
+      let documents = file.read() ?? []
+      let deduplicated = deduplicate(documents)
+      if deduplicated != documents {
+        try? file.write(deduplicated)
+      }
+
+      let canonicalURL = canonicalURL(for: url)
+      let candidates = deduplicated.enumerated().filter { _, document in
+        let urlMatches = resolvedBookmarkURL(for: document) == canonicalURL
+        let hashMatches = sourceIdentity == nil && document.sourceIdentity == nil
+          && contentHash != nil && document.contentHash == contentHash
+        let sourceMatches = sourceIdentity != nil && document.sourceIdentity == sourceIdentity
+        return urlMatches || hashMatches || sourceMatches
+      }
+      guard let latest = candidates.min(by: isLater(_:_:)) else { return nil }
+      return resolveThumbnailPath(for: latest.element)
+    }
+  }
+
   public func clearHistory() throws {
     try lock.withLock {
       let documents = file.read() ?? []
-      for path in documents.compactMap(\.thumbnailCachePath) {
-        removeThumbnailIfOwned(at: URL(fileURLWithPath: path))
+      for document in documents {
+        for path in thumbnailPaths(for: document) {
+          removeThumbnailIfOwned(at: URL(fileURLWithPath: path))
+        }
       }
       try file.write([])
     }
@@ -203,11 +255,164 @@ public final class RecentsStore: @unchecked Sendable {
     try? fileManager.removeItem(at: url)
   }
 
+  private func resolveThumbnailPath(for document: RecentDocument) -> RecentDocument {
+    guard document.thumbnailCachePath != nil else { return document }
+    let currentPath = thumbnailURL(for: document.id).path
+    let path: String
+    if fileManager.fileExists(atPath: currentPath) {
+      path = currentPath
+    } else if let legacyPath = document.thumbnailCachePath,
+      fileManager.fileExists(atPath: legacyPath) {
+      path = legacyPath
+    } else {
+      path = currentPath
+    }
+
+    guard document.thumbnailCachePath != path else { return document }
+    var resolved = document
+    resolved.thumbnailCachePath = path
+    return resolved
+  }
+
+  private func thumbnailPaths(for document: RecentDocument) -> [String] {
+    [thumbnailURL(for: document.id).path, document.thumbnailCachePath].compactMap { $0 }
+  }
+
+  private func removeThumbnails(for removed: RecentDocument?, remaining: [RecentDocument]) {
+    guard let removed else { return }
+    let remainingPaths = Set(
+      remaining
+        .flatMap(thumbnailPaths(for:))
+        .map(canonicalPath(for:))
+    )
+    for path in thumbnailPaths(for: removed)
+      where !remainingPaths.contains(canonicalPath(for: path)) {
+      removeThumbnailIfOwned(at: URL(fileURLWithPath: path))
+    }
+  }
+
   private func canonicalPath(for path: String) -> String {
     URL(fileURLWithPath: path)
       .resolvingSymlinksInPath()
       .standardizedFileURL
       .path
+  }
+
+  private func canonicalURL(for url: URL) -> URL {
+    url.standardizedFileURL
+      .resolvingSymlinksInPath()
+      .standardizedFileURL
+  }
+
+  private func resolvedBookmarkURL(for document: RecentDocument) -> URL? {
+    guard let url = try? resolveBookmarkData(document.bookmarkData) else { return nil }
+    return canonicalURL(for: url)
+  }
+
+  private func documentsMatch(
+    _ lhs: RecentDocument,
+    _ rhs: RecentDocument
+  ) -> Bool {
+    if lhs.id == rhs.id {
+      return true
+    }
+    if let lhsURL = resolvedBookmarkURL(for: lhs),
+       let rhsURL = resolvedBookmarkURL(for: rhs),
+       lhsURL == rhsURL {
+      return true
+    }
+    if let lhsSource = lhs.sourceIdentity,
+       let rhsSource = rhs.sourceIdentity,
+       lhsSource == rhsSource {
+      return true
+    }
+    if lhs.sourceIdentity != nil || rhs.sourceIdentity != nil {
+      return false
+    }
+    if let lhsHash = lhs.contentHash,
+       let rhsHash = rhs.contentHash,
+       lhsHash == rhsHash {
+      return true
+    }
+    return false
+  }
+
+  private func connectedComponent(
+    containing index: Int,
+    in documents: [RecentDocument]
+  ) -> Set<Int> {
+    var component = Set([index])
+    var pending = [index]
+    while let current = pending.popLast() {
+      for candidate in documents.indices where !component.contains(candidate) {
+        guard documentsMatch(documents[current], documents[candidate]) else { continue }
+        component.insert(candidate)
+        pending.append(candidate)
+      }
+    }
+    return component
+  }
+
+  private func isLater(
+    _ lhs: (offset: Int, element: RecentDocument),
+    _ rhs: (offset: Int, element: RecentDocument)
+  ) -> Bool {
+    if lhs.element.lastOpened != rhs.element.lastOpened {
+      return lhs.element.lastOpened > rhs.element.lastOpened
+    }
+    return lhs.offset > rhs.offset
+  }
+
+  private func merge(
+    _ documents: [RecentDocument],
+    indices: Set<Int>,
+    preferredIndex: Int
+  ) -> RecentDocument {
+    var merged = documents[preferredIndex]
+    let orderedIndices = indices.sorted {
+      isLater(
+        (offset: $0, element: documents[$0]),
+        (offset: $1, element: documents[$1])
+      )
+    }
+    merged.pinned = indices.contains { documents[$0].pinned }
+    if merged.pageCount == nil {
+      merged.pageCount = orderedIndices.lazy.compactMap { documents[$0].pageCount }.first
+    }
+    if merged.thumbnailCachePath == nil {
+      merged.thumbnailCachePath = orderedIndices.lazy
+        .compactMap { documents[$0].thumbnailCachePath }
+        .first
+    }
+    if merged.contentHash == nil {
+      merged.contentHash = orderedIndices.lazy.compactMap { documents[$0].contentHash }.first
+    }
+    if merged.sourceIdentity == nil {
+      merged.sourceIdentity = orderedIndices.lazy.compactMap { documents[$0].sourceIdentity }.first
+    }
+    return merged
+  }
+
+  private func deduplicate(_ documents: [RecentDocument]) -> [RecentDocument] {
+    guard documents.count > 1 else { return documents }
+    var visited = Set<Int>()
+    var result: [RecentDocument] = []
+    for index in documents.indices where !visited.contains(index) {
+      let component = connectedComponent(containing: index, in: documents)
+      visited.formUnion(component)
+      if component.count == 1 {
+        result.append(documents[index])
+      } else {
+        let latestIndex = component.min {
+          isLater(
+            (offset: $0, element: documents[$0]),
+            (offset: $1, element: documents[$1])
+          )
+        } ?? index
+        result.append(merge(documents, indices: component, preferredIndex: latestIndex))
+      }
+    }
+    return result
   }
 
   private func sorted(_ documents: [RecentDocument]) -> [RecentDocument] {

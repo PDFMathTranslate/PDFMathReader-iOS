@@ -6,6 +6,22 @@ import XCTest
 
 @MainActor
 final class ReaderTabsModelTests: XCTestCase {
+  func testDragCloseReturnsToStartPageAndRetainsOtherTabs() throws {
+    let fixture = try makeFixture(ids: ["first", "second"])
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let library = LibraryModel(directory: fixture.libraryDirectory)
+    let tabs = ReaderTabsModel()
+    fixture.sessions.forEach { tabs.open($0, library: library) }
+    let retained = try XCTUnwrap(tabs.tabs.first)
+
+    tabs.close("second", showStartPage: true)
+
+    XCTAssertNil(tabs.selectedTab)
+    XCTAssertEqual(tabs.tabs.map(\.id), ["first"])
+    tabs.open(fixture.sessions[0], library: library)
+    XCTAssertTrue(tabs.selectedTab === retained)
+  }
+
   func testOpeningDuplicateSelectsExistingTabWithoutAddingAnother() throws {
     let fixture = try makeFixture(ids: ["first", "second"])
     defer { try? FileManager.default.removeItem(at: fixture.root) }

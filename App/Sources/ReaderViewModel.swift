@@ -84,17 +84,7 @@ final class ReaderViewModel: ObservableObject {
       self.document = document
       isLoadingDocument = false
       library.updateDocumentMetadata(for: session, document: document)
-      let thumbnail = await Task.detached(priority: .utility) {
-        withExtendedLifetime(session.access) {
-          guard let previewDocument = PDFDocument(url: session.url),
-            let page = previewDocument.page(at: 0) else { return Data?.none }
-          return withExtendedLifetime(previewDocument) {
-            page.thumbnail(of: CGSize(width: 480, height: 640), for: .mediaBox).pngData()
-          }
-        }
-      }.value
-      guard !Task.isCancelled else { return }
-      if let thumbnail { library.cacheThumbnail(thumbnail, for: session) }
+      await library.prepareThumbnail(for: session)
     } else {
       isLoadingDocument = false
     }
@@ -165,7 +155,11 @@ final class ReaderViewModel: ObservableObject {
     readingState.page = page
     persistReadingState()
     if let view = pdfViewReference.view, let target = (view.document ?? document)?.page(at: page - 1) {
-      view.go(to: target)
+      if let reader = view as? ReaderAnnotationPDFView {
+        reader.navigate(to: target)
+      } else {
+        view.go(to: target)
+      }
     }
   }
 
@@ -193,6 +187,7 @@ final class ReaderViewModel: ObservableObject {
 
   func setScaleMode(_ mode: ReaderScaleMode) {
     readingState.scaleMode = mode
+    pdfViewReference.scaleRevision += 1
     if mode == .custom, let view = pdfViewReference.view {
       readingState.zoom = Double(view.scaleFactor)
     }

@@ -170,7 +170,7 @@ struct SettingsView: View {
           }
         }
 
-        Section(L10n.string("settings.interaction")) {
+        Section {
           Picker(L10n.string("settings.documentOpenMode"), selection: $draft.documentOpenMode) {
             Text(L10n.string("settings.openManual")).tag(ReaderDocumentOpenMode.original)
             Text(L10n.string("settings.openOriginal")).tag(ReaderDocumentOpenMode.originalWithBackgroundTranslation)
@@ -184,8 +184,21 @@ struct SettingsView: View {
           .accessibilityIdentifier("settings.interactionMode")
           Toggle(L10n.string("settings.restoreDocuments"), isOn: $draft.restoreDocumentsOnLaunch)
             .accessibilityIdentifier("settings.restoreDocuments")
+          Toggle(isOn: $draft.autoAlignDocumentWidth) {
+            Label(
+              L10n.string("settings.autoAlignDocumentWidth"),
+              systemImage: "arrow.left.and.right"
+            )
+          }
+          .accessibilityIdentifier("settings.autoAlignDocumentWidth")
+          Toggle(L10n.string("appearance.reducePadding"), isOn: $draft.reducePadding)
+            .accessibilityIdentifier("settings.reducePadding")
           Toggle(L10n.string("settings.autoHideHeader"), isOn: $draft.autoHideTitleBar)
             .accessibilityIdentifier("settings.autoHideHeader")
+        } header: {
+          Text(L10n.string("settings.interaction"))
+        } footer: {
+          Text(L10n.string("ios.autoAlignDocumentWidthHint"))
         }
 
         Section {

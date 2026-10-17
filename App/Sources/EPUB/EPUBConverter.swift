@@ -191,9 +191,6 @@ enum EPUBConverter {
         }, onCancel: {
           Task { @MainActor in waiter.cancel() }
         })
-        if let error = files.takeError() {
-          throw error
-        }
         try Task.checkCancellation()
 
         let formatter = webView.viewPrintFormatter()
@@ -426,8 +423,6 @@ enum EPUBConverter {
 private final class EPUBAssetStore: @unchecked Sendable {
   private let values: [String: Data]
   private let mediaTypes: [String: String]
-  private let lock = NSLock()
-  private var lastError: Error?
 
   init(files: [String: Data], mediaTypes: [String: String]) {
     var values: [String: Data] = [:]
@@ -452,14 +447,6 @@ private final class EPUBAssetStore: @unchecked Sendable {
     values[path]
   }
 
-  func responseData(for path: String) -> Data? {
-    guard let value = values[path] else {
-      recordError(EPUBConversionError.chapterFailed(path, "The chapter resource is missing."))
-      return nil
-    }
-    return value
-  }
-
   func mimeType(for path: String) -> String {
     mediaTypes[path] ?? Self.fallbackMimeType(for: path)
   }
@@ -470,19 +457,6 @@ private final class EPUBAssetStore: @unchecked Sendable {
       return "utf-8"
     }
     return Self.isTextualExtension(path) ? "utf-8" : nil
-  }
-
-  func takeError() -> Error? {
-    lock.withLock {
-      defer { lastError = nil }
-      return lastError
-    }
-  }
-
-  private func recordError(_ error: Error) {
-    lock.withLock {
-      if lastError == nil { lastError = error }
-    }
   }
 
   private static func preparedData(_ data: Data, path: String, mediaType: String?) -> Data {
@@ -564,7 +538,9 @@ private final class EPUBSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked 
       urlSchemeTask.didFailWithError(EPUBConversionError.invalidPackage("The resource URL is outside the EPUB package."))
       return
     }
-    guard let data = store.responseData(for: path) else {
+    // Let WebKit skip missing stylesheets, images and fonts like a browser.
+    // Missing chapter documents still fail the preflight or navigation load.
+    guard let data = store.data(for: path) else {
       urlSchemeTask.didFailWithError(EPUBConversionError.chapterFailed(path, "The resource is missing."))
       return
     }

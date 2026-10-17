@@ -330,7 +330,11 @@ final class ReaderAnnotationViewModel: ObservableObject {
     let point = ReaderAnnotationPDF.pdfPoint(
       for: displayBox(destination.box, on: page), on: page
     )
-    pdfView?.go(to: PDFDestination(page: page, at: point))
+    if let view = pdfView as? ReaderAnnotationPDFView {
+      view.navigate(to: PDFDestination(page: page, at: point))
+    } else {
+      pdfView?.go(to: PDFDestination(page: page, at: point))
+    }
   }
 
   private func commit(to pdfView: PDFView?, pages: Set<Int>) {
@@ -791,6 +795,26 @@ final class ReaderAnnotationInteractionController: NSObject, UIGestureRecognizer
 
 @MainActor
 final class ReaderAnnotationPDFView: PDFView {
+  var onViewportLayout: (() -> Void)?
+  private var lastViewportSize: CGSize = .zero
+  private var viewportLayoutScheduled = false
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard bounds.size != lastViewportSize, !viewportLayoutScheduled else { return }
+    viewportLayoutScheduled = true
+    // PDFKit must finish updating its internal document/scroll geometry first.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.viewportLayoutScheduled = false
+      guard self.bounds.size != self.lastViewportSize else { return }
+      self.lastViewportSize = self.bounds.size
+      self.onViewportLayout?()
+    }
+  }
+
+  var navigationAnimator: UIViewPropertyAnimator?
+  var navigationCover: UIView?
   // Updated by the PDFKit gesture/offset observer, without publishing view state.
   var translationRenderResumeTime: TimeInterval = 0
   var isUpdatingPageGeometry = false

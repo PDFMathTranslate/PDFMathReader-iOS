@@ -3,6 +3,46 @@ import CoreImage.CIFilterBuiltins
 import ReaderCore
 import UIKit
 
+/// Immutable raster data that is safe to hand to the detached refocus worker.
+/// UIKit images stay on the main actor; only their Core Graphics backing image
+/// and scalar display scale cross the actor boundary.
+private struct ReaderRefocusImage: Sendable {
+  let cgImage: CGImage
+  let scale: CGFloat
+}
+
+private struct ReaderRefocusSnapshot: Sendable {
+  let rect: CGRect
+  let image: ReaderRefocusImage
+}
+
+private struct ReaderRefocusPreparedImages: Sendable {
+  let incoming: ReaderRefocusImage
+  let soft: ReaderRefocusImage
+  let blurred: ReaderRefocusImage
+  let outgoing: ReaderRefocusImage
+}
+
+private func readerRefocusImage(
+  _ image: ReaderRefocusImage,
+  blur: Double,
+  contrast: Float,
+  context: CIContext
+) -> ReaderRefocusImage {
+  let input = CIImage(cgImage: image.cgImage)
+  let color = CIFilter.colorControls()
+  color.inputImage = input.clampedToExtent()
+  color.contrast = contrast
+  let filter = CIFilter.gaussianBlur()
+  filter.inputImage = color.outputImage
+  filter.radius = Float(blur * image.scale)
+  guard let output = filter.outputImage,
+        let rendered = context.createCGImage(output, from: input.extent) else {
+    return image
+  }
+  return ReaderRefocusImage(cgImage: rendered, scale: image.scale)
+}
+
 /// Matches the desktop page-top strip, including its loading and queued states.
 @MainActor
 private final class ReaderPageProgressView: UIView {
@@ -243,9 +283,13 @@ final class ReaderTranslationPageOverlay: UIView {
   private let progressView = ReaderPageProgressView()
   private var remoteProgress: Double?
   private let markupView = ReaderTranslationMarkupView()
+  private var isUpdatingRendering = false
   private var refocusView: UIView?
   private var refocusBounds: CGRect = .zero
-  private static let refocusContext = CIContext()
+  private var refocusTask: Task<Void, Never>?
+  private var refocusPendingBounds: CGRect?
+  private var refocusGeneration: UInt = 0
+  private static let refocusPixelBudget: CGFloat = 2_000_000
 
   init(pageIndex: Int, page: PDFPage, pdfView: PDFView) {
     self.pageIndex = pageIndex
@@ -293,13 +337,22 @@ final class ReaderTranslationPageOverlay: UIView {
     state: PageTranslationState,
     showTranslations: Bool
   ) {
-    guard self.state != state || self.showTranslations != showTranslations else { return }
+    let stateChanged = self.state != state
+    let visibilityChanged = self.showTranslations != showTranslations
+    guard stateChanged || visibilityChanged else { return }
     cancelRefocus()
     let previous = self.state
     self.state = state
     self.showTranslations = showTranslations
     if remotePageData == nil {
-      rebuildLabels(previousParagraphs: previous.paragraphs)
+      if stateChanged {
+        rebuildLabels(previousParagraphs: previous.paragraphs)
+      } else {
+        // Keep fitted labels alive across a visibility-only toggle. Hiding
+        // their views avoids repeating text measurement when the user flips
+        // translations while the page is otherwise unchanged.
+        labels.values.forEach { $0.isHidden = !showTranslations }
+      }
     } else {
       remotePDFView?.isHidden = !showTranslations
     }
@@ -359,6 +412,20 @@ final class ReaderTranslationPageOverlay: UIView {
       label.isUserInteractionEnabled = mode == .comparison
       if restore { updateLabel(label, item: item) }
     }
+  }
+
+  /// Capture once around the complete render transaction. Updating state or
+  /// replacing a remote PDF must not cancel the visibility transition midway.
+  func performRenderingUpdate(showTranslations visible: Bool, updates: () -> Void) {
+    let previous = visible != showTranslations ? refocusSnapshot(in: bounds) : nil
+    isUpdatingRendering = true
+    UIView.performWithoutAnimation {
+      if visible != showTranslations { update(state: state, showTranslations: visible) }
+      updates()
+    }
+    isUpdatingRendering = false
+    layoutIfNeeded()
+    if let previous { refocus(from: previous) }
   }
 
   /// Applies visibility with the last known state, even if the coordinator
@@ -447,7 +514,13 @@ final class ReaderTranslationPageOverlay: UIView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    if refocusView != nil, refocusBounds != bounds { cancelRefocus() }
+    if (refocusView != nil && refocusBounds != bounds)
+      || (refocusTask != nil && refocusPendingBounds != bounds) {
+      cancelRefocus()
+    }
+    if let pdfView, readerPDFInteractionIsActive(pdfView), refocusView != nil {
+      cancelRefocus()
+    }
     progressView.frame = CGRect(
       x: 0,
       y: 0,
@@ -483,6 +556,7 @@ final class ReaderTranslationPageOverlay: UIView {
 
   @objc private func scaleChanged(_ notification: Notification) {
     guard let pdfView, notification.object as? PDFView === pdfView else { return }
+    cancelRefocus()
     labels.values.forEach { $0.updateRenderingScale(in: pdfView) }
   }
 
@@ -494,7 +568,7 @@ final class ReaderTranslationPageOverlay: UIView {
     } else if let remotePDFView, !remotePDFView.isHidden {
       covers = [remotePDFView.frame]
     } else {
-      covers = labels.values.map(\.frame)
+      covers = labels.values.filter { !$0.isHidden }.map(\.frame)
       labelCovers = true
     }
     markupView.covers = covers
@@ -562,15 +636,15 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   private func rebuildLabels(previousParagraphs: [PageTranslationParagraph] = []) {
-    let visibleIDs = Set(showTranslations ? state.paragraphs.filter {
+    let translatedIDs = Set(state.paragraphs.filter {
       $0.translation?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }.map { $0.paragraph.id } : [])
-    for id in Array(labels.keys) where !visibleIDs.contains(id) {
+    }.map { $0.paragraph.id })
+    for id in Array(labels.keys) where !translatedIDs.contains(id) {
       labels.removeValue(forKey: id)?.removeFromSuperview()
     }
     let previous = Dictionary(previousParagraphs.map { ($0.paragraph.id, $0) }, uniquingKeysWith: { _, new in new })
     for item in state.paragraphs {
-      guard visibleIDs.contains(item.paragraph.id) else { continue }
+      guard translatedIDs.contains(item.paragraph.id) else { continue }
       if let label = labels[item.paragraph.id] {
         if previous[item.paragraph.id] != item {
           label.textAlignment = textAlignment(for: item.paragraph.textAlign)
@@ -592,6 +666,7 @@ final class ReaderTranslationPageOverlay: UIView {
       labels[item.paragraph.id] = label
       updateLabel(label, item: item)
     }
+    labels.values.forEach { $0.isHidden = !showTranslations }
   }
 
   private func updateLabel(_ label: ReaderTranslationLabel, item: PageTranslationParagraph) {
@@ -673,13 +748,21 @@ final class ReaderTranslationPageOverlay: UIView {
   /// Use public Core Image filters on a temporary, visible-region snapshot.
   /// UIKit's live text and PDFKit selection stay intact beneath the effect.
   private func cancelRefocus() {
+    refocusGeneration &+= 1
+    refocusTask?.cancel()
+    refocusTask = nil
+    refocusPendingBounds = nil
+    guard !isUpdatingRendering else { return }
     refocusView?.removeFromSuperview()
     refocusView = nil
   }
 
-  private func refocusSnapshot(in region: CGRect) -> (rect: CGRect, image: UIImage)? {
-    cancelRefocus()
+  private func refocusSnapshot(in region: CGRect) -> ReaderRefocusSnapshot? {
     guard !UIAccessibility.isReduceMotionEnabled, let window, let pdfView else { return nil }
+    guard !readerPDFInteractionIsActive(pdfView) else {
+      cancelRefocus()
+      return nil
+    }
     layoutIfNeeded()
     let visible = convert(pdfView.bounds, from: pdfView)
       .intersection(convert(window.bounds, from: window))
@@ -695,27 +778,106 @@ final class ReaderTranslationPageOverlay: UIView {
       c: y.x - origin.x, d: y.y - origin.y, tx: origin.x, ty: origin.y
     )
     let format = UIGraphicsImageRendererFormat()
-    format.scale = min(2, traitCollection.displayScale)
+    let preferredScale = min(2, max(1, traitCollection.displayScale))
+    let budgetScale = sqrt(Self.refocusPixelBudget / max(1, rect.width * rect.height))
+    format.scale = min(preferredScale, budgetScale)
     var captured = false
     let image = UIGraphicsImageRenderer(size: rect.size, format: format).image { context in
       context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
       context.cgContext.concatenate(transform)
-      captured = pdfView.drawHierarchy(in: pdfView.bounds, afterScreenUpdates: true)
+      // Reuse the currently visible PDF tiles. Asking for fresh screen
+      // updates here can synchronously rasterize a destination page while a
+      // visibility change is trying to start its transition.
+      captured = pdfView.drawHierarchy(in: pdfView.bounds, afterScreenUpdates: false)
     }
-    guard captured else { return nil }
-    return (rect, image)
+    // Capture the visible intermediate state before removing an interrupted
+    // effect, so a quick reverse toggle starts from what the reader saw.
+    cancelRefocus()
+    guard captured, let cgImage = image.cgImage else { return nil }
+    return ReaderRefocusSnapshot(
+      rect: rect,
+      image: ReaderRefocusImage(cgImage: cgImage, scale: format.scale)
+    )
   }
 
-  private func refocus(from previous: (rect: CGRect, image: UIImage)?) {
+  private func refocus(from previous: ReaderRefocusSnapshot?) {
     guard let previous, let current = refocusSnapshot(in: previous.rect) else { return }
-    let effect = UIView(frame: current.rect)
+    guard let expectedWindow = window, let expectedPDFView = pdfView else { return }
+    let generation = refocusGeneration &+ 1
+    refocusGeneration = generation
+    let expectedBounds = bounds
+    refocusPendingBounds = expectedBounds
+
+    // Keep the last presented frame visible while the utility worker prepares
+    // the transition, avoiding a flash of new content followed by the old one.
+    let holding = UIImageView(image: UIImage(
+      cgImage: previous.image.cgImage, scale: previous.image.scale, orientation: .up
+    ))
+    holding.frame = previous.rect
+    holding.isUserInteractionEnabled = false
+    holding.accessibilityElementsHidden = true
+    addSubview(holding)
+    refocusView = holding
+    refocusBounds = expectedBounds
+
+    let preparation = Task.detached(priority: .utility) {
+      () -> ReaderRefocusPreparedImages? in
+      guard !Task.isCancelled else { return nil }
+      let context = CIContext()
+      let soft = readerRefocusImage(current.image, blur: 3, contrast: 1.06, context: context)
+      guard !Task.isCancelled else { return nil }
+      let blurred = readerRefocusImage(current.image, blur: 7, contrast: 1.12, context: context)
+      guard !Task.isCancelled else { return nil }
+      let outgoing = readerRefocusImage(previous.image, blur: 9, contrast: 1, context: context)
+      guard !Task.isCancelled else { return nil }
+      return ReaderRefocusPreparedImages(
+        incoming: current.image, soft: soft, blurred: blurred, outgoing: outgoing
+      )
+    }
+
+    refocusTask = Task { @MainActor [weak self] in
+      defer {
+        if let self, self.refocusGeneration == generation {
+          self.refocusTask = nil
+          self.refocusPendingBounds = nil
+          if self.refocusView === holding {
+            holding.removeFromSuperview()
+            self.refocusView = nil
+          }
+        }
+      }
+      let prepared = await withTaskCancellationHandler(operation: {
+        await preparation.value
+      }, onCancel: {
+        preparation.cancel()
+      })
+      guard !Task.isCancelled, let prepared, let self,
+            self.refocusGeneration == generation,
+            self.bounds == expectedBounds,
+            self.window === expectedWindow,
+            self.pdfView === expectedPDFView,
+            !UIAccessibility.isReduceMotionEnabled,
+            !readerPDFInteractionIsActive(expectedPDFView) else { return }
+      self.installRefocus(prepared, previous: previous.image, rect: current.rect)
+    }
+  }
+
+  @MainActor
+  private func installRefocus(
+    _ prepared: ReaderRefocusPreparedImages,
+    previous: ReaderRefocusImage,
+    rect: CGRect
+  ) {
+    let effect = UIView(frame: rect)
+    effect.accessibilityIdentifier = "reader.translationRefocus"
     effect.isUserInteractionEnabled = false
     effect.accessibilityElementsHidden = true
     effect.clipsToBounds = true
     effect.backgroundColor = paperColor
 
-    func imageView(_ image: UIImage, in container: UIView) -> UIImageView {
-      let view = UIImageView(image: image)
+    func imageView(_ image: ReaderRefocusImage, in container: UIView) -> UIImageView {
+      let uiImage = UIImage(cgImage: image.cgImage, scale: image.scale, orientation: .up)
+      let view = UIImageView(image: uiImage)
       view.frame = container.bounds
       container.addSubview(view)
       return view
@@ -735,11 +897,12 @@ final class ReaderTranslationPageOverlay: UIView {
 
     let incoming = UIView(frame: effect.bounds)
     effect.addSubview(incoming)
-    _ = imageView(current.image, in: incoming)
-    let soft = imageView(refocusImage(current.image, blur: 3, contrast: 1.06), in: incoming)
-    let blurred = imageView(refocusImage(current.image, blur: 7, contrast: 1.12), in: incoming)
-    let outgoing = imageView(refocusImage(previous.image, blur: 9, contrast: 1), in: effect)
-    let sharpOutgoing = imageView(previous.image, in: outgoing)
+    _ = imageView(prepared.incoming, in: incoming)
+    let soft = imageView(prepared.soft, in: incoming)
+    let blurred = imageView(prepared.blurred, in: incoming)
+    let outgoing = imageView(prepared.outgoing, in: effect)
+    let sharpOutgoing = imageView(previous, in: outgoing)
+    refocusView?.removeFromSuperview()
     addSubview(effect)
     refocusView = effect
     refocusBounds = bounds
@@ -756,19 +919,6 @@ final class ReaderTranslationPageOverlay: UIView {
       effect?.removeFromSuperview()
       if self?.refocusView === effect { self?.refocusView = nil }
     }
-  }
-
-  private func refocusImage(_ image: UIImage, blur: Double, contrast: Float) -> UIImage {
-    guard let input = CIImage(image: image) else { return image }
-    let color = CIFilter.colorControls()
-    color.inputImage = input.clampedToExtent()
-    color.contrast = contrast
-    let filter = CIFilter.gaussianBlur()
-    filter.inputImage = color.outputImage
-    filter.radius = Float(blur * image.scale)
-    guard let output = filter.outputImage,
-      let rendered = Self.refocusContext.createCGImage(output, from: input.extent) else { return image }
-    return UIImage(cgImage: rendered, scale: image.scale, orientation: image.imageOrientation)
   }
 
   private func overlayRect(for paragraph: LayoutParagraph) -> CGRect {

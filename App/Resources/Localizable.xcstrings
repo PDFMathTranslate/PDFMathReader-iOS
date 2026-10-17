@@ -1,6 +1,28 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "reader.keepAwakeWhileReading": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Awake While Document Is Open"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文档打开时不休眠"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件開啟時不休眠"
+          }
+        }
+      }
+    },
     "aboutVersions.app": {
       "localizations": {
         "ar": {
@@ -12097,6 +12119,206 @@
           "stringUnit": {
             "state": "translated",
             "value": "預設"
+          }
+        }
+      }
+    },
+    "appearance.iconArt": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فن"
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فن"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "শিল্প"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunst"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "कला"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아트"
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Арт"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آرٹ"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "艺术"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "藝術"
+          }
+        }
+      }
+    },
+    "appearance.iconZotero": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zotero"
           }
         }
       }
@@ -28801,6 +29023,106 @@
         }
       }
     },
+    "ios.autoAlignDocumentWidthHint": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند فتح ملف PDF محلي، يغيّر حجم الصفحات نسبيًا إلى العرض الأكثر شيوعًا في نسخة منفصلة. يظل الملف الأصلي دون تغيير."
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند فتح ملف PDF محلي، بيكبّر أو يصغّر الصفحات نسبيًا للعرض الأكثر شيوعًا في نسخة منفصلة. الملف الأصلي بيفضل زي ما هو."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "স্থানীয় PDF খুললে, আলাদা একটি কপিতে পৃষ্ঠাগুলিকে সবচেয়ে প্রচলিত প্রস্থে আনুপাতিকভাবে স্কেল করা হয়। মূলটি অপরিবর্তিত থাকে।"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Öffnen einer lokalen PDF werden die Seiten in einer separaten Kopie proportional auf die häufigste Breite skaliert. Das Original bleibt unverändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When opening a local PDF, proportionally scales pages to the most common width in a separate copy. The original stays unchanged."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al abrir un PDF local, ajusta proporcionalmente las páginas al ancho más frecuente en una copia separada. El original no cambia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À l’ouverture d’un PDF local, redimensionne proportionnellement les pages à la largeur la plus fréquente dans une copie séparée. L’original reste inchangé."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "स्थानीय PDF खोलते समय, पृष्ठों को एक अलग प्रति में सबसे सामान्य चौड़ाई के अनुसार आनुपातिक रूप से स्केल किया जाता है। मूल अपरिवर्तित रहता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルPDFを開くと、ページを別のコピーで最も一般的な幅に比例して調整します。元のファイルは変更されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 PDF를 열 때 페이지를 별도 복사본에서 가장 일반적인 너비에 맞춰 비례 조정합니다. 원본은 변경되지 않습니다."
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you open local PDF, e go scale pages proportionally to the width wey show pass inside separate copy. Original no go change."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao abrir um PDF local, dimensiona proporcionalmente as páginas para a largura mais comum numa cópia separada. O original permanece inalterado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При открытии локального PDF пропорционально масштабирует страницы до наиболее распространённой ширины в отдельной копии. Оригинал остаётся без изменений."
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقامی PDF کھولتے وقت، صفحات کو علیحدہ نقل میں عام ترین چوڑائی کے مطابق متناسب طور پر اسکیل کیا جاتا ہے۔ اصل فائل میں کوئی تبدیلی نہیں ہوتی۔"
+          }
+        },
+        "zh-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开本地 PDF 时，会在单独的副本中将各页等比例缩放至最常见的宽度。原文件保持不变。"
+          }
+        },
+        "zh-TW": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟本機 PDF 時，會在獨立副本中將各頁等比例縮放至最常見的寬度。原始檔案保持不變。"
+          }
+        }
+      }
+    },
     "ios.apiKeyStorage": {
       "localizations": {
         "ar": {
@@ -42697,6 +43019,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "閱讀器"
+          }
+        }
+      }
+    },
+    "ios.readerCloseSaveFailed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t finish saving to the computer. Retry to close the document."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未能完成保存到电脑，请重试以关闭文档。"
+          }
+        }
+      }
+    },
+    "ios.readerPullToClose": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue pulling down to close document"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续下拉以关闭文档"
+          }
+        }
+      }
+    },
+    "ios.readerReleaseToClose": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release to close document"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "松手关闭文档"
           }
         }
       }

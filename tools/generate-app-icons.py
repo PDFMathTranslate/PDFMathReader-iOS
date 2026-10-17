@@ -14,7 +14,7 @@ from PIL import Image
 assets = Path(__file__).resolve().parents[1] / 'App/Resources/Assets.xcassets'
 desktop = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / 'Developer/oss/PDFMathReader'
 styles = {'base': None, 'warm': 'Warm', 'spring': 'Spring', 'hist': 'Classic',
-          'tech': 'Blueprint', 'moon': 'Moon', 'modern': 'Modern'}
+          'tech': 'Blueprint', 'moon': 'Moon', 'modern': 'Modern', 'art': 'Art', 'zotero': 'Zotero'}
 info = {'author': 'xcode', 'version': 1}
 for style, suffix in styles.items():
     if suffix is None:
@@ -22,7 +22,9 @@ for style, suffix in styles.items():
     else:
         source = Image.open(desktop / f'doc/icons/app-{style}.png').convert('RGBA')
         # Remove the macOS canvas and outer shadow, matching the existing primary's scale.
-        source = source.crop((219, 214, 1819, 1814))
+        # Zotero artwork has a slightly smaller, higher body than the other styles.
+        bounds = (224, 208, 1822, 1806) if style == "zotero" else (219, 214, 1819, 1814)
+        source = source.crop(bounds)
         pixels = np.array(source)
         # Extend the opaque body into its rounded corners; iOS applies its own mask.
         # This also avoids white seams on the dark and gradient variants.
@@ -47,4 +49,4 @@ for style, suffix in styles.items():
     icon.resize((192, 192), Image.Resampling.LANCZOS).save(directory / 'preview.png')
     (directory / 'Contents.json').write_text(json.dumps({'images': [{
         'filename': 'preview.png', 'idiom': 'universal'}], 'info': info}, indent=2) + '\n')
-print('Generated six alternate icons and seven previews; primary unchanged.')
+print('Generated eight alternate icons and nine previews; primary unchanged.')

@@ -11,6 +11,20 @@ private func temporaryLibraryDirectory() throws -> URL {
   return directory
 }
 
+private func temporaryDocument(
+  named name: String,
+  in directory: URL,
+  contents: Data
+) throws -> URL {
+  let url = directory.appendingPathComponent(name)
+  try FileManager.default.createDirectory(
+    at: url.deletingLastPathComponent(),
+    withIntermediateDirectories: true
+  )
+  try contents.write(to: url)
+  return url
+}
+
 @Test func documentIdentityIsStableForTheSameContent() {
   let content = Data("reader parity".utf8)
   #expect(DocumentIdentity.contentHash(for: content) == DocumentIdentity.contentHash(for: content))
@@ -44,6 +58,298 @@ private func temporaryLibraryDirectory() throws -> URL {
   try store.clearHistory()
   #expect(store.list().isEmpty)
   #expect(!FileManager.default.fileExists(atPath: thumbnail.path))
+}
+
+@Test func recentsUpsertDeduplicatesSameBookmarkAndPreservesMetadata() throws {
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+
+  let store = RecentsStore(directory: directory)
+  let pdfURL = try temporaryDocument(
+    named: "Paper.pdf",
+    in: directory,
+    contents: Data("same document".utf8)
+  )
+  let bookmarkData = try store.bookmarkData(for: pdfURL)
+  let thumbnail = store.thumbnailURL(for: "old-id")
+  try FileManager.default.createDirectory(
+    at: thumbnail.deletingLastPathComponent(),
+    withIntermediateDirectories: true
+  )
+  try Data("thumbnail".utf8).write(to: thumbnail)
+
+  let original = RecentDocument(
+    id: "old-id",
+    title: "Paper.pdf",
+    pinned: true,
+    lastOpened: Date(timeIntervalSince1970: 10),
+    pageCount: 42,
+    thumbnailCachePath: thumbnail.path,
+    bookmarkData: bookmarkData
+  )
+  let replacement = RecentDocument(
+    id: "new-id",
+    title: "Paper renamed.pdf",
+    lastOpened: Date(timeIntervalSince1970: 20),
+    bookmarkData: bookmarkData
+  )
+  try store.upsert(original)
+  let result = try store.upsert(replacement)
+
+  let document = try #require(result.first)
+  #expect(result.count == 1)
+  #expect(document.id == "new-id")
+  #expect(document.pinned)
+  #expect(document.pageCount == 42)
+  #expect(FileManager.default.fileExists(atPath: pdfURL.path))
+  #expect(FileManager.default.fileExists(atPath: thumbnail.path))
+}
+
+@Test func recentsUpsertDeduplicatesEqualContentHashesAcrossURLs() throws {
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+
+  let store = RecentsStore(directory: directory)
+  let contents = Data("identical content".utf8)
+  let firstURL = try temporaryDocument(named: "one.pdf", in: directory, contents: contents)
+  let secondURL = try temporaryDocument(named: "two.pdf", in: directory, contents: contents)
+  let hash = DocumentIdentity.contentHash(for: contents)
+  let first = RecentDocument(
+    id: "one",
+    title: "one.pdf",
+    lastOpened: Date(timeIntervalSince1970: 10),
+    bookmarkData: try store.bookmarkData(for: firstURL),
+    contentHash: hash
+  )
+  let second = RecentDocument(
+    id: "two",
+    title: "two.pdf",
+    lastOpened: Date(timeIntervalSince1970: 20),
+    bookmarkData: try store.bookmarkData(for: secondURL),
+    contentHash: hash
+  )
+
+  try store.upsert(first)
+  try store.upsert(second)
+
+  #expect(store.list().count == 1)
+  #expect(store.document(matching: secondURL, contentHash: hash)?.id == "two")
+  #expect(FileManager.default.fileExists(atPath: firstURL.path))
+  #expect(FileManager.default.fileExists(atPath: secondURL.path))
+}
+
+@Test func recentsSourceIdentityScopesHashDeduplicationAndMatchesAcrossURLs() throws {
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+
+  let store = RecentsStore(directory: directory)
+  let contents = Data("same bytes, separate origins".utf8)
+  let firstURL = try temporaryDocument(named: "origin-a/one.pdf", in: directory, contents: contents)
+  let secondURL = try temporaryDocument(named: "origin-b/two.pdf", in: directory, contents: contents)
+  let thirdURL = try temporaryDocument(named: "origin-a/three.pdf", in: directory, contents: contents)
+  let hash = DocumentIdentity.contentHash(for: contents)
+  try store.upsert(RecentDocument(
+    id: "origin-a-one",
+    title: "one.pdf",
+    lastOpened: Date(timeIntervalSince1970: 10),
+    bookmarkData: try store.bookmarkData(for: firstURL),
+    contentHash: hash,
+    sourceIdentity: "origin-a"
+  ))
+  try store.upsert(RecentDocument(
+    id: "origin-b-two",
+    title: "two.pdf",
+    lastOpened: Date(timeIntervalSince1970: 20),
+    bookmarkData: try store.bookmarkData(for: secondURL),
+    contentHash: hash,
+    sourceIdentity: "origin-b"
+  ))
+  try store.upsert(RecentDocument(
+    id: "origin-a-three",
+    title: "three.pdf",
+    lastOpened: Date(timeIntervalSince1970: 30),
+    bookmarkData: try store.bookmarkData(for: thirdURL),
+    contentHash: hash,
+    sourceIdentity: "origin-a"
+  ))
+
+  #expect(store.list().count == 2)
+  #expect(store.document(matching: thirdURL, contentHash: hash, sourceIdentity: "origin-a")?.id ==
+    "origin-a-three")
+  #expect(store.document(matching: secondURL, contentHash: hash, sourceIdentity: "origin-a")?.id ==
+    "origin-a-three")
+}
+
+@Test func recentsDoNotMergeDifferentFilesWithTheSameNameOrInvalidBookmarks() throws {
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+
+  let store = RecentsStore(directory: directory)
+  let firstURL = try temporaryDocument(
+    named: "first/Report.pdf",
+    in: directory,
+    contents: Data("first".utf8)
+  )
+  let secondURL = try temporaryDocument(
+    named: "second/Report.pdf",
+    in: directory,
+    contents: Data("second".utf8)
+  )
+  try store.upsert(RecentDocument(
+    id: "first",
+    title: "Report.pdf",
+    bookmarkData: try store.bookmarkData(for: firstURL)
+  ))
+  try store.upsert(RecentDocument(
+    id: "second",
+    title: "Report.pdf",
+    bookmarkData: try store.bookmarkData(for: secondURL)
+  ))
+  try store.upsert(RecentDocument(id: "invalid-1", title: "Report.pdf", bookmarkData: Data([1])))
+  try store.upsert(RecentDocument(id: "invalid-2", title: "Report.pdf", bookmarkData: Data([1])))
+
+  #expect(store.list().count == 4)
+  #expect(store.document(matching: firstURL)?.id == "first")
+  #expect(store.document(matching: secondURL)?.id == "second")
+}
+
+@Test func recentsListRepairsLegacyDuplicatesAndKeepsLatestState() throws {
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+
+  let store = RecentsStore(directory: directory)
+  let pdfURL = try temporaryDocument(
+    named: "Legacy.pdf",
+    in: directory,
+    contents: Data("legacy".utf8)
+  )
+  let bookmarkData = try store.bookmarkData(for: pdfURL)
+  let thumbnail = store.thumbnailURL(for: "old-id")
+  try FileManager.default.createDirectory(
+    at: thumbnail.deletingLastPathComponent(),
+    withIntermediateDirectories: true
+  )
+  try Data("thumbnail".utf8).write(to: thumbnail)
+  let old = RecentDocument(
+    id: "old-id",
+    title: "Old title",
+    pinned: true,
+    lastOpened: Date(timeIntervalSince1970: 10),
+    pageCount: 17,
+    thumbnailCachePath: thumbnail.path,
+    bookmarkData: bookmarkData
+  )
+  let latest = RecentDocument(
+    id: "latest-id",
+    title: "Latest title",
+    lastOpened: Date(timeIntervalSince1970: 20),
+    bookmarkData: bookmarkData
+  )
+  let encoder = JSONEncoder()
+  encoder.dateEncodingStrategy = .iso8601
+  try encoder.encode([old, latest]).write(
+    to: directory.appendingPathComponent("recents.json")
+  )
+
+  let repaired = try #require(store.list().first)
+  #expect(store.list().count == 1)
+  #expect(repaired.id == "latest-id")
+  #expect(repaired.title == "Latest title")
+  #expect(repaired.pinned)
+  #expect(repaired.pageCount == 17)
+  #expect(FileManager.default.fileExists(atPath: thumbnail.path))
+
+  let persistedData = try Data(contentsOf: directory.appendingPathComponent("recents.json"))
+  let decoder = JSONDecoder()
+  decoder.dateDecodingStrategy = .iso8601
+  #expect(try decoder.decode([RecentDocument].self, from: persistedData).count == 1)
+  #expect(FileManager.default.fileExists(atPath: pdfURL.path))
+}
+
+@Test func recentsDocumentMatchingChoosesNewestCandidateAcrossURLAndHash() throws {
+  let directory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: directory) }
+
+  let store = RecentsStore(directory: directory)
+  let queryURL = try temporaryDocument(named: "query.pdf", in: directory, contents: Data("query".utf8))
+  let hashURL = try temporaryDocument(named: "hash.pdf", in: directory, contents: Data("hash".utf8))
+  let hash = DocumentIdentity.contentHash(for: Data("shared".utf8))
+  try store.upsert(RecentDocument(
+    id: "url-match",
+    title: "Query.pdf",
+    pinned: true,
+    lastOpened: Date(timeIntervalSince1970: 10),
+    bookmarkData: try store.bookmarkData(for: queryURL)
+  ))
+  try store.upsert(RecentDocument(
+    id: "hash-match",
+    title: "Hash.pdf",
+    lastOpened: Date(timeIntervalSince1970: 20),
+    bookmarkData: try store.bookmarkData(for: hashURL),
+    contentHash: hash
+  ))
+
+  #expect(store.document(matching: queryURL, contentHash: hash)?.id == "hash-match")
+}
+
+@Test func recentsResolveMovedThumbnailsAndCleanUpCurrentContainer() throws {
+  let originalDirectory = try temporaryLibraryDirectory()
+  defer { try? FileManager.default.removeItem(at: originalDirectory) }
+
+  let originalStore = RecentsStore(directory: originalDirectory)
+  let originalThumbnailDirectory = originalStore.thumbnailURL(for: "persisted")
+    .deletingLastPathComponent()
+  try FileManager.default.createDirectory(
+    at: originalThumbnailDirectory,
+    withIntermediateDirectories: true
+  )
+
+  let documents = ["persisted", "legacy"].map { id in
+    RecentDocument(
+      id: id,
+      title: "\(id).pdf",
+      lastOpened: Date(timeIntervalSince1970: id == "persisted" ? 20 : 10),
+      thumbnailCachePath: originalStore.thumbnailURL(for: id).path,
+      bookmarkData: Data(id.utf8)
+    )
+  }
+  for document in documents {
+    try Data(document.id.utf8).write(to: originalStore.thumbnailURL(for: document.id))
+    try originalStore.upsert(document)
+  }
+
+  let movedDirectory = FileManager.default.temporaryDirectory
+    .appendingPathComponent("PDFMathReader-Moved-\(UUID().uuidString)", isDirectory: true)
+  try FileManager.default.copyItem(at: originalDirectory, to: movedDirectory)
+  defer { try? FileManager.default.removeItem(at: movedDirectory) }
+
+  let movedStore = RecentsStore(directory: movedDirectory)
+  let movedDocuments = Dictionary(
+    uniqueKeysWithValues: movedStore.list().map { ($0.id, $0) }
+  )
+  for id in ["persisted", "legacy"] {
+    #expect(movedDocuments[id]?.thumbnailCachePath == movedStore.thumbnailURL(for: id).path)
+  }
+
+  let persistedDocument = try #require(movedDocuments["persisted"])
+  try movedStore.upsert(persistedDocument)
+  let persistedData = try Data(
+    contentsOf: movedDirectory.appendingPathComponent("recents.json")
+  )
+  let decoder = JSONDecoder()
+  decoder.dateDecodingStrategy = .iso8601
+  let persisted = try decoder.decode([RecentDocument].self, from: persistedData)
+  #expect(persisted.first(where: { $0.id == "persisted" })?.thumbnailCachePath ==
+    movedStore.thumbnailURL(for: "persisted").path)
+
+  try movedStore.remove(id: "persisted")
+  #expect(!FileManager.default.fileExists(atPath: movedStore.thumbnailURL(for: "persisted").path))
+  #expect(FileManager.default.fileExists(atPath: originalStore.thumbnailURL(for: "persisted").path))
+
+  try movedStore.clearHistory()
+  #expect(movedStore.list().isEmpty)
+  #expect(!FileManager.default.fileExists(atPath: movedStore.thumbnailURL(for: "legacy").path))
+  #expect(FileManager.default.fileExists(atPath: originalStore.thumbnailURL(for: "legacy").path))
 }
 
 @Test func recentsRemovePersistsHistoryAndPreservesDocumentFilesAndReadingState() throws {
@@ -331,6 +637,24 @@ private func temporaryLibraryDirectory() throws -> URL {
   }
 }
 
+@Test func autoAlignDocumentWidthDefaultsFalseAndRoundTrips() throws {
+  let defaults = ReaderPreferences()
+  #expect(!defaults.autoAlignDocumentWidth)
+
+  let legacy = try JSONDecoder().decode(
+    ReaderPreferences.self,
+    from: Data("{}".utf8)
+  )
+  #expect(!legacy.autoAlignDocumentWidth)
+
+  var preferences = legacy
+  preferences.autoAlignDocumentWidth = true
+  let encoded = try JSONEncoder().encode(preferences)
+  let persisted = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+  #expect(persisted["autoAlignDocumentWidth"] as? Bool == true)
+  #expect(try JSONDecoder().decode(ReaderPreferences.self, from: encoded) == preferences)
+}
+
 @Test func translationModeMigratesLegacyBoolAndRoundTripsEveryMode() throws {
   let legacyFull = try JSONDecoder().decode(
     ReaderPreferences.self,
@@ -443,4 +767,16 @@ private func temporaryLibraryDirectory() throws -> URL {
   #expect(store.load() == preferences)
   try store.save(ReaderPreferences(accentColor: "system"))
   #expect(store.load().accentColor == "system")
+}
+
+@Test func keepAwakePreferenceDefaultsAndPersistsOptOut() throws {
+  #expect(ReaderPreferences().keepAwakeWhileReading)
+  let legacy = try JSONDecoder().decode(ReaderPreferences.self, from: Data("{}".utf8))
+  #expect(legacy.keepAwakeWhileReading)
+
+  var preferences = legacy
+  preferences.keepAwakeWhileReading = false
+  let data = try JSONEncoder().encode(preferences)
+  let restored = try JSONDecoder().decode(ReaderPreferences.self, from: data)
+  #expect(!restored.keepAwakeWhileReading)
 }

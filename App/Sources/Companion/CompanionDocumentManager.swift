@@ -65,6 +65,22 @@ final class CompanionDocumentManager: ObservableObject {
   private func key(computer: String, document: String) -> String {
     DocumentIdentity.contentHash(for: Data("\(computer)\n\(document)".utf8))
   }
+
+  /// Returns the identity shared by every local snapshot of one Companion
+  /// document. The snapshot URL contains a per-acquire session ID, so it is
+  /// not itself a durable document identity.
+  func stableDocumentIdentity(for managedURL: URL) -> String? {
+    guard handles(managedURL) else { return nil }
+    let originURL = managedURL.deletingLastPathComponent().appendingPathComponent("origin.json")
+    guard let data = try? Data(contentsOf: originURL),
+          let journal = try? JSONDecoder().decode(ComputerDocumentJournal.self, from: data),
+          !journal.computerURL.isEmpty, !journal.documentID.isEmpty else {
+      return nil
+    }
+    let stableKey = "CompanionDocument:\(journal.computerURL)\n\(journal.documentID)"
+    return DocumentIdentity.contentHash(for: Data(stableKey.utf8))
+  }
+
   private func credentials() async throws -> String {
     let code = try await readPairingCode()
     guard !normalizeCompanionPairingCode(code).isEmpty else { throw CompanionKernelError.missingPairingCode }

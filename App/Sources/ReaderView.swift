@@ -25,6 +25,49 @@ private enum ReaderSidebarMode: String, CaseIterable {
   }
 }
 
+/// UIApplication's idle timer is shared by all windows. One reader closing must
+/// not release another active reader's request to keep the display awake.
+@MainActor
+private enum ReaderIdleTimer {
+  static var owners: Set<UUID> = []
+
+  static func update(owner: UUID, keepAwake: Bool) {
+    if keepAwake { owners.insert(owner) } else { owners.remove(owner) }
+    UIApplication.shared.isIdleTimerDisabled = !owners.isEmpty
+  }
+}
+
+/// Shared by the revealed drag background and the remote-save closing screen.
+struct ReaderCloseBackdrop: View {
+  let message: String
+  var revealedHeight: CGFloat? = nil
+  var saving = false
+  var retry: (() -> Void)? = nil
+
+  var body: some View {
+    ZStack(alignment: .top) {
+      Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+      VStack(spacing: 12) {
+        if saving { ProgressView() }
+        else { Image(systemName: retry == nil ? "arrow.down" : "exclamationmark.icloud").font(.title2) }
+        Text(message).font(.subheadline).multilineTextAlignment(.center)
+        if let retry {
+          Button(L10n.string("companion.retry"), action: retry).buttonStyle(.borderedProminent)
+        }
+      }
+      .foregroundStyle(.secondary)
+      .padding(.horizontal, 24)
+      .frame(maxWidth: .infinity)
+      .frame(height: revealedHeight.map { max(0, $0) })
+      .frame(maxHeight: revealedHeight == nil ? .infinity : nil)
+      .clipped()
+      .opacity(revealedHeight.map { min(1, max(0, ($0 - 24) / 40)) } ?? 1)
+      .accessibilityHidden(revealedHeight.map { $0 < 40 } ?? false)
+    }
+    .accessibilityIdentifier("reader.closeBackdrop")
+  }
+}
+
 struct ReaderView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.scenePhase) private var scenePhase
@@ -32,15 +75,20 @@ struct ReaderView: View {
   @StateObject private var annotationModel: ReaderAnnotationViewModel
   @StateObject private var drawingModel: ReaderDrawingModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
-  @State private var isLandscape: Bool?
-  @State private var appliedSidebarOrientation: Bool?
   @State private var sidebarMode: ReaderSidebarMode = .thumbnails
   @State private var isCompactSidebarPresented = false
-  @State private var sidebarInteractionVersion = 0
   @State private var isSearchPresented = false
   @State private var isComparePresented = false
   @State private var exportRequest: ReaderExportKind?
+  @State private var idleTimerOwner = UUID()
+  @State private var isReaderVisible = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @GestureState(resetTransaction: Transaction(animation: .spring(response: 0.32, dampingFraction: 0.86)))
+  private var headerDragOffset: CGFloat = 0
+  @State private var closingOffset: CGFloat = 0
+  @State private var readerHeight: CGFloat = 1000
   private let onClose: (() -> Void)?
+  private let onDragClose: (() -> Void)?
 
   init(session: DocumentSession, library: LibraryModel, onClose: (() -> Void)? = nil) {
     _model = StateObject(wrappedValue: ReaderViewModel(session: session, library: library))
@@ -48,14 +96,21 @@ struct ReaderView: View {
     _drawingModel = StateObject(wrappedValue: ReaderDrawingModel(session: session))
     _columnVisibility = State(initialValue: Self.defaultColumnVisibility(landscape: Self.sceneIsLandscape()))
     self.onClose = onClose
+    self.onDragClose = nil
   }
 
-  init(tab: ReaderTab, onClose: @escaping () -> Void) {
+  init(tab: ReaderTab, onDragClose: (() -> Void)? = nil, onClose: @escaping () -> Void) {
     _model = StateObject(wrappedValue: tab.model)
     _annotationModel = StateObject(wrappedValue: tab.annotations)
     _drawingModel = StateObject(wrappedValue: tab.drawings)
     _columnVisibility = State(initialValue: Self.defaultColumnVisibility(landscape: Self.sceneIsLandscape()))
     self.onClose = onClose
+    self.onDragClose = onDragClose
+  }
+
+  private var shouldKeepAwake: Bool {
+    isReaderVisible && scenePhase == .active && model.document != nil
+      && model.library.preferences.keepAwakeWhileReading
   }
 
   private static func defaultColumnVisibility(landscape: Bool) -> NavigationSplitViewVisibility {
@@ -77,7 +132,12 @@ struct ReaderView: View {
     Group {
       if let document = model.document {
         if horizontalSizeClass == .regular {
-          NavigationSplitView(columnVisibility: $columnVisibility) {
+          NavigationSplitView(columnVisibility: Binding(
+            get: { columnVisibility },
+            // Layout and scene restoration can propose a different visibility.
+            // Only our explicit sidebar controls own this state.
+            set: { _ in }
+          )) {
             ReaderSidebar(model: model, annotations: annotationModel, drawings: drawingModel, mode: $sidebarMode)
               .navigationSplitViewColumnWidth(143.36)
               .simultaneousGesture(sidebarDismissGesture)
@@ -137,32 +197,23 @@ struct ReaderView: View {
         )
       }
     }
+    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { readerHeight = $0 }
+    .offset(y: reduceMotion ? 0 : (closingOffset > 0 ? closingOffset : headerDragOffset))
+    .opacity(reduceMotion && closingOffset > 0 ? 0 : 1)
+    .background {
+      ReaderCloseBackdrop(
+        message: L10n.string(headerDragOffset >= min(180, readerHeight * 0.22)
+          ? "ios.readerReleaseToClose" : "ios.readerPullToClose"),
+        revealedHeight: closingOffset > 0 ? readerHeight : headerDragOffset
+      )
+    }
     .task { await model.loadDocument() }
+    .onChange(of: model.document, initial: true) { _, document in
+      guard document != nil else { return }
+      sidebarMode = model.outlineEntries.isEmpty ? .thumbnails : .outline
+    }
     .task { await annotationModel.prepare() }
     .task { await drawingModel.prepare() }
-    // iPad default: sidebar off in portrait, on in landscape. Each rotation
-    // resets it; the toolbar toggle still works in between.
-    .onGeometryChange(for: Bool.self) { proxy in
-      proxy.size.width > proxy.size.height
-    } action: { landscape in
-      isLandscape = landscape
-    }
-    // Applied from a task: the split view ignores visibility set during its
-    // first layout pass.
-    .task(id: isLandscape) {
-      // SwiftUI can restart this task when returning from another app.
-      // Keep an explicit user choice unless the orientation actually changed.
-      guard let isLandscape else { return }
-      guard appliedSidebarOrientation != isLandscape else { return }
-      appliedSidebarOrientation = isLandscape
-      let target = Self.defaultColumnVisibility(landscape: isLandscape)
-      let interactionVersion = sidebarInteractionVersion
-      columnVisibility = target
-      // Reassert once layout settles in case the split view dropped it.
-      try? await Task.sleep(for: .milliseconds(400))
-      guard !Task.isCancelled, sidebarInteractionVersion == interactionVersion else { return }
-      if columnVisibility != target { columnVisibility = target }
-    }
     .onChange(of: isCompactSidebarPresented) { _, presented in
       if !presented && model.readingState.sidebarVisible {
         model.readingState.sidebarVisible = false
@@ -170,9 +221,15 @@ struct ReaderView: View {
       }
     }
     .onAppear {
+      isReaderVisible = true
       ReaderCommandRouter.shared.activate(model)
     }
+    .onChange(of: shouldKeepAwake, initial: true) { _, keepAwake in
+      ReaderIdleTimer.update(owner: idleTimerOwner, keepAwake: keepAwake)
+    }
     .onDisappear {
+      isReaderVisible = false
+      ReaderIdleTimer.update(owner: idleTimerOwner, keepAwake: false)
       drawingModel.isDrawing = false
       drawingModel.flush()
       ReaderCommandRouter.shared.deactivate(model)
@@ -236,6 +293,7 @@ struct ReaderView: View {
       drawings: drawingModel,
       regular: regular,
       onToggleSidebar: toggleSidebar,
+      headerDismissGesture: AnyGesture(headerDismissGesture),
       onClose: onClose.map { close in
         {
           model.persistReadingState()
@@ -295,6 +353,36 @@ struct ReaderView: View {
     }
   }
 
+  /// Only the header owns this gesture; scrolling the PDF never dismisses it.
+  private var headerDismissGesture: some Gesture<DragGesture.Value> {
+    DragGesture(minimumDistance: 10, coordinateSpace: .global)
+      .updating($headerDragOffset) { value, offset, transaction in
+        guard onClose != nil, !drawingModel.isDrawing, closingOffset == 0,
+              value.translation.height > abs(value.translation.width) else { return }
+        transaction.animation = nil
+        offset = max(0, value.translation.height)
+        deferTranslationRenderingForMotion()
+      }
+      .onEnded { value in
+        guard let onClose, !drawingModel.isDrawing, closingOffset == 0 else { return }
+        let distance = value.translation.height
+        let threshold = min(180, readerHeight * 0.22)
+        guard distance > abs(value.translation.width), distance > 24,
+              distance > threshold || value.predictedEndTranslation.height > threshold * 1.5 else { return }
+        // Continue from the finger's release point before removing the document.
+        closingOffset = distance
+        deferTranslationRenderingForMotion()
+        model.persistReadingState()
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.3, dampingFraction: 1),
+                      completionCriteria: .logicallyComplete) {
+          closingOffset = readerHeight + 100
+        } completion: {
+          // Keep the reader offscreen while the workspace saves remote changes.
+          (onDragClose ?? onClose)()
+        }
+      }
+  }
+
   private func toggleSidebar() {
     setSidebarVisible(horizontalSizeClass == .regular ? columnVisibility == .detailOnly : !isCompactSidebarPresented)
   }
@@ -310,7 +398,7 @@ struct ReaderView: View {
   }
 
   private func setSidebarVisible(_ visible: Bool) {
-    sidebarInteractionVersion += 1
+    deferTranslationRenderingForMotion()
     withAnimation {
       if horizontalSizeClass == .regular {
         columnVisibility = visible ? .all : .detailOnly
@@ -320,6 +408,11 @@ struct ReaderView: View {
     }
     model.readingState.sidebarVisible = visible
     model.persistReadingState()
+  }
+
+  private func deferTranslationRenderingForMotion() {
+    guard let view = model.pdfViewReference.view as? ReaderAnnotationPDFView else { return }
+    view.translationRenderResumeTime = max(view.translationRenderResumeTime, CACurrentMediaTime() + 0.45)
   }
 
 }
@@ -340,6 +433,7 @@ private struct ReaderDetail: View {
   @StateObject private var translateAll: TranslateAllPagesJob
   @StateObject private var kernelAvailability = ReaderKernelMenuAvailability()
   let regular: Bool
+  let headerDismissGesture: AnyGesture<DragGesture.Value>
   let onToggleSidebar: () -> Void
   let onClose: (() -> Void)?
   let onSearch: () -> Void
@@ -352,6 +446,7 @@ private struct ReaderDetail: View {
     drawings: ReaderDrawingModel,
     regular: Bool,
     onToggleSidebar: @escaping () -> Void,
+    headerDismissGesture: AnyGesture<DragGesture.Value>,
     onClose: (() -> Void)?,
     onSearch: @escaping () -> Void,
     onCompare: @escaping () -> Void,
@@ -362,6 +457,7 @@ private struct ReaderDetail: View {
     self.drawings = drawings
     self.regular = regular
     self.onToggleSidebar = onToggleSidebar
+    self.headerDismissGesture = headerDismissGesture
     self.onClose = onClose
     self.onSearch = onSearch
     self.onCompare = onCompare
@@ -377,6 +473,16 @@ private struct ReaderDetail: View {
       environmentOverlayProvider,
       model.translationCoordinator as (any ReaderPageOverlayProviding)?
     ].compactMap { $0 }
+    // Keep the pager outside the document’s extended safe area so SwiftUI
+    // positions it above the keyboard while the page field is focused.
+    ZStack {
+      documentView(overlayProviders: overlayProviders)
+      ReaderPager(model: model, visibility: pagerVisibility, compact: !regular)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private func documentView(overlayProviders: [any ReaderPageOverlayProviding]) -> some View {
     PDFKitView(
       document: model.document!,
       readingState: $model.readingState,
@@ -406,9 +512,6 @@ private struct ReaderDetail: View {
     .background {
       ReaderKernelAvailabilityMonitor(library: model.library, availability: kernelAvailability)
     }
-    .overlay {
-      ReaderPager(model: model, visibility: pagerVisibility, compact: !regular)
-    }
     #if DEBUG
     .overlay(alignment: .topLeading) {
       if let coordinator = model.translationCoordinator, TranslationStatusProbe.isEnabled {
@@ -436,6 +539,8 @@ private struct ReaderDetail: View {
     .overlay(alignment: .top) {
       VStack(spacing: 0) {
         readerHeader
+          .contentShape(Rectangle())
+          .simultaneousGesture(headerDismissGesture)
         if let readerTabStrip { readerTabStrip() }
       }
       .background {
@@ -577,6 +682,10 @@ private struct ReaderDetail: View {
     .buttonStyle(ReaderHeaderButtonStyle())
     .padding(.horizontal, 8)
     .frame(minHeight: 52)
+    .modifier(ReaderHeaderGlassSurface())
+    .padding(.horizontal, 8)
+    .padding(.top, 4)
+    .padding(.bottom, 4)
   }
 
   @ViewBuilder
@@ -627,16 +736,28 @@ private struct ReaderDetail: View {
     }
 
     Section {
+      Toggle(isOn: Binding(
+        get: { model.library.preferences.keepAwakeWhileReading },
+        set: { enabled in
+          var preferences = model.library.preferences
+          preferences.keepAwakeWhileReading = enabled
+          model.library.savePreferences(preferences)
+        }
+      )) {
+        Label(L10n.string("reader.keepAwakeWhileReading"), systemImage: "sun.max")
+      }
+      .accessibilityIdentifier("reader.keepAwakeWhileReading")
+
       Menu {
         Button(L10n.string("toolbar.zoomIn"), systemImage: "plus.magnifyingglass") { model.zoomIn() }
         Button(L10n.string("toolbar.zoomOut"), systemImage: "minus.magnifyingglass") { model.zoomOut() }
         Divider()
         ForEach(ReaderScaleMode.allCases, id: \.self) { mode in
-          Toggle(isOn: Binding(
-            get: { model.readingState.scaleMode == mode },
-            set: { if $0 { model.setScaleMode(mode) } }
-          )) {
-            Label(scaleTitle(mode), systemImage: scaleSymbol(mode))
+          Button { model.setScaleMode(mode) } label: {
+            HStack {
+              Label(scaleTitle(mode), systemImage: scaleSymbol(mode))
+              if model.readingState.scaleMode == mode { Image(systemName: "checkmark") }
+            }
           }
         }
       } label: {
@@ -662,6 +783,18 @@ private struct ReaderDetail: View {
           }
           .accessibilityIdentifier("reader.scrollDirection.\(direction.rawValue)")
         }
+        Divider()
+        Toggle(isOn: Binding(
+          get: { model.library.preferences.reducePadding },
+          set: { enabled in
+            var preferences = model.library.preferences
+            preferences.reducePadding = enabled
+            model.library.savePreferences(preferences)
+          }
+        )) {
+          Label(L10n.string("appearance.reducePadding"), systemImage: "arrow.down.right.and.arrow.up.left")
+        }
+        .accessibilityIdentifier("reader.reducePadding")
       } label: {
         Label(L10n.string("menu.extra.messages.Layout"), systemImage: "rectangle.split.2x1")
       }
@@ -1511,6 +1644,17 @@ private struct TranslationProgressRing: View {
   }
 }
 
+
+private struct ReaderHeaderGlassSurface: ViewModifier {
+  func body(content: Content) -> some View {
+    if #available(iOS 26.0, *) {
+      content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26))
+    } else {
+      content
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26))
+    }
+  }
+}
 
 private struct ReaderHeaderButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {

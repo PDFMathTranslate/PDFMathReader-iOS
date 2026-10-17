@@ -13,6 +13,74 @@ func readerPDFScrollView(in view: UIView) -> UIScrollView? {
   return nil
 }
 
+/// Animate only viewport-sized layers. PDFKit performs the actual jump after
+/// motion ends, so expensive destination tiles never compete with the slide.
+@MainActor
+extension ReaderAnnotationPDFView {
+  func navigate(to page: PDFPage) {
+    navigate(to: PDFDestination(page: page, at: CGPoint(
+      x: page.bounds(for: displayBox).minX, y: page.bounds(for: displayBox).maxY
+    )))
+  }
+
+  func navigate(to destination: PDFDestination) {
+    navigationAnimator?.stopAnimation(true)
+    navigationCover?.removeFromSuperview()
+    navigationAnimator = nil
+    navigationCover = nil
+    guard let target = destination.page, let document,
+          window != nil, !bounds.isEmpty, currentPage !== target,
+          !UIAccessibility.isReduceMotionEnabled else {
+      go(to: destination)
+      return
+    }
+    let forward = currentPage.map { document.index(for: target) >= document.index(for: $0) } ?? true
+    let sign: CGFloat = forward ? 1 : -1
+    let vertical = displayDirection == .vertical
+    let distance = vertical ? bounds.height : bounds.width
+    let cover = UIView(frame: bounds)
+    cover.clipsToBounds = true
+    cover.backgroundColor = backgroundColor
+    // Never drawHierarchy or render a PDF layer synchronously for animation.
+    let outgoing = snapshotView(afterScreenUpdates: false) ?? UIView(frame: cover.bounds)
+    outgoing.frame = cover.bounds
+    let placeholder = UIView(frame: cover.bounds)
+    placeholder.backgroundColor = traitCollection.userInterfaceStyle == .dark
+      ? UIColor(white: 0.16, alpha: 1) : .systemBackground
+    let label = UILabel(frame: placeholder.bounds.insetBy(dx: 24, dy: 24))
+    label.text = "\(document.index(for: target) + 1) / \(document.pageCount)"
+    label.textAlignment = .center
+    label.textColor = .secondaryLabel
+    label.font = .preferredFont(forTextStyle: .subheadline)
+    placeholder.addSubview(label)
+    let incoming = CGAffineTransform(translationX: vertical ? 0 : sign * distance,
+                                     y: vertical ? sign * distance : 0)
+    placeholder.transform = incoming
+    cover.addSubview(outgoing)
+    cover.addSubview(placeholder)
+    // Pass subsequent taps through so a new destination can interrupt this jump.
+    cover.isUserInteractionEnabled = false
+    addSubview(cover)
+    navigationCover = cover
+    translationRenderResumeTime = CACurrentMediaTime() + 0.5
+    let animator = UIViewPropertyAnimator(duration: 0.24, curve: .easeOut) {
+      outgoing.transform = CGAffineTransform(translationX: vertical ? 0 : -sign * distance,
+                                            y: vertical ? -sign * distance : 0)
+      placeholder.transform = .identity
+    }
+    navigationAnimator = animator
+    animator.addCompletion { [weak self, weak cover] position in
+      guard let self, let cover, self.navigationCover === cover, position == .end else { return }
+      self.go(to: destination)
+      cover.removeFromSuperview()
+      self.navigationCover = nil
+      self.navigationAnimator = nil
+      self.translationRenderResumeTime = CACurrentMediaTime() + 0.2
+    }
+    animator.startAnimation()
+  }
+}
+
 /// Include a quiet interval after the final offset/scale change, so a result
 /// arriving between finger-up and deceleration cannot replace the active tiles.
 @MainActor
@@ -26,6 +94,7 @@ func readerPDFInteractionIsActive(_ view: PDFView) -> Bool {
 @MainActor
 final class PDFViewReference: ObservableObject {
   @Published private(set) var version = 0
+  @Published var scaleRevision = 0
   private(set) weak var view: PDFView?
 
   func attach(_ view: PDFView) {
@@ -85,6 +154,7 @@ private final class PDFPageOverlayBridge: NSObject, @preconcurrency PDFPageOverl
 
 @MainActor
 struct PDFKitView: UIViewRepresentable {
+  @EnvironmentObject private var library: LibraryModel
   let document: PDFDocument
   @Binding var readingState: ReadingState
   @ObservedObject var reference: PDFViewReference
@@ -103,7 +173,8 @@ struct PDFKitView: UIViewRepresentable {
   func makeUIView(context: Context) -> PDFView {
     let view = ReaderAnnotationPDFView()
     view.backgroundColor = UIColor.secondarySystemBackground
-    view.pageShadowsEnabled = true
+    view.displaysPageBreaks = !library.preferences.reducePadding
+    view.pageShadowsEnabled = !library.preferences.reducePadding
     view.minScaleFactor = 0.25
     view.maxScaleFactor = 5
     context.coordinator.setDrawingModel(drawingModel)
@@ -118,7 +189,7 @@ struct PDFKitView: UIViewRepresentable {
     (displayDocument as? ReaderPDFDocument)?.invertsPages = context.environment.colorScheme == .dark
     context.coordinator.attach(view, document: displayDocument, overlayProvider: overlayProvider)
     reference.attach(view)
-    context.coordinator.apply(readingState)
+    context.coordinator.apply(readingState, scaleRevision: reference.scaleRevision)
     return view
   }
 
@@ -128,13 +199,21 @@ struct PDFKitView: UIViewRepresentable {
       (document as? ReaderPDFDocument)?.invertsPages = context.environment.colorScheme == .dark
       view.document = document
     }
+    let showsPageBreaks = !library.preferences.reducePadding
+    if view.displaysPageBreaks != showsPageBreaks {
+      let destination = view.currentDestination
+      view.displaysPageBreaks = showsPageBreaks
+      view.pageShadowsEnabled = showsPageBreaks
+      view.layoutDocumentView()
+      if let destination { view.go(to: destination) }
+    }
     context.coordinator.setDarkAppearance(context.environment.colorScheme == .dark, in: view)
     context.coordinator.updateOverlayProvider(overlayProvider)
     context.coordinator.setDrawingModel(drawingModel)
     context.coordinator.onScroll = onScroll
     context.coordinator.onUserScroll = onUserScroll
     context.coordinator.observeScrolling()
-    context.coordinator.apply(readingState)
+    context.coordinator.apply(readingState, scaleRevision: reference.scaleRevision)
   }
 
   @MainActor
@@ -164,7 +243,12 @@ struct PDFKitView: UIViewRepresentable {
       let displayMode: ReaderDisplayMode
       let direction: ReaderScrollDirection
       let size: CGSize
+      let showsPageBreaks: Bool
+      let pageIndex: Int
+      let revision: Int
     }
+    private var latestReadingState: ReadingState?
+    private var latestScaleRevision = 0
     private var appliedScaleRequest: ScaleRequest?
     private weak var scaleDocument: PDFDocument?
 
@@ -182,6 +266,10 @@ struct PDFKitView: UIViewRepresentable {
       overlayProvider: (any ReaderPageOverlayProviding)?
     ) {
       pdfView = view
+      (view as? ReaderAnnotationPDFView)?.onViewportLayout = { [weak self] in
+        guard let self, let state = self.latestReadingState else { return }
+        self.apply(state, restorePage: false)
+      }
       overlayBridge.provider = overlayProvider
       view.pageOverlayViewProvider = overlayBridge
       (document as? ReaderPDFDocument)?.bionicOptions =
@@ -390,7 +478,9 @@ struct PDFKitView: UIViewRepresentable {
     }
 
     @MainActor
-    func apply(_ state: ReadingState) {
+    func apply(_ state: ReadingState, restorePage: Bool = true, scaleRevision: Int? = nil) {
+      latestReadingState = state
+      if let scaleRevision { latestScaleRevision = scaleRevision }
       guard let view = pdfView else { return }
       let crop = state.pageCrop ?? PageCrop()
       if let document = view.document as? ReaderPDFDocument, document.pageCrop != crop {
@@ -423,7 +513,9 @@ struct PDFKitView: UIViewRepresentable {
       if view.autoScales { view.autoScales = false }
       let request = ScaleRequest(
         mode: state.scaleMode, zoom: state.scaleMode == .custom ? state.zoom : 0,
-        displayMode: state.displayMode, direction: state.scrollDirection, size: view.bounds.size
+        displayMode: state.displayMode, direction: state.scrollDirection, size: view.bounds.size,
+        showsPageBreaks: view.displaysPageBreaks, pageIndex: state.page - 1,
+        revision: latestScaleRevision
       )
       // A pinch can change PDFKit's live zoom while the saved mode is still
       // fit-page. Translation/pager updates must not snap it back and discard
@@ -433,7 +525,8 @@ struct PDFKitView: UIViewRepresentable {
         scaleDocument = view.document
         let baseScale: CGFloat
         switch state.scaleMode {
-        case .fitPage, .fitWidth: baseScale = view.scaleFactorForSizeToFit
+        case .fitPage, .fitWidth:
+          baseScale = fittedScale(in: view, state: state) ?? view.scaleFactorForSizeToFit
         case .actualSize: baseScale = 1
         case .custom: baseScale = CGFloat(state.zoom)
         }
@@ -445,10 +538,41 @@ struct PDFKitView: UIViewRepresentable {
         }
       }
 
+      guard restorePage else { return }
       let targetIndex = max(0, min((view.document?.pageCount ?? 1) - 1, state.page - 1))
-      if let page = view.document?.page(at: targetIndex), view.currentPage !== page {
+      if let page = view.document?.page(at: targetIndex), view.currentPage !== page,
+         (view as? ReaderAnnotationPDFView)?.navigationAnimator == nil {
         view.go(to: page)
       }
+    }
+
+    /// PDFKit's continuous-layout auto scale always fits width, even when the
+    /// user requested a whole page. Measure the retained, rotated page instead.
+    private func fittedScale(in view: PDFView, state: ReadingState) -> CGFloat? {
+      guard let document = view.document, document.pageCount > 0,
+        view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+      let index = max(0, min(document.pageCount - 1, state.page - 1))
+      let twoUp = state.displayMode != .singlePage
+      let start: Int
+      if twoUp, view.displaysAsBook {
+        start = index == 0 ? 0 : 1 + ((index - 1) / 2) * 2
+      } else { start = twoUp ? (index / 2) * 2 : index }
+      let count = twoUp && !(view.displaysAsBook && start == 0) ? 2 : 1
+      let margins = view.pageBreakMargins
+      var size = CGSize.zero
+      for pageIndex in start..<min(document.pageCount, start + count) {
+        guard let page = document.page(at: pageIndex) else { continue }
+        let bounds = page.bounds(for: view.displayBox)
+        let rotated = page.rotation % 180 != 0
+        let width = rotated ? bounds.height : bounds.width
+        let height = rotated ? bounds.width : bounds.height
+        size.width += width + margins.left + margins.right
+        size.height = max(size.height, height + margins.top + margins.bottom)
+      }
+      guard size.width > 0, size.height > 0 else { return nil }
+      let widthScale = view.bounds.width / size.width
+      return state.scaleMode == .fitWidth ? widthScale
+        : min(widthScale, view.bounds.height / size.height)
     }
 
     deinit {

@@ -40,6 +40,8 @@ targets:
         buildPhase: resources
       - path: App/Resources/InfoPlist.xcstrings
         buildPhase: resources
+      - path: App/Resources/PDFWidthAlignment
+        buildPhase: resources
       - path: App/Resources/Fonts
         buildPhase: resources
       - path: App/Resources/Assets.xcassets
@@ -99,7 +101,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pdfmathtranslate.PDFMathReader
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIconWarm AppIconSpring AppIconClassic AppIconBlueprint AppIconMoon AppIconModern"
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIconWarm AppIconSpring AppIconClassic AppIconBlueprint AppIconMoon AppIconModern AppIconArt AppIconZotero"
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         CODE_SIGN_STYLE: Automatic

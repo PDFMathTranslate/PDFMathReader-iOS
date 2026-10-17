@@ -342,6 +342,13 @@ final class ReaderPDFPage: PDFPage {
   }
 
   override func draw(with box: PDFDisplayBox, to context: CGContext) {
+    context.saveGState()
+    defer { context.restoreGState() }
+    if box == .artBox, !ReaderPDFSerialization.usesOriginalBoxes {
+      // PDFKit's tile context can extend beyond the virtual display box.
+      // Keep source coordinates intact, but never paint the removed margins.
+      context.clip(to: bounds(for: .artBox))
+    }
     let box: PDFDisplayBox = box == .artBox ? .cropBox : box
     guard (document as? ReaderPDFDocument)?.invertsPages == true else {
       drawReadingContent(with: box, to: context)
@@ -378,7 +385,12 @@ final class ReaderPDFPage: PDFPage {
   }
 
   func drawUninverted(with box: PDFDisplayBox, to context: CGContext) {
-    super.draw(with: box, to: context)
+    context.saveGState()
+    defer { context.restoreGState() }
+    if box == .artBox, !ReaderPDFSerialization.usesOriginalBoxes {
+      context.clip(to: bounds(for: .artBox))
+    }
+    super.draw(with: box == .artBox ? .cropBox : box, to: context)
   }
 }
 

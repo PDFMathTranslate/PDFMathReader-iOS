@@ -42,6 +42,8 @@ struct ReaderWorkspace: View {
   @SceneStorage("readerWorkspace.snapshot") private var storedWorkspaceData: Data?
   @State private var showingLibrary = false
   @State private var isClosingComputerDocument = false
+  @State private var failedCloseID: String?
+  @State private var closeToStartPage = false
   @Environment(\.scenePhase) private var scenePhase
   let initialSession: DocumentSession?
   let onEmpty: (() -> Void)?
@@ -83,12 +85,18 @@ struct ReaderWorkspace: View {
       if library.epubConversionsInProgress > 0 {
         ProgressView(L10n.string("ios.preparingEPUB"))
           .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-      } else if isClosingComputerDocument {
-        ProgressView(L10n.string("ios.computerSaving"))
-          .padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
       }
     }
     .modifier(ComputerDocumentToast(manager: library.computerDocuments))
+    .overlay {
+      if isClosingComputerDocument {
+        ReaderCloseBackdrop(message: L10n.string("ios.computerSaving"), saving: true)
+      } else if let id = failedCloseID {
+        ReaderCloseBackdrop(message: L10n.string("ios.readerCloseSaveFailed"), retry: {
+          close(id, showStartPage: closeToStartPage)
+        })
+      }
+    }
     .task {
       while !Task.isCancelled {
         do { try await Task.sleep(for: .seconds(20)) } catch { break }
@@ -148,10 +156,10 @@ struct ReaderWorkspace: View {
   @ViewBuilder
   private func reader(for tab: ReaderTab) -> some View {
     if horizontalSizeClass == .regular {
-      ReaderView(tab: tab) { close(tab.id) }
+      ReaderView(tab: tab, onDragClose: { close(tab.id, showStartPage: true) }) { close(tab.id) }
     } else {
       NavigationStack {
-        ReaderView(tab: tab) { close(tab.id) }
+        ReaderView(tab: tab, onDragClose: { close(tab.id, showStartPage: true) }) { close(tab.id) }
       }
     }
   }
@@ -231,20 +239,25 @@ struct ReaderWorkspace: View {
     persistWorkspace()
   }
 
-  private func close(_ id: String) {
+  private func close(_ id: String, showStartPage: Bool = false) {
     guard !isClosingComputerDocument else { return }
     guard let tab = tabs.tabs.first(where: { $0.id == id }) else { return }
+    failedCloseID = nil
     if library.computerDocuments.isManaged(tab.session) {
+      closeToStartPage = showStartPage
       isClosingComputerDocument = true
       Task {
         defer { isClosingComputerDocument = false }
-        guard await library.computerDocuments.sync(tab, release: true) else { return }
-        tabs.close(id)
+        guard await library.computerDocuments.sync(tab, release: true) else {
+          failedCloseID = id
+          return
+        }
+        tabs.close(id, showStartPage: showStartPage)
         persistWorkspace()
         if tabs.tabs.isEmpty { onEmpty?() }
       }
     } else {
-      tabs.close(id)
+      tabs.close(id, showStartPage: showStartPage)
       persistWorkspace()
       if tabs.tabs.isEmpty { onEmpty?() }
     }

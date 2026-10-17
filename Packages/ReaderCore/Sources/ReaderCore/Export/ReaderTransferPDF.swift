@@ -74,7 +74,8 @@ public enum ReaderTransferPDF {
     annotations: [ReaderAnnotation],
     quickLinks: [ReaderQuickLink],
     readingState: ReadingState,
-    nativeRefs: [String] = []
+    nativeRefs: [String] = [],
+    documentID overrideDocumentID: String? = nil
   ) throws -> Data {
     guard sourceData.count <= ReaderAnnotationLimits.maximumPDFBytes,
       let sourceDocument = PDFDocument(data: sourceData),
@@ -86,9 +87,14 @@ public enum ReaderTransferPDF {
       throw ReaderTransferPDFError.invalidPDF
     }
 
-    // A pre-existing transfer marker must be readable before it is replaced.
-    // This prevents a corrupt marker from being silently discarded on export.
-    let existingMetadata = try metadata(from: sourceDocument)
+    // A pre-existing transfer marker must be readable before it is replaced
+    // during the normal export path. An explicit identity override is used
+    // when rewriting a PDF whose old coordinates belong to a different page
+    // geometry (for example, after page-width normalization); in that case
+    // validating the stale marker would reject an otherwise valid replacement.
+    let existingMetadata = overrideDocumentID == nil
+      ? try metadata(from: sourceDocument)
+      : nil
 
     let normalizedAnnotations = try ReaderAnnotationValidator.validate(annotations)
     let normalizedQuickLinks = try ReaderQuickLinkValidator.validate(quickLinks)
@@ -98,7 +104,7 @@ public enum ReaderTransferPDF {
       readingState: readingState,
       in: sourceDocument
     )
-    let documentID = existingMetadata?.documentID ?? UUID().uuidString
+    let documentID = overrideDocumentID ?? existingMetadata?.documentID ?? UUID().uuidString
     try validateDocumentID(documentID)
 
     let metadataValue = ReaderTransferMetadata(

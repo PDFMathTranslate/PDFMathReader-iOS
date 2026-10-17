@@ -50,7 +50,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
   public var showTranslations: Bool
   public var documentOpenMode: ReaderDocumentOpenMode
   public var restoreDocumentsOnLaunch: Bool
+  public var keepAwakeWhileReading: Bool
   public var autoHideTitleBar: Bool
+  public var autoAlignDocumentWidth: Bool
   public var defaultPageCropEnabled: Bool
   public var defaultPageCropX: Double
   public var defaultPageCropY: Double
@@ -80,6 +82,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
   public var emphasizeLogicalConnectives: Bool
   public var tfidfWeightingEnabled: Bool
   public var emphasizeTopicSentences: Bool
+  public var reducePadding: Bool
   public var paragraphGapOptimization: Bool
   public var readingLinksEnabled: Bool
   public var tocGenerationEnabled: Bool
@@ -100,7 +103,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     showTranslations: Bool = true,
     documentOpenMode: ReaderDocumentOpenMode = .original,
     restoreDocumentsOnLaunch: Bool = true,
+    keepAwakeWhileReading: Bool = true,
     autoHideTitleBar: Bool = true,
+    autoAlignDocumentWidth: Bool = false,
     defaultPageCropEnabled: Bool = false,
     defaultPageCropX: Double = 0,
     defaultPageCropY: Double = 0,
@@ -123,6 +128,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     emphasizeLogicalConnectives: Bool = true,
     tfidfWeightingEnabled: Bool = false,
     emphasizeTopicSentences: Bool = false,
+    reducePadding: Bool = false,
     paragraphGapOptimization: Bool = true,
     readingLinksEnabled: Bool = true,
     tocGenerationEnabled: Bool = false,
@@ -143,7 +149,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     self.showTranslations = showTranslations
     self.documentOpenMode = documentOpenMode
     self.restoreDocumentsOnLaunch = restoreDocumentsOnLaunch
+    self.keepAwakeWhileReading = keepAwakeWhileReading
     self.autoHideTitleBar = autoHideTitleBar
+    self.autoAlignDocumentWidth = autoAlignDocumentWidth
     self.defaultPageCropEnabled = defaultPageCropEnabled
     self.defaultPageCropX = Self.normalizedDefaultPageCrop(defaultPageCropX)
     self.defaultPageCropY = Self.normalizedDefaultPageCrop(defaultPageCropY)
@@ -170,6 +178,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     self.emphasizeLogicalConnectives = emphasizeLogicalConnectives
     self.tfidfWeightingEnabled = tfidfWeightingEnabled
     self.emphasizeTopicSentences = emphasizeTopicSentences
+    self.reducePadding = reducePadding
     self.paragraphGapOptimization = paragraphGapOptimization
     self.readingLinksEnabled = readingLinksEnabled
     self.tocGenerationEnabled = tocGenerationEnabled
@@ -203,7 +212,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     case showTranslations
     case documentOpenMode
     case restoreDocumentsOnLaunch
+    case keepAwakeWhileReading
     case autoHideTitleBar
+    case autoAlignDocumentWidth
     case defaultPageCropEnabled
     case defaultPageCropX
     case defaultPageCropY
@@ -226,6 +237,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
     case emphasizeLogicalConnectives
     case tfidfWeightingEnabled
     case emphasizeTopicSentences
+    case reducePadding
     case paragraphGapOptimization
     case readingLinksEnabled
     case tocGenerationEnabled
@@ -267,7 +279,9 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
       showTranslations: try container.decodeIfPresent(Bool.self, forKey: .showTranslations) ?? true,
       documentOpenMode: (try? container.decodeIfPresent(ReaderDocumentOpenMode.self, forKey: .documentOpenMode)) ?? .original,
       restoreDocumentsOnLaunch: try container.decodeIfPresent(Bool.self, forKey: .restoreDocumentsOnLaunch) ?? true,
+      keepAwakeWhileReading: try container.decodeIfPresent(Bool.self, forKey: .keepAwakeWhileReading) ?? true,
       autoHideTitleBar: try container.decodeIfPresent(Bool.self, forKey: .autoHideTitleBar) ?? true,
+      autoAlignDocumentWidth: try container.decodeIfPresent(Bool.self, forKey: .autoAlignDocumentWidth) ?? false,
       defaultPageCropEnabled: try container.decodeIfPresent(Bool.self, forKey: .defaultPageCropEnabled) ?? false,
       defaultPageCropX: (try? container.decodeIfPresent(Double.self, forKey: .defaultPageCropX)) ?? 0,
       defaultPageCropY: (try? container.decodeIfPresent(Double.self, forKey: .defaultPageCropY)) ?? 0,
@@ -289,6 +303,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
       emphasizeLogicalConnectives: try container.decodeIfPresent(Bool.self, forKey: .emphasizeLogicalConnectives) ?? true,
       tfidfWeightingEnabled: try container.decodeIfPresent(Bool.self, forKey: .tfidfWeightingEnabled) ?? false,
       emphasizeTopicSentences: try container.decodeIfPresent(Bool.self, forKey: .emphasizeTopicSentences) ?? false,
+      reducePadding: try container.decodeIfPresent(Bool.self, forKey: .reducePadding) ?? false,
       paragraphGapOptimization: try container.decodeIfPresent(Bool.self, forKey: .paragraphGapOptimization) ?? true,
       readingLinksEnabled: try container.decodeIfPresent(Bool.self, forKey: .readingLinksEnabled) ?? true,
       tocGenerationEnabled: try container.decodeIfPresent(Bool.self, forKey: .tocGenerationEnabled) ?? false,

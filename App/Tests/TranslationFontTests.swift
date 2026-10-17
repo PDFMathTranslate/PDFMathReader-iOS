@@ -212,6 +212,80 @@ final class TranslationFontTests: XCTestCase {
   }
 
   @MainActor
+  func testVisibilityTransactionKeepsDesktopRefocusAfterRemoteStateUpdate() async throws {
+    guard !UIAccessibility.isReduceMotionEnabled else { throw XCTSkip("Reduce Motion enabled") }
+    let pages = try makeRemoteFontPages()
+    let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let window = UIWindow(windowScene: scene)
+    window.frame = CGRect(x: 0, y: 0, width: 360, height: 450)
+    window.windowLevel = .alert + 1
+    let controller = UIViewController()
+    window.rootViewController = controller
+    let pdfView = ReaderAnnotationPDFView(frame: window.bounds)
+    pdfView.document = pages.sourceDocument
+    controller.view.addSubview(pdfView)
+    window.makeKeyAndVisible()
+    defer { window.isHidden = true }
+    pdfView.layoutIfNeeded()
+    let overlay = ReaderTranslationPageOverlay(pageIndex: 0,
+      page: try XCTUnwrap(pages.sourceDocument.page(at: 0)), pdfView: pdfView)
+    overlay.frame = pdfView.bounds
+    pdfView.addSubview(overlay)
+    overlay.setRemotePageData(pages.translatedData)
+    overlay.layoutIfNeeded()
+    // Present the fixture once; production transitions never force a redraw.
+    _ = UIGraphicsImageRenderer(size: pdfView.bounds.size).image { _ in
+      pdfView.drawHierarchy(in: pdfView.bounds, afterScreenUpdates: true)
+    }
+    try await Task.sleep(for: .milliseconds(100))
+    func effect() -> UIView? {
+      overlay.subviews.first { $0.accessibilityIdentifier == "reader.translationRefocus" }
+    }
+    func waitForEffect(replacing previous: UIView? = nil) async throws -> UIView {
+      for _ in 0..<200 {
+        if let current = effect(), current !== previous { return current }
+        try await Task.sleep(for: .milliseconds(10))
+      }
+      return try XCTUnwrap(effect(), "Background refocus preparation must eventually commit")
+    }
+    pdfView.translationRenderResumeTime = CACurrentMediaTime() + 1
+    overlay.performRenderingUpdate(showTranslations: false) {
+      overlay.update(state: PageTranslationState(pageIndex: 0), showTranslations: false)
+    }
+    try await Task.sleep(for: .milliseconds(80))
+    XCTAssertNil(effect(), "Refocus must yield while reader motion has priority")
+    pdfView.translationRenderResumeTime = 0
+    overlay.performRenderingUpdate(showTranslations: true) {
+      overlay.update(state: PageTranslationState(pageIndex: 0), showTranslations: true)
+    }
+    overlay.performRenderingUpdate(showTranslations: false) {
+      overlay.update(state: PageTranslationState(pageIndex: 0), showTranslations: false)
+    }
+    let outgoing = try await waitForEffect()
+    XCTAssertFalse(outgoing.isUserInteractionEnabled)
+    XCTAssertNil(outgoing.layer.mask)
+    XCTAssertTrue(outgoing.transform.isIdentity)
+    let incoming = try XCTUnwrap(outgoing.subviews.first)
+    XCTAssertEqual(incoming.layer.animation(forKey: "digitalRefocus")?.duration, 0.52)
+    // An idempotent coordinator refresh must not tear down the animation.
+    overlay.performRenderingUpdate(showTranslations: false) {
+      overlay.setRemotePageData(pages.translatedData)
+      overlay.update(state: PageTranslationState(pageIndex: 0), showTranslations: false)
+    }
+    XCTAssertTrue(effect() === outgoing)
+    // Reverse while in flight: one replacement effect, with no shape/scale mask.
+    overlay.performRenderingUpdate(showTranslations: true) {
+      overlay.update(state: PageTranslationState(pageIndex: 0), showTranslations: true)
+    }
+    let reversed = try await waitForEffect(replacing: outgoing)
+    XCTAssertFalse(reversed === outgoing)
+    XCTAssertEqual(overlay.subviews.filter { $0.accessibilityIdentifier == "reader.translationRefocus" }.count, 1)
+    XCTAssertTrue(reversed.transform.isIdentity)
+    try await Task.sleep(for: .milliseconds(650))
+    XCTAssertNil(effect())
+  }
+
+  @MainActor
   func testRemoteOverlayRefreshesPDFWhenFontChangesAndTogglesVisibility() throws {
     let pages = try makeRemoteFontPages()
     let sourceDocument = pages.sourceDocument
