@@ -110,7 +110,10 @@ final class LibraryModel: ObservableObject {
           }
         }.value
         try Task.checkCancellation()
-        let pdfURL = try await EPUBConverter.convert(data: data, directory: epubPDFDirectory)
+        let pdfURL = try await EPUBConverter.convert(
+          data: data, directory: epubPDFDirectory,
+          fontName: preferences.translationFont, serif: preferences.translationSerif
+        )
         try Task.checkCancellation()
         return await makeSession(for: pdfURL, displayTitle: displayTitle ?? url.lastPathComponent)
       } catch is CancellationError {

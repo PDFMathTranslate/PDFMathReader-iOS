@@ -485,6 +485,9 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   }
 
   func updatePreferences(_ value: ReaderPreferences) {
+    let fontChanged = preferences.translationFont != value.translationFont
+      || preferences.translationSerif != value.translationSerif
+      || preferences.targetLanguage != value.targetLanguage
     let openModeChanged = preferences.documentOpenMode != value.documentOpenMode
     let previousConfigurationID = translationConfigurationID
     let previousMode = preferences.translationMode
@@ -500,6 +503,16 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       configure()
     } else if preferences.translationMode != previousMode {
       scheduleViewport()
+    }
+    if fontChanged, !renderGateIsActive() {
+      // A user-selected font is immediate UI feedback, not a pipeline result.
+      // Update existing local labels without overwriting their completed state;
+      // expensive remote PDF work and active gestures keep the deferred path.
+      for overlay in overlays.values {
+        overlay.setNativeTranslationFont(
+          name: value.translationFont, serif: value.translationSerif, language: value.targetLanguage
+        )
+      }
     }
     requestRender(for: Array(overlays.keys))
   }

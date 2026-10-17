@@ -246,9 +246,13 @@ final class ReaderPDFPage: PDFPage {
       let point = mapPoint(CGPoint(x: rect.midX, y: rect.midY))
       centers[Int(point.y.rounded()), default: []].append(point)
     }
+    // PDFKit may recompute character geometry on every call. Cache the
+    // generated page's bounds because the matching and whitespace scans both
+    // revisit the same characters.
+    let generatedBounds = (0..<numberOfCharacters).map { characterBounds(at: $0) }
     var indices = IndexSet()
     for index in 0..<numberOfCharacters {
-      let rect = characterBounds(at: index)
+      let rect = generatedBounds[index]
       guard !rect.isEmpty, !rect.isNull else { continue }
       let row = Int(rect.midY.rounded())
       if (row - 1...row + 1).contains(where: { key in
@@ -261,11 +265,11 @@ final class ReaderPDFPage: PDFPage {
     // them between visible characters so selection does not split every word.
     var cursor = 0
     while cursor < numberOfCharacters {
-      let rect = characterBounds(at: cursor)
+      let rect = generatedBounds[cursor]
       guard rect.isEmpty || rect.isNull else { cursor += 1; continue }
       let start = cursor
       repeat { cursor += 1 } while cursor < numberOfCharacters
-        && (characterBounds(at: cursor).isEmpty || characterBounds(at: cursor).isNull)
+        && (generatedBounds[cursor].isEmpty || generatedBounds[cursor].isNull)
       if start > 0, indices.contains(start - 1), indices.contains(cursor) {
         indices.insert(integersIn: start..<cursor)
       }
@@ -332,12 +336,12 @@ final class ReaderPDFPage: PDFPage {
     }
     let source = super.bounds(for: .cropBox)
     let crop = document.pageCrop
-    // Fractions describe the total removed in each direction, split equally
-    // between opposite edges. Swap axes for a visually rotated page.
+    // Each fraction is removed from both opposite edges.
+    // Swap axes for a visually rotated page.
     let rotated = rotation % 180 != 0
     return source.insetBy(
-      dx: source.width * CGFloat(rotated ? crop.y : crop.x) / 2,
-      dy: source.height * CGFloat(rotated ? crop.x : crop.y) / 2
+      dx: source.width * CGFloat(rotated ? crop.y : crop.x),
+      dy: source.height * CGFloat(rotated ? crop.x : crop.y)
     )
   }
 
@@ -348,6 +352,9 @@ final class ReaderPDFPage: PDFPage {
       // PDFKit's tile context can extend beyond the virtual display box.
       // Keep source coordinates intact, but never paint the removed margins.
       context.clip(to: bounds(for: .artBox))
+      // PDFKit's crop-box draw applies its own rotation and origin transform.
+      // Cancel that transform because this context is already in virtual-art-box space.
+      context.concatenate(super.transform(for: .cropBox).inverted())
     }
     let box: PDFDisplayBox = box == .artBox ? .cropBox : box
     guard (document as? ReaderPDFDocument)?.invertsPages == true else {
@@ -389,6 +396,9 @@ final class ReaderPDFPage: PDFPage {
     defer { context.restoreGState() }
     if box == .artBox, !ReaderPDFSerialization.usesOriginalBoxes {
       context.clip(to: bounds(for: .artBox))
+      // PDFKit's crop-box draw applies its own rotation and origin transform.
+      // Cancel that transform because this context is already in virtual-art-box space.
+      context.concatenate(super.transform(for: .cropBox).inverted())
     }
     super.draw(with: box == .artBox ? .cropBox : box, to: context)
   }

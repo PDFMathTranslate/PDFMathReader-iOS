@@ -320,7 +320,7 @@ struct SettingsView: View {
           .foregroundStyle(.secondary)
           .monospacedDigit()
       }
-      Slider(value: value, in: 0...0.5, step: 0.01)
+      Slider(value: value, in: 0...PageCrop.maximumFraction, step: 0.01)
         .disabled(!draft.defaultPageCropEnabled)
         .accessibilityIdentifier(identifier)
     }

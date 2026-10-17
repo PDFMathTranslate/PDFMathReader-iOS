@@ -26,7 +26,7 @@ import Testing
   )
   #expect(constructed.defaultPageCropEnabled)
   #expect(constructed.defaultPageCropX == 0)
-  #expect(constructed.defaultPageCropY == 0.5)
+  #expect(constructed.defaultPageCropY == PageCrop.maximumFraction)
 
   let nonFinite = ReaderPreferences(
     defaultPageCropX: .nan,
@@ -41,7 +41,7 @@ import Testing
   )
   #expect(decoded.defaultPageCropEnabled)
   #expect(decoded.defaultPageCropX == 0)
-  #expect(decoded.defaultPageCropY == 0.5)
+  #expect(decoded.defaultPageCropY == PageCrop.maximumFraction)
 }
 
 @Test func defaultPageCropPreferencesRoundTrip() throws {

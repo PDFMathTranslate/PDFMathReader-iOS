@@ -55,6 +55,26 @@ final class EPUBConversionTests: XCTestCase {
     XCTAssertEqual(second.page(at: 0)?.annotations.count, 1)
   }
 
+  func testSelectedFontOverridesBookStylesAndUsesSeparateCache() async throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = try fixtureEPUB()
+    let original = try await EPUBConverter.convert(data: source, directory: root)
+    let custom = try await EPUBConverter.convert(data: source, directory: root, fontName: "Courier")
+    XCTAssertNotEqual(original, custom)
+    let document = try XCTUnwrap(PDFDocument(url: custom))
+    let text = try XCTUnwrap(document.page(at: 0)?.attributedString)
+    var families = Set<String>()
+    text.enumerateAttribute(.font, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+      if let font = value as? UIFont { families.insert(font.familyName) }
+    }
+    XCTAssertTrue(families.contains("Courier"), "Printed fonts: \(families)")
+    let cachedCustom = try await EPUBConverter.convert(data: source, directory: root, fontName: "Courier")
+    let cachedOriginal = try await EPUBConverter.convert(data: source, directory: root)
+    XCTAssertEqual(cachedCustom, custom)
+    XCTAssertEqual(cachedOriginal, original)
+  }
+
   func testInvalidEPUBIsRejected() async throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }

@@ -267,6 +267,11 @@ final class ReaderTranslationPageOverlay: UIView {
     let language: String
   }
   private var cachedRemoteFontPDF: (request: RemoteFontRequest, data: Data)?
+  // Layout and appearance changes reuse the same compact vector page. Retain
+  // only one variant, and weakly identify the display page so it can retire.
+  private weak var cachedCompactPage: ReaderPDFPage?
+  private var cachedCompactInput: Data?
+  private var cachedCompactOutput: Data?
   private struct RemoteSourceGeometry: Equatable {
     let bounds: CGRect
     let rotation: Int
@@ -377,11 +382,21 @@ final class ReaderTranslationPageOverlay: UIView {
     if remoteSourceGeometry(page) != remoteSourceGeometry(self.page) {
       remoteFontRenderer = nil
       cachedRemoteFontPDF = nil
+      cachedCompactPage = nil
+      cachedCompactInput = nil
+      cachedCompactOutput = nil
     }
     self.page = page
     self.pdfView = pdfView
     if remotePageData != nil { updateRemotePDF() }
     setNeedsLayout()
+  }
+
+  /// Local labels can acknowledge a settings change immediately. Remote PDF
+  /// regeneration still goes through the coordinator's idle rendering gate.
+  func setNativeTranslationFont(name: String, serif: Bool, language: String) {
+    guard remotePageData == nil else { return }
+    setTranslationFont(name: name, serif: serif, language: language)
   }
 
   func setTranslationFont(name: String, serif: Bool, language: String = "") {
@@ -465,6 +480,9 @@ final class ReaderTranslationPageOverlay: UIView {
     cancelRefocus()
     remotePageData = data
     cachedRemoteFontPDF = nil
+    cachedCompactPage = nil
+    cachedCompactInput = nil
+    cachedCompactOutput = nil
     labels.values.forEach { $0.removeFromSuperview() }
     labels.removeAll()
     remotePDFView?.removeFromSuperview()
@@ -489,6 +507,9 @@ final class ReaderTranslationPageOverlay: UIView {
     cancelRefocus()
     remotePageData = nil
     cachedRemoteFontPDF = nil
+    cachedCompactPage = nil
+    cachedCompactInput = nil
+    cachedCompactOutput = nil
     remoteProgress = nil
     remoteFontRenderer = nil
     remotePDFView?.removeFromSuperview()
@@ -507,6 +528,9 @@ final class ReaderTranslationPageOverlay: UIView {
     cancelRefocus()
     remotePageData = nil
     cachedRemoteFontPDF = nil
+    cachedCompactPage = nil
+    cachedCompactInput = nil
+    cachedCompactOutput = nil
     remoteFontRenderer = nil
     remotePDFView?.removeFromSuperview()
     remotePDFView = nil
@@ -1026,10 +1050,22 @@ final class ReaderTranslationPageOverlay: UIView {
       data = remotePageData
     }
     var displayData = data
-    if let compact = (page as? ReaderPDFPage)?.compaction,
-       let translatedDocument = PDFDocument(data: data), let translated = translatedDocument.page(at: 0),
-       let compactData = compact.pdfData(for: translated) {
-      displayData = compactData
+    if let compactPage = page as? ReaderPDFPage, let compact = compactPage.compaction {
+      if cachedCompactPage === compactPage, cachedCompactInput == data,
+         let cachedCompactOutput {
+        displayData = cachedCompactOutput
+      } else if let translatedDocument = PDFDocument(data: data),
+                let translated = translatedDocument.page(at: 0),
+                let compactData = compact.pdfData(for: translated) {
+        cachedCompactPage = compactPage
+        cachedCompactInput = data
+        cachedCompactOutput = compactData
+        displayData = compactData
+      }
+    } else {
+      cachedCompactPage = nil
+      cachedCompactInput = nil
+      cachedCompactOutput = nil
     }
     remotePDFView.setPDFData(displayData)
     remotePDFView.setInverted(traitCollection.userInterfaceStyle == .dark)

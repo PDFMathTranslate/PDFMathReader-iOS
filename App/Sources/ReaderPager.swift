@@ -78,7 +78,7 @@ struct ReaderPager: View {
   private var island: some View {
     HStack(spacing: 0) {
       pageButton(
-        "chevron.up",
+        model.readingState.scrollDirection == .horizontal ? "chevron.left" : "chevron.up",
         label: L10n.string("navigator.previousPage"),
         disabled: model.readingState.page <= 1
       ) { model.goToPage(model.readingState.page - 1) }
@@ -105,7 +105,7 @@ struct ReaderPager: View {
       }
 
       pageButton(
-        "chevron.down",
+        model.readingState.scrollDirection == .horizontal ? "chevron.right" : "chevron.down",
         label: L10n.string("navigator.nextPage"),
         disabled: model.readingState.page >= model.pageCount
       ) { model.goToPage(model.readingState.page + 1) }

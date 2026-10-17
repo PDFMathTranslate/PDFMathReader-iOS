@@ -28,11 +28,60 @@ final class ReaderPageCropTests: XCTestCase {
         let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
         func alpha(_ x: Int, _ y: Int) -> UInt8 { pixels[y * 400 + x * 4 + 3] }
         XCTAssertEqual(alpha(5, 50), 0)
+        XCTAssertEqual(alpha(39, 50), 0)
+        XCTAssertEqual(alpha(61, 50), 0)
+        XCTAssertEqual(alpha(50, 19), 0)
+        XCTAssertEqual(alpha(50, 81), 0)
         XCTAssertEqual(alpha(95, 50), 0)
         XCTAssertEqual(alpha(50, 5), 0)
         XCTAssertEqual(alpha(50, 95), 0)
-        XCTAssertEqual(alpha(21, 11), 255)
-        XCTAssertEqual(alpha(79, 89), 255)
+        XCTAssertEqual(alpha(41, 21), 255)
+        XCTAssertEqual(alpha(59, 79), 255)
+      }
+    }
+  }
+
+  func testOriginalCropKeepsCenteredContentCenteredAfterPageTransform() throws {
+    let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 400, height: 600))
+      .pdfData { renderer in
+        renderer.beginPage()
+        UIColor.white.setFill()
+        renderer.cgContext.fill(CGRect(x: 0, y: 0, width: 400, height: 600))
+        UIColor.black.setFill()
+        renderer.cgContext.fill(CGRect(x: 170, y: 290, width: 20, height: 20))
+      }
+    for rotation in [0, 90, 180, 270] {
+      let document = try XCTUnwrap(ReaderPDFDocument(data: data))
+      let page = try XCTUnwrap(document.page(at: 0) as? ReaderPDFPage)
+      page.setBounds(CGRect(x: 30, y: 50, width: 300, height: 500), for: .cropBox)
+      page.rotation = rotation
+      document.pageCrop = PageCrop(x: 0.2, y: 0.1)
+      let art = page.bounds(for: .artBox)
+      let width = Int(rotation % 180 == 0 ? art.width : art.height)
+      let height = Int(rotation % 180 == 0 ? art.height : art.width)
+      for uninverted in [false, true] {
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height,
+          bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        page.transform(context, for: .artBox)
+        if uninverted { page.drawUninverted(with: .artBox, to: context) }
+        else { page.draw(with: .artBox, to: context) }
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        var ink = CGRect.null
+        for y in 0..<height {
+          for x in 0..<width {
+            let offset = (y * width + x) * 4
+            if pixels[offset] < 100 && pixels[offset + 1] < 100 && pixels[offset + 2] < 100
+              && pixels[offset + 3] > 200 {
+              ink = ink.union(CGRect(x: x, y: y, width: 1, height: 1))
+            }
+          }
+        }
+        XCTAssertFalse(ink.isNull, "rotation \(rotation), ctm \(context.ctm)")
+        XCTAssertEqual(ink.midX, CGFloat(width) / 2, accuracy: 1, "rotation \(rotation), ctm \(context.ctm)")
+        XCTAssertEqual(ink.midY, CGFloat(height) / 2, accuracy: 1, "rotation \(rotation), ctm \(context.ctm)")
       }
     }
   }
@@ -57,8 +106,8 @@ final class ReaderPageCropTests: XCTestCase {
 
       document.pageCrop = crop
       let expected = baselineCropBox.insetBy(
-        dx: baselineCropBox.width * CGFloat(rotation % 180 == 0 ? crop.x : crop.y) / 2,
-        dy: baselineCropBox.height * CGFloat(rotation % 180 == 0 ? crop.y : crop.x) / 2
+        dx: baselineCropBox.width * CGFloat(rotation % 180 == 0 ? crop.x : crop.y),
+        dy: baselineCropBox.height * CGFloat(rotation % 180 == 0 ? crop.y : crop.x)
       )
 
       assertRect(page.bounds(for: .artBox), equals: expected)
@@ -184,8 +233,8 @@ final class ReaderPageCropTests: XCTestCase {
     let page = try XCTUnwrap(document.page(at: 0) as? ReaderPDFPage)
     let cropBox = page.bounds(for: .cropBox)
     let expected = cropBox.insetBy(
-      dx: cropBox.width * 0.2 / 2,
-      dy: cropBox.height * 0.1 / 2
+      dx: cropBox.width * 0.2,
+      dy: cropBox.height * 0.1
     )
     XCTAssertNotNil(page.compaction)
     assertRect(page.bounds(for: .artBox), equals: expected)

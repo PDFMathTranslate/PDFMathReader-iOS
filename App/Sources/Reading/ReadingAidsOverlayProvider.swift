@@ -463,6 +463,9 @@ private final class ReadingAidsCompositePageOverlay: UIView {
   }
 
   func replace(views: [UIView]) {
+    // PDFKit may request an existing overlay again during viewport layout.
+    // Keeping mounted children avoids needless layout and gesture churn.
+    guard subviews.count != views.count || zip(subviews, views).contains(where: { $0 !== $1 }) else { return }
     subviews.forEach { $0.removeFromSuperview() }
     views.forEach { addSubview($0) }
     setNeedsLayout()
@@ -688,7 +691,20 @@ private final class ReadingAidsPageOverlay: UIView {
     )
     guard geometry?.key != key else { return false }
 
-    let glyphRects = data.glyphs.map { convertedRect($0.bounds) ?? .null }
+    // Resolve the view hierarchy only three times per layout, rather than
+    // twice for every glyph. PDF page-to-view conversions are affine,
+    // including rotation, zoom, scrolling and the overlay's own transform.
+    let origin = key.pageToOverlayOrigin
+    let xAxis = key.pageToOverlayXAxis
+    let yAxis = key.pageToOverlayYAxis
+    let a = xAxis.x - origin.x, b = xAxis.y - origin.y
+    let c = yAxis.x - origin.x, d = yAxis.y - origin.y
+    let transform = CGAffineTransform(
+      a: a, b: b, c: c, d: d,
+      tx: origin.x - a * pageOrigin.x - c * pageOrigin.y,
+      ty: origin.y - b * pageOrigin.x - d * pageOrigin.y
+    )
+    let glyphRects = data.glyphs.map { convertedRect($0.bounds, transform: transform) ?? .null }
     let topicRects = analysis.topicRanges.map {
       convertedRects(for: $0, glyphRects: glyphRects)
     }
@@ -776,8 +792,8 @@ private final class ReadingAidsPageOverlay: UIView {
     return lower
   }
 
-  private func convertedRect(_ pageRect: CGRect) -> CGRect? {
-    guard let pdfView, let page, bounds.width > 0, bounds.height > 0 else { return nil }
+  private func convertedRect(_ pageRect: CGRect, transform: CGAffineTransform) -> CGRect? {
+    guard let page, bounds.width > 0, bounds.height > 0 else { return nil }
     var displayRect = pageRect
     if let compact = (page as? ReaderPDFPage)?.compaction {
       let source = compact.sourcePage.bounds(for: .cropBox)
@@ -789,8 +805,7 @@ private final class ReadingAidsPageOverlay: UIView {
       displayRect = CGRect(x: bounds.minX + mapped.x, y: bounds.maxY - mapped.y - mapped.height,
                            width: mapped.width, height: mapped.height)
     }
-    let viewRect = pdfView.convert(displayRect, from: page)
-    let rect = convert(viewRect, from: pdfView).standardized
+    let rect = displayRect.applying(transform).standardized
     return rect.width > 0 && rect.height > 0 ? rect : nil
   }
 }

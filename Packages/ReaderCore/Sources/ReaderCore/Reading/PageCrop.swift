@@ -1,12 +1,10 @@
 import Foundation
 
-/// A page crop expressed as the total fraction removed from each axis.
-///
-/// Each value is bounded to `0...0.8`, so at least one fifth of the page remains
-/// visible along either axis. The values are total fractions rather than the
-/// fraction removed from one side of the page.
+/// A page crop expressed as the fraction removed from each opposite edge.
+/// Horizontal values apply equally to left and right; vertical values to top and bottom.
+/// Values are bounded to `0...0.4`, leaving at least one fifth of either axis visible.
 public struct PageCrop: Codable, Hashable, Sendable {
-  public static let maximumFraction = 0.8
+  public static let maximumFraction = 0.4
   public static let adjustmentStep = 0.05
 
   private var storedX: Double

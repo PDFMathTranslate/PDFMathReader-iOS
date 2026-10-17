@@ -100,10 +100,10 @@ final class AppSmokeTests: XCTestCase {
       let margins = view.pageBreakMargins
       state.scaleMode = .fitWidth
       coordinator.apply(state)
-      XCTAssertEqual(view.scaleFactor, 800 / (480 + margins.left + margins.right), accuracy: 0.01)
+      XCTAssertEqual(view.scaleFactor, 800 / (360 + margins.left + margins.right), accuracy: 0.01)
       state.scaleMode = .fitPage
       coordinator.apply(state)
-      XCTAssertEqual(view.scaleFactor, 400 / (720 + margins.top + margins.bottom), accuracy: 0.01)
+      XCTAssertEqual(view.scaleFactor, 400 / (540 + margins.top + margins.bottom), accuracy: 0.01)
     }
     let fitted = view.scaleFactor
     view.scaleFactor = 1.5
@@ -117,6 +117,39 @@ final class AppSmokeTests: XCTestCase {
     view.displaysPageBreaks = false
     coordinator.apply(state)
     XCTAssertEqual(view.scaleFactor, 1.25, accuracy: 0.01)
+  }
+
+  @MainActor
+  func testChangingCropKeepsFittedPageCentered() async throws {
+    let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 600, height: 900)).pdfData {
+      for _ in 0..<3 { $0.beginPage() }
+    }
+    let document = try XCTUnwrap(ReaderPDFDocument(data: data))
+    let view = ReaderAnnotationPDFView(frame: CGRect(x: 0, y: 0, width: 800, height: 700))
+    view.displayBox = .artBox
+    view.minScaleFactor = 0.1
+    view.maxScaleFactor = 5
+    let coordinator = PDFKitView.Coordinator(onStateChanged: { _ in }, annotationModel: nil)
+    coordinator.attach(view, document: document, overlayProvider: nil)
+    var state = ReadingState()
+    for direction in [ReaderScrollDirection.vertical, .horizontal] {
+      state.scrollDirection = direction
+      for mode in [ReaderScaleMode.fitWidth, .fitPage] {
+        state.scaleMode = mode
+        for crop in [PageCrop(), PageCrop(x: 0.15, y: 0.1), PageCrop(x: 0.25, y: 0.2)] {
+          state.pageCrop = crop
+          coordinator.apply(state)
+          try await Task.sleep(for: .milliseconds(100))
+          let page = try XCTUnwrap(document.page(at: 0))
+          let visible = view.convert(page.bounds(for: .artBox), from: page)
+          XCTAssertEqual(visible.midX, view.bounds.midX, accuracy: 1,
+            "Crop must retain equal left/right viewport margins (\(direction), \(mode), \(crop))")
+          if mode == .fitPage {
+            XCTAssertEqual(visible.midY, view.bounds.midY, accuracy: 1)
+          }
+        }
+      }
+    }
   }
 
   func testLaunchTypeExists() {

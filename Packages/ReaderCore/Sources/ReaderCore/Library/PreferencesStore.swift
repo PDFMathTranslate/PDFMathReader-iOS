@@ -193,7 +193,7 @@ public struct ReaderPreferences: Codable, Hashable, Sendable {
 
   private static func normalizedDefaultPageCrop(_ value: Double) -> Double {
     guard value.isFinite else { return 0 }
-    return min(0.5, max(0, value))
+    return min(PageCrop.maximumFraction, max(0, value))
   }
 
   private enum CodingKeys: String, CodingKey {

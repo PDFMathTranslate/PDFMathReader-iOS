@@ -15,8 +15,11 @@ modified; annotations and exported changes belong to the converted PDF.
 - Read the ZIP container, OPF metadata, and linear spine in publication order.
 - Render each chapter with WebKit and paginate it with UIKit's print renderer.
 - Include local styles and images, document metadata, and chapter outlines.
-- Cache the PDF by EPUB content hash and converter version. Reopening the same
-  EPUB reuses its PDF, preserving the reader's document identity and annotations.
+- Apply the selected Appearance translation font (or serif preference) to book
+  text when converting. Without a font override, retain the book's own fonts.
+- Cache the PDF by EPUB content hash, converter version, and effective font.
+  Reimporting with the same font reuses its PDF and annotations. A different font
+  creates a separate PDF without overwriting the previously annotated copy.
 
 Book scripts and remote resources are disabled. Package paths cannot escape
 the isolated book resources. Archive size and page limits bound conversion;
@@ -24,6 +27,9 @@ encrypted/DRM packages, malformed archives, and unsupported ZIP formats produce
 an import error rather than a partial book.
 
 ## Limits
+
+To apply a new font to an already converted book, import the EPUB again.
+Previously converted PDFs in Recents retain their existing typography.
 
 Layout is fixed at conversion time, rather than reflowed when the reader font
 or window size changes. EPUB navigation targets point to chapter starts;

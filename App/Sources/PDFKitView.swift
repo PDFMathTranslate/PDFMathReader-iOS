@@ -574,6 +574,15 @@ struct PDFKitView: UIViewRepresentable {
         rect = rect.union(view.convert(page.bounds(for: view.displayBox), from: page))
       }
       guard !rect.isNull, rect.width > 0, rect.height > 0 else { return }
+      // Horizontal continuous layout starts its first page at x=0. Without
+      // leading/trailing scroll room the offset clamp pins a fitted narrow
+      // page to one edge, even though the crop itself is symmetric.
+      let horizontalPadding = state.scrollDirection == .horizontal
+        ? max(0, (view.bounds.width - rect.width) / 2) : 0
+      var contentInset = scroll.contentInset
+      contentInset.left = horizontalPadding
+      contentInset.right = horizontalPadding
+      if scroll.contentInset != contentInset { scroll.contentInset = contentInset }
       var offset = scroll.contentOffset
       offset.x += rect.minX - max(0, (view.bounds.width - rect.width) / 2)
       if state.scaleMode == .fitPage {

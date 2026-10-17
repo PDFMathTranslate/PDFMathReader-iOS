@@ -64,10 +64,13 @@ enum EPUBConverter {
   /// main-thread APIs. Package parsing and hashing still happen off the main
   /// actor where possible.
   @MainActor
-  static func convert(data: Data, directory: URL) async throws -> URL {
+  static func convert(data: Data, directory: URL, fontName: String = "", serif: Bool = false) async throws -> URL {
     try Task.checkCancellation()
 
-    let key = cacheKey(for: data)
+    let name = fontName.trimmingCharacters(in: .whitespacesAndNewlines)
+    let family = UIFont.familyNames.first { $0.caseInsensitiveCompare(name) == .orderedSame }
+      ?? UIFont(name: name, size: 12)?.familyName ?? (serif ? "serif" : "")
+    let key = cacheKey(for: data, fontFamily: family)
     let destination = directory.appendingPathComponent(key).appendingPathExtension("pdf")
     if isValidCachedPDF(at: destination) {
       return destination
@@ -78,7 +81,7 @@ enum EPUBConverter {
       return try await existing.value
     }
     let operation = Task { @MainActor in
-      try await convertUncached(data: data, directory: directory, key: key, destination: destination)
+      try await convertUncached(data: data, directory: directory, key: key, destination: destination, fontFamily: family)
     }
     inFlight[identity] = operation
     defer { inFlight.removeValue(forKey: identity) }
@@ -90,7 +93,8 @@ enum EPUBConverter {
     data: Data,
     directory: URL,
     key: String,
-    destination: URL
+    destination: URL,
+    fontFamily: String
   ) async throws -> URL {
 
     do {
@@ -117,7 +121,7 @@ enum EPUBConverter {
     }
     try Task.checkCancellation()
 
-    let pdfData = try await render(package: package)
+    let pdfData = try await render(package: package, fontFamily: fontFamily)
     try Task.checkCancellation()
     guard pdfData.count <= maximumPDFBytes else {
       throw EPUBConversionError.outputTooLarge
@@ -153,10 +157,10 @@ enum EPUBConverter {
   }
 
   @MainActor
-  private static func render(package: EPUBPackage) async throws -> Data {
+  private static func render(package: EPUBPackage, fontFamily: String) async throws -> Data {
     guard !package.chapters.isEmpty else { throw EPUBConversionError.emptyBook }
 
-    let files = EPUBAssetStore(files: package.files, mediaTypes: package.mediaTypes)
+    let files = EPUBAssetStore(files: package.files, mediaTypes: package.mediaTypes, fontFamily: fontFamily)
     let schemeHandler = EPUBSchemeHandler(store: files)
     let configuration = try await makeWebViewConfiguration(schemeHandler: schemeHandler)
     let webView = WKWebView(frame: pageRect, configuration: configuration)
@@ -365,9 +369,10 @@ enum EPUBConverter {
     }
   }
 
-  private static func cacheKey(for data: Data) -> String {
+  private static func cacheKey(for data: Data, fontFamily: String) -> String {
     var input = Data("epub:\(converterVersion):".utf8)
     input.append(data)
+    if !fontFamily.isEmpty { input.append(Data("\0font-v1:\(fontFamily)".utf8)) }
     return SHA256.hash(data: input).map { String(format: "%02x", $0) }.joined()
   }
 
@@ -424,7 +429,7 @@ private final class EPUBAssetStore: @unchecked Sendable {
   private let values: [String: Data]
   private let mediaTypes: [String: String]
 
-  init(files: [String: Data], mediaTypes: [String: String]) {
+  init(files: [String: Data], mediaTypes: [String: String], fontFamily: String) {
     var values: [String: Data] = [:]
     var normalizedMediaTypes: [String: String] = [:]
     for (path, mediaType) in mediaTypes {
@@ -436,7 +441,8 @@ private final class EPUBAssetStore: @unchecked Sendable {
       values[normalized] = Self.preparedData(
         data,
         path: normalized,
-        mediaType: normalizedMediaTypes[normalized]
+        mediaType: normalizedMediaTypes[normalized],
+        fontFamily: fontFamily
       )
     }
     self.values = values
@@ -459,7 +465,7 @@ private final class EPUBAssetStore: @unchecked Sendable {
     return Self.isTextualExtension(path) ? "utf-8" : nil
   }
 
-  private static func preparedData(_ data: Data, path: String, mediaType: String?) -> Data {
+  private static func preparedData(_ data: Data, path: String, mediaType: String?, fontFamily: String) -> Data {
     let lower = path.lowercased()
     let normalizedMediaType = mediaType?.split(separator: ";", maxSplits: 1).first.map {
       $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -470,9 +476,15 @@ private final class EPUBAssetStore: @unchecked Sendable {
       return data
     }
     guard var html = String(data: data, encoding: .utf8) else { return data }
+    // Escape every scalar so a font name cannot inject CSS or HTML. Use the
+    // family, rather than a specific face, to preserve bold and italic text.
+    let escapedFamily = fontFamily.unicodeScalars.map { "\\" + String($0.value, radix: 16) + " " }.joined()
+    let cssFamily = fontFamily == "serif" ? "serif" : "\"\(escapedFamily)\""
+    let fontRule = fontFamily.isEmpty ? "" : "body, body *:not(svg):not(svg *):not(math):not(math *) { font-family: \(cssFamily) !important; }"
     let style = """
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; script-src 'none'; img-src epub: data:; style-src 'self' epub: 'unsafe-inline'; font-src epub: data:; media-src epub: data:;" />
     <style data-pdfmathreader-epub="true">
+    \(fontRule)
     @page { size: A5; margin: 0; }
     html { background: #fff !important; }
     body { margin: 0 !important; padding: 0 !important; color: #111 !important; background: #fff !important; }

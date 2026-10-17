@@ -42,7 +42,7 @@ final class ReaderViewModel: ObservableObject {
     if self.readingState.pageCrop == nil {
       let preferences = library.preferences
       self.readingState.pageCrop = preferences.defaultPageCropEnabled
-        ? PageCrop(x: min(0.5, preferences.defaultPageCropX), y: min(0.5, preferences.defaultPageCropY))
+        ? PageCrop(x: preferences.defaultPageCropX, y: preferences.defaultPageCropY)
         : PageCrop()
     }
     self.document = nil
