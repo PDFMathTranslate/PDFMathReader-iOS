@@ -161,6 +161,7 @@ struct CompanionKernelClientTests {
     #expect(normalizeCompanionURL("http://my-mac.local:8891/") == "http://my-mac.local:8891")
     #expect(normalizeCompanionURL("") == "")
     #expect(normalizeCompanionURL(nil) == "")
+    #expect(normalizeCompanionPairingCode(" abcd-efgh ") == "ABCDEFGH")
     #expect(normalizeCompanionPairingCode(" abcd-efgh ijkl_mnop ") == "ABCDEFGHIJKLMNOP")
   }
 

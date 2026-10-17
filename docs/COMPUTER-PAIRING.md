@@ -23,3 +23,5 @@ The desktop advertises `_pdfmathreader._tcp.` in `local.` only while both auto-d
 For Fast and computer-backed Precise translation, Settings and the reader’s More menu refresh the paired computer’s configured services and supported source/target languages every 15 seconds. **Automatic** uses the computer’s selected service; choosing a named service uses that service’s stored configuration and credentials on the computer. The iPhone’s Ultra Fast service and API key remain separate.
 
 Language choices must be supported by both the kernel and the selected service. If a service is removed or its supported languages change, iOS returns to an available service and language; an unsupported explicit source returns to automatic detection. Computers running an older companion API retain the built-in service and language choices. The desktop companion update must be running to expose custom services and current language capabilities.
+
+New desktop pairing codes contain eight characters, displayed as `ABCD-EFGH`. Existing 16-character codes remain valid until regenerated on the computer. iPhone and iPad accept either format, ignoring case, spaces, and separators.
