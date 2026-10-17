@@ -210,7 +210,7 @@ struct ReaderPageCompaction {
   func makePage() -> ReaderPDFPage? {
     guard let data = pdfData(for: sourcePage),
       let document = ReaderPDFDocument(data: data),
-      let page = document.page(at: 0) as? ReaderPDFPage
+      let page = document.detachedPage(at: 0) as? ReaderPDFPage
     else { return nil }
     page.configureCompactedText(source: sourcePage, mapPoint: displayPoint)
     page.compaction = self

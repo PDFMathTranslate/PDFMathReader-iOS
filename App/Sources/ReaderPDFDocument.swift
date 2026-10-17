@@ -219,6 +219,24 @@ final class ReaderPDFDocument: PDFDocument {
 }
 
 private nonisolated(unsafe) var compactedTextKey: UInt8 = 0
+private nonisolated(unsafe) var backingDocumentKey: UInt8 = 0
+
+extension PDFDocument {
+  /// PDFPage references its document weakly, yet its CGPDFPage is owned by
+  /// the CGPDFDocument. A page moved out of a transient document keeps that
+  /// CGPDFDocument alive; otherwise accessibility and drawing later touch a
+  /// freed page. Retaining the PDFDocument instead would form a cycle.
+  func detachedPage(at index: Int) -> PDFPage? {
+    guard let page = page(at: index) else { return nil }
+    retainBacking(of: page)
+    return page
+  }
+
+  func retainBacking(of page: PDFPage) {
+    guard let documentRef else { return }
+    objc_setAssociatedObject(page, &backingDocumentKey, documentRef, .OBJC_ASSOCIATION_RETAIN)
+  }
+}
 
 private final class CompactedTextIndices: NSObject {
   let indices: IndexSet

@@ -346,7 +346,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
           let originalDocument = PDFDocument()
           if let copy = source.copy() as? PDFPage { originalDocument.insert(copy, at: 0) }
           if let data = originalDocument.dataRepresentation(), let restored = ReaderPDFDocument(data: data) {
-            replacement = restored.page(at: 0)
+            replacement = restored.detachedPage(at: 0)
           }
         }
         guard !Task.isCancelled, let replacement else { continue }

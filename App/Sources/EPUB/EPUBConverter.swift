@@ -225,6 +225,7 @@ enum EPUBConverter {
           guard let page = document.page(at: index)?.copy() as? PDFPage else {
             throw EPUBConversionError.chapterFailed(chapter.path, "A printed page could not be copied.")
           }
+          document.retainBacking(of: page)
           output.insert(page, at: output.pageCount)
         }
       } catch is CancellationError {
