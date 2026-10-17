@@ -363,15 +363,28 @@ final class ReaderPDFPage: PDFPage {
     )
   }
 
+  /// Page space to virtual-art-box-local space, including page rotation.
+  /// Derived from the crop-box transform rather than PDFKit's art-box
+  /// transform, which need not consult the overridden bounds.
+  private var virtualArtBoxTransform: CGAffineTransform {
+    let crop = super.transform(for: .cropBox)
+    let art = bounds(for: .artBox).applying(crop).standardized
+    return crop.concatenating(CGAffineTransform(translationX: -art.minX, y: -art.minY))
+  }
+
   override func draw(with box: PDFDisplayBox, to context: CGContext) {
     context.saveGState()
     defer { context.restoreGState() }
     if box == .artBox, !ReaderPDFSerialization.usesOriginalBoxes {
+      // PDFView tiles pass a box-local context and expect this method to
+      // apply the display box transform, as PDFPage's own drawing does.
+      // Without it, cropped pages paint offset by the virtual box origin.
+      context.concatenate(virtualArtBoxTransform)
       // PDFKit's tile context can extend beyond the virtual display box.
       // Keep source coordinates intact, but never paint the removed margins.
       context.clip(to: bounds(for: .artBox))
       // PDFKit's crop-box draw applies its own rotation and origin transform.
-      // Cancel that transform because this context is already in virtual-art-box space.
+      // Cancel that transform because this context is already in page space.
       context.concatenate(super.transform(for: .cropBox).inverted())
     }
     let box: PDFDisplayBox = box == .artBox ? .cropBox : box
@@ -413,6 +426,7 @@ final class ReaderPDFPage: PDFPage {
     context.saveGState()
     defer { context.restoreGState() }
     if box == .artBox, !ReaderPDFSerialization.usesOriginalBoxes {
+      // Callers apply `transform(_:for:)` first, so this context is in page space.
       context.clip(to: bounds(for: .artBox))
       // PDFKit's crop-box draw applies its own rotation and origin transform.
       // Cancel that transform because this context is already in virtual-art-box space.

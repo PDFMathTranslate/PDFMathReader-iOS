@@ -26,7 +26,15 @@ final class ReaderPageCropTests: XCTestCase {
         if uninverted { page.drawUninverted(with: .artBox, to: context) }
         else { page.draw(with: .artBox, to: context) }
         let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
-        func alpha(_ x: Int, _ y: Int) -> UInt8 { pixels[y * 400 + x * 4 + 3] }
+        // `draw` receives PDFView's box-local context; `drawUninverted`
+        // callers apply the page transform, so it draws in page space.
+        // Bitmap rows run top-down, so box-local content sits at the bottom.
+        let origin = uninverted ? (x: 0, y: 0) : (x: -40, y: 20)
+        func alpha(_ x: Int, _ y: Int) -> UInt8 {
+          let x = x + origin.x, y = y + origin.y
+          guard (0..<100).contains(x), (0..<100).contains(y) else { return 0 }
+          return pixels[y * 400 + x * 4 + 3]
+        }
         XCTAssertEqual(alpha(5, 50), 0)
         XCTAssertEqual(alpha(39, 50), 0)
         XCTAssertEqual(alpha(61, 50), 0)
@@ -65,9 +73,13 @@ final class ReaderPageCropTests: XCTestCase {
           bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.translateBy(x: 0, y: CGFloat(height))
         context.scaleBy(x: 1, y: -1)
-        page.transform(context, for: .artBox)
-        if uninverted { page.drawUninverted(with: .artBox, to: context) }
-        else { page.draw(with: .artBox, to: context) }
+        if uninverted {
+          page.transform(context, for: .artBox)
+          page.drawUninverted(with: .artBox, to: context)
+        } else {
+          // Like PDFView tiles: the page applies its own box transform.
+          page.draw(with: .artBox, to: context)
+        }
         let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
         var ink = CGRect.null
         for y in 0..<height {
