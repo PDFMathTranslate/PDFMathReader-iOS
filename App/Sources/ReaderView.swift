@@ -497,9 +497,9 @@ private struct ReaderDetail: View {
         titleBarHidden = distance > 0
       }
     )
-    // Extend only the document beneath system chrome; overlays keep the safe
-    // area so their controls stay clear of the camera and Home indicator.
-    .ignoresSafeArea(.container, edges: [.top, .bottom])
+    // Let the page use the landscape camera inset too. Only the document
+    // extends edge to edge; chrome and the pager retain their safe areas.
+    .ignoresSafeArea(.container)
     .onChange(of: drawings.isDrawing || !drawings.isPrepared || !drawings.drawings.isEmpty, initial: true) { _, suspended in
       model.translationCoordinator?.setCompactionSuspended(suspended)
     }

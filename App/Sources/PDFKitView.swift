@@ -536,6 +536,18 @@ struct PDFKitView: UIViewRepresentable {
         if targetScale.isFinite, targetScale > 0, abs(view.scaleFactor - targetScale) > 0.001 {
           view.scaleFactor = targetScale
         }
+        if state.scaleMode == .fitPage || state.scaleMode == .fitWidth {
+          view.layoutIfNeeded()
+          alignFittedPage(in: view, state: state)
+          // PDFKit can finish its zoom layout on the next turn. Reconcile the
+          // offset once more, unless a newer request or pinch has superseded it.
+          DispatchQueue.main.async { [weak self, weak view] in
+            guard let self, let view, self.appliedScaleRequest == request,
+              abs(view.scaleFactor - targetScale) < 0.001 else { return }
+            view.layoutIfNeeded()
+            self.alignFittedPage(in: view, state: state)
+          }
+        }
       }
 
       guard restorePage else { return }
@@ -544,6 +556,35 @@ struct PDFKitView: UIViewRepresentable {
          (view as? ReaderAnnotationPDFView)?.navigationAnimator == nil {
         view.go(to: page)
       }
+    }
+
+    private func alignFittedPage(in view: PDFView, state: ReadingState) {
+      guard let document = view.document, document.pageCount > 0,
+        let scroll = Self.scrollView(in: view),
+        !scroll.isTracking, !scroll.isDragging, !scroll.isZooming else { return }
+      let index = max(0, min(document.pageCount - 1, state.page - 1))
+      let twoUp = state.displayMode != .singlePage
+      let start = twoUp
+        ? (view.displaysAsBook ? (index == 0 ? 0 : 1 + ((index - 1) / 2) * 2) : (index / 2) * 2)
+        : index
+      let count = twoUp && !(view.displaysAsBook && start == 0) ? 2 : 1
+      var rect = CGRect.null
+      for i in start..<min(document.pageCount, start + count) {
+        guard let page = document.page(at: i) else { continue }
+        rect = rect.union(view.convert(page.bounds(for: view.displayBox), from: page))
+      }
+      guard !rect.isNull, rect.width > 0, rect.height > 0 else { return }
+      var offset = scroll.contentOffset
+      offset.x += rect.minX - max(0, (view.bounds.width - rect.width) / 2)
+      if state.scaleMode == .fitPage {
+        offset.y += rect.minY - max(0, (view.bounds.height - rect.height) / 2)
+      }
+      let insets = scroll.adjustedContentInset
+      offset.x = min(max(-insets.left, offset.x), max(-insets.left,
+        scroll.contentSize.width - scroll.bounds.width + insets.right))
+      offset.y = min(max(-insets.top, offset.y), max(-insets.top,
+        scroll.contentSize.height - scroll.bounds.height + insets.bottom))
+      scroll.setContentOffset(offset, animated: false)
     }
 
     /// PDFKit's continuous-layout auto scale always fits width, even when the

@@ -416,8 +416,10 @@ final class ReaderTranslationPageOverlay: UIView {
 
   /// Capture once around the complete render transaction. Updating state or
   /// replacing a remote PDF must not cancel the visibility transition midway.
-  func performRenderingUpdate(showTranslations visible: Bool, updates: () -> Void) {
-    let previous = visible != showTranslations ? refocusSnapshot(in: bounds) : nil
+  func performRenderingUpdate(
+    showTranslations visible: Bool, animated: Bool = true, updates: () -> Void
+  ) {
+    let previous = animated && visible != showTranslations ? refocusSnapshot(in: bounds) : nil
     isUpdatingRendering = true
     UIView.performWithoutAnimation {
       if visible != showTranslations { update(state: state, showTranslations: visible) }

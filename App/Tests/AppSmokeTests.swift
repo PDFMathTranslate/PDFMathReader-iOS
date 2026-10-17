@@ -7,6 +7,42 @@ import ReaderCore
 
 final class AppSmokeTests: XCTestCase {
   @MainActor
+  func testFitWidthRealignsPageAfterZoomPreservesOldScrollOffset() async throws {
+    let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 600, height: 900)).pdfData {
+      for _ in 0..<3 { $0.beginPage() }
+    }
+    let document = try XCTUnwrap(PDFDocument(data: data))
+    let view = ReaderAnnotationPDFView(frame: CGRect(x: 0, y: 0, width: 1200, height: 800))
+    view.displaysPageBreaks = false
+    view.minScaleFactor = 0.1
+    view.maxScaleFactor = 5
+    let coordinator = PDFKitView.Coordinator(onStateChanged: { _ in }, annotationModel: nil)
+    coordinator.attach(view, document: document, overlayProvider: nil)
+    var state = ReadingState()
+    state.scrollDirection = .horizontal
+    state.scaleMode = .custom
+    state.zoom = 3
+    coordinator.apply(state)
+    view.layoutIfNeeded()
+    let scroll = try XCTUnwrap(readerPDFScrollView(in: view))
+    scroll.contentOffset = CGPoint(x: 400, y: 200)
+    state.scaleMode = .fitWidth
+    coordinator.apply(state)
+    try await Task.sleep(for: .milliseconds(100))
+    let page = try XCTUnwrap(document.page(at: 0))
+    let rect = view.convert(page.bounds(for: view.displayBox), from: page)
+    XCTAssertEqual(rect.width, view.bounds.width, accuracy: 1)
+    XCTAssertEqual(rect.minX, 0, accuracy: 1, "Fit must reset the stale horizontal zoom offset")
+    XCTAssertEqual(rect.maxX, view.bounds.maxX, accuracy: 1)
+    state.scaleMode = .fitPage
+    coordinator.apply(state)
+    try await Task.sleep(for: .milliseconds(100))
+    let wholePage = view.convert(page.bounds(for: view.displayBox), from: page)
+    XCTAssertEqual(wholePage.minY, 0, accuracy: 1)
+    XCTAssertEqual(wholePage.height, view.bounds.height, accuracy: 1)
+  }
+
+  @MainActor
   func testPDFFitUpdatesAfterSidebarViewportResizeWithoutResettingCustomZoom() async throws {
     let image = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 900)).image { context in
       UIColor.white.setFill()

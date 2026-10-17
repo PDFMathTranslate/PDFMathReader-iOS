@@ -171,10 +171,27 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       return !pendingRenderPages.isEmpty
     }
 
-    // The page may have been replaced while the renderer was waiting for an
-    // idle viewport. Rebind only at the same idle boundary as the content.
+    applyRender(to: overlay, page: page, in: view, index: index,
+                remoteReset: remoteReset, remoteClear: remoteClear)
+
+    if pendingRenderPages.isEmpty, pendingTranslationRevision {
+      translationRevision &+= 1
+      pendingTranslationRevision = false
+    }
+    return !pendingRenderPages.isEmpty
+  }
+
+  /// A newly mounted overlay needs cached content before its first frame,
+  /// including when PDFKit recreates page views during zoom. Only subsequent
+  /// pipeline updates wait for an idle viewport.
+  private func applyRender(
+    to overlay: ReaderTranslationPageOverlay, page: PDFPage, in view: PDFView,
+    index: Int, remoteReset: Bool = false, remoteClear: Bool = false,
+    animated: Bool = true
+  ) {
+    // Keep geometry and content bound to the same live page object.
     overlay.rebind(page: page, pdfView: view)
-    overlay.performRenderingUpdate(showTranslations: showTranslations) {
+    overlay.performRenderingUpdate(showTranslations: showTranslations, animated: animated) {
       overlay.setTranslationFont(
         name: preferences.translationFont,
         serif: preferences.translationSerif,
@@ -207,12 +224,6 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
         overlay.setRemoteProgress(progress)
       }
     }
-
-    if pendingRenderPages.isEmpty, pendingTranslationRevision {
-      translationRevision &+= 1
-      pendingTranslationRevision = false
-    }
-    return !pendingRenderPages.isEmpty
   }
 
   private func queueRemoteReset(for pageIndex: Int) {
@@ -757,6 +768,9 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     } else {
       overlay = ReaderTranslationPageOverlay(pageIndex: index, page: page, pdfView: pdfView)
       overlays[index] = overlay
+      // Hydrate from completed results synchronously; never expose the source
+      // page first and fade the translation in after the zoom finishes.
+      applyRender(to: overlay, page: page, in: pdfView, index: index, animated: false)
     }
     overlayAccessOrder.removeAll { $0 == index }
     overlayAccessOrder.append(index)
