@@ -201,11 +201,13 @@ final class ReaderTranslationMarkupView: UIView {
     let color: UIColor
   }
 
-  var covers: [CGRect] = [] { didSet { setNeedsDisplay() } }
-  var highlights: [Highlight] = [] { didSet { setNeedsDisplay() } }
-  var comments: [PDFAnnotation] = [] { didSet { setNeedsDisplay() } }
+  var covers: [CGRect] = [] { didSet { if covers != oldValue { invalidate() } } }
+  var highlights: [Highlight] = [] { didSet { if highlights != oldValue { invalidate() } } }
+  var comments: [PDFAnnotation] = [] { didSet { if comments != oldValue { invalidate() } } }
   /// Maps page space (crop box) into this view, for PDFKit-drawn comment icons.
-  var pageTransform: CGAffineTransform = .identity { didSet { setNeedsDisplay() } }
+  var pageTransform: CGAffineTransform = .identity {
+    didSet { if pageTransform != oldValue, !comments.isEmpty { invalidate() } }
+  }
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -214,10 +216,25 @@ final class ReaderTranslationMarkupView: UIView {
     isUserInteractionEnabled = false
     contentMode = .redraw
     isAccessibilityElement = false
+    isHidden = true
   }
 
   required init?(coder: NSCoder) {
     nil
+  }
+
+  /// Most pages have no markup under a cover. Keep the page-sized backing
+  /// store out of memory and out of every scroll-time commit until they do.
+  private func invalidate() {
+    let empty = covers.isEmpty || (highlights.isEmpty && comments.isEmpty)
+    if empty {
+      guard !isHidden else { return }
+      isHidden = true
+      layer.contents = nil
+    } else {
+      isHidden = false
+      setNeedsDisplay()
+    }
   }
 
   override func draw(_ rect: CGRect) {
@@ -982,22 +999,48 @@ final class ReaderTranslationPageOverlay: UIView {
     )
     let available = CGSize(width: max(1, available.width), height: max(1, available.height))
     let step = max(0.25, baseSize / 40)
-    var size = baseSize
-    while size > minimumSize {
-      let font = selectedFont.withSize(size)
+    let key = "\(selectedFont.fontName)|\(baseSize)|\(minimumSize)|\(available.width)|\(available.height)|\(text)" as NSString
+    if let cached = Self.fittedSizes.object(forKey: key) {
+      return selectedFont.withSize(CGFloat(cached.doubleValue))
+    }
+    func fits(_ size: CGFloat) -> Bool {
       let measured = (text as NSString).boundingRect(
         with: CGSize(width: available.width, height: .greatestFiniteMagnitude),
         options: [.usesLineFragmentOrigin, .usesFontLeading],
-        attributes: [.font: font],
+        attributes: [.font: selectedFont.withSize(size)],
         context: nil
       )
-      if measured.height <= available.height {
-        return font
-      }
-      size -= step
+      return measured.height <= available.height
     }
-    return selectedFont.withSize(max(1, minimumSize))
+    // Same candidates as stepping down from the base size, found by bisection:
+    // remounting a page during a scroll measured up to 40 sizes per paragraph.
+    var size = max(1, minimumSize)
+    if baseSize > minimumSize {
+      var low = 0
+      var high = Int(((baseSize - minimumSize) / step).rounded(.up)) - 1
+      var best: Int?
+      while low <= high {
+        let middle = (low + high) / 2
+        if fits(baseSize - CGFloat(middle) * step) {
+          best = middle
+          high = middle - 1
+        } else {
+          low = middle + 1
+        }
+      }
+      if let best { size = baseSize - CGFloat(best) * step }
+    }
+    Self.fittedSizes.setObject(NSNumber(value: Double(size)), forKey: key)
+    return selectedFont.withSize(size)
   }
+
+  /// Fit results survive overlay retirement, so scrolling back to a page
+  /// does not measure its paragraphs again.
+  private static let fittedSizes: NSCache<NSString, NSNumber> = {
+    let cache = NSCache<NSString, NSNumber>()
+    cache.countLimit = 4_000
+    return cache
+  }()
 
   private func textAlignment(for value: String?) -> NSTextAlignment {
     switch value {
