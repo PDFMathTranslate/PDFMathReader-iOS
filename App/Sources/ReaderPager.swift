@@ -76,7 +76,7 @@ struct ReaderPager: View {
   }
 
   private var island: some View {
-    HStack(spacing: 5) {
+    HStack(spacing: 0) {
       pageButton(
         "chevron.up",
         label: L10n.string("navigator.previousPage"),
@@ -87,15 +87,19 @@ struct ReaderPager: View {
         TextField("", text: $entry)
           .keyboardType(.numberPad)
           .multilineTextAlignment(.center)
-          .font(.system(size: 12).monospacedDigit())
-          .frame(width: 42, height: 28)
-          .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 5))
+          .font(.body.weight(.semibold).monospacedDigit())
+          .frame(width: max(36, CGFloat(String(model.pageCount).count) * 11), height: 44)
+          .background {
+            if isEditing {
+              Capsule().fill(.primary.opacity(0.08))
+            }
+          }
           .focused($isEditing)
           .accessibilityLabel(L10n.string("navigator.pageNumber"))
           .accessibilityIdentifier("reader.pager.page")
           .onSubmit(submit)
         Text(verbatim: "/ \(model.pageCount)")
-          .font(.system(size: 12).monospacedDigit())
+          .font(.subheadline.monospacedDigit())
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }
@@ -106,13 +110,8 @@ struct ReaderPager: View {
         disabled: model.readingState.page >= model.pageCount
       ) { model.goToPage(model.readingState.page + 1) }
     }
-    .padding(5)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-    .overlay {
-      RoundedRectangle(cornerRadius: 10)
-        .strokeBorder(Color(uiColor: .separator).opacity(0.6), lineWidth: 1)
-    }
-    .shadow(color: .black.opacity(0.13), radius: 7, y: 3)
+    .padding(4)
+    .modifier(ReaderPagerGlassSurface())
     .accessibilityElement(children: .contain)
     .accessibilityLabel(L10n.string("navigator.pageNavigator"))
     .accessibilityIdentifier("reader.pager")
@@ -150,12 +149,13 @@ struct ReaderPager: View {
       visibility.show()
     } label: {
       Image(systemName: systemImage)
-        .font(.system(size: 14, weight: .medium))
-        .frame(width: 32, height: 32)
-        .contentShape(Rectangle())
+        .font(.body.weight(.semibold))
+        .frame(width: 44, height: 44)
+        .contentShape(Circle())
     }
-    .buttonStyle(.plain)
-    .foregroundStyle(disabled ? .tertiary : .secondary)
+    .buttonStyle(.borderless)
+    .buttonBorderShape(.circle)
+    .foregroundStyle(disabled ? .tertiary : .primary)
     .disabled(disabled)
     .accessibilityLabel(label)
   }
@@ -165,5 +165,20 @@ struct ReaderPager: View {
       model.goToPage(page)
     }
     entry = "\(model.readingState.page)"
+  }
+}
+
+private struct ReaderPagerGlassSurface: ViewModifier {
+  func body(content: Content) -> some View {
+    if #available(iOS 26.0, *) {
+      content.glassEffect(.regular, in: .capsule)
+    } else {
+      content
+        .background(.regularMaterial, in: Capsule())
+        .overlay {
+          Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+    }
   }
 }

@@ -438,6 +438,25 @@ private struct ReaderDetail: View {
         readerHeader
         if let readerTabStrip { readerTabStrip() }
       }
+      .background {
+        // Cover the status bar and the full chrome, then soften the edge
+        // into the document without changing the PDF viewport.
+        Rectangle()
+          .fill(.regularMaterial)
+          .mask {
+            LinearGradient(
+              stops: [
+                .init(color: .black, location: 0),
+                .init(color: .black, location: 0.65),
+                .init(color: .clear, location: 1)
+              ],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          }
+          .padding(.bottom, -24)
+          .ignoresSafeArea(.container, edges: .top)
+      }
       .opacity(titleBarHidden ? 0 : 1)
       .offset(y: titleBarHidden && !reduceMotion ? -12 : 0)
       .allowsHitTesting(!titleBarHidden)
@@ -827,7 +846,7 @@ private struct ReaderSidebar: View {
         }
       }
       .pickerStyle(.segmented)
-      .padding(.horizontal, 12)
+      .padding(.horizontal, 20)
       .padding(.vertical, 10)
 
       switch mode {
@@ -835,6 +854,7 @@ private struct ReaderSidebar: View {
         ReaderThumbnailList(model: model)
       case .outline:
         OutlineList(model: model)
+          .padding(.horizontal, 8)
       case .annotations:
         ReaderAnnotationsSidebar(
           model: annotations,
@@ -842,6 +862,7 @@ private struct ReaderSidebar: View {
           pdfViewReference: model.pdfViewReference,
           onJump: model.goToPage
         )
+        .padding(.horizontal, 8)
       }
     }
     .background(.regularMaterial)
@@ -860,7 +881,7 @@ private struct ReaderThumbnailList: View {
   var body: some View {
     GeometryReader { geometry in
       let spacing: CGFloat = 12
-      let horizontalPadding: CGFloat = 16
+      let horizontalPadding: CGFloat = 24
       let thumbnailWidth = max(0,
         (geometry.size.width - horizontalPadding * 2 - spacing * CGFloat(columnCount - 1))
           / CGFloat(columnCount)) * 0.8
@@ -1320,6 +1341,9 @@ private struct OutlineList: View {
               }
             }
             .padding(.leading, CGFloat(entry.depth * 14))
+            .padding(.vertical, 10)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
           .disabled(entry.page == nil)

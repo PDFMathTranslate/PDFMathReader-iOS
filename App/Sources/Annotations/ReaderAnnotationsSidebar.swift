@@ -9,6 +9,7 @@ struct ReaderAnnotationsSidebar: View {
   @ObservedObject var pdfViewReference: PDFViewReference
   let onJump: (Int) -> Void
   @State private var editing: ReaderAnnotation?
+  @State private var selectedAnnotationID: String?
 
   var body: some View {
     List {
@@ -24,6 +25,8 @@ struct ReaderAnnotationsSidebar: View {
           presentReaderQuickLinkTargetPrompt(model: model, pdfView: view, origin: origin)
         } label: {
           Label(L10n.string("ios.createQuickLink"), systemImage: "link.badge.plus")
+            .padding(.vertical, 10)
+            .frame(minHeight: 44)
         }
       }
 
@@ -34,32 +37,48 @@ struct ReaderAnnotationsSidebar: View {
         } else {
           ForEach(model.annotations) { annotation in
             Button {
+              selectedAnnotationID = annotation.id
               onJump(annotation.page)
             } label: {
               VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                HStack(spacing: 4) {
                   Circle()
-                    .fill(Color(uiColor: UIColor(hex: annotation.color)))
-                    .frame(width: 9, height: 9)
-                  Text(
-                    annotation.kind == .highlight
-                      ? L10n.string("sidebar.highlight")
-                      : L10n.string("sidebar.comment")
-                  )
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                  Spacer(minLength: 4)
-                  Text(L10n.string("sidebar.page", String(annotation.page)))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .fill(annotation.kind == .comment ? Color(uiColor: .systemGray) : Color(uiColor: UIColor(hex: annotation.color)))
+                    .overlay { Circle().strokeBorder(.black.opacity(0.13), lineWidth: 0.5) }
+                    .frame(width: 10, height: 10)
+                  Text(verbatim: annotationMetadata(annotation))
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                Text(annotation.kind == .comment ? annotation.comment : annotation.text)
-                  .lineLimit(3)
-                  .frame(maxWidth: .infinity, alignment: .leading)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                let excerpt = annotationExcerpt(annotation.text)
+                if !excerpt.isEmpty {
+                  Text(verbatim: excerpt)
+                    .lineLimit(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !annotation.comment.isEmpty {
+                  Text(verbatim: annotation.comment)
+                    .lineLimit(4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if excerpt.isEmpty && annotation.comment.isEmpty {
+                  Text(L10n.string(annotation.kind == .comment ? "sidebar.comment" : "sidebar.highlight"))
+                }
               }
-              .padding(.vertical, 3)
+              .font(.footnote)
+              .padding(.vertical, 10)
+              .frame(minHeight: 44)
+              .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10))
+            .listRowSeparator(.hidden)
+            .listRowBackground(
+              RoundedRectangle(cornerRadius: 14)
+                .fill(.primary.opacity(selectedAnnotationID == annotation.id ? 0.1 : 0))
+                .padding(.vertical, 2)
+            )
             .contextMenu {
               Button(
                 L10n.string(annotation.kind == .comment ? "ios.editComment" : "ios.addComment"),
@@ -125,7 +144,8 @@ struct ReaderAnnotationsSidebar: View {
                 .foregroundStyle(.secondary)
                 DrawingAnnotationPreview(drawing: drawing)
               }
-              .padding(.vertical, 3)
+              .padding(.vertical, 10)
+              .frame(minHeight: 44)
               .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -161,6 +181,9 @@ struct ReaderAnnotationsSidebar: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
+                .padding(.vertical, 10)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
 
@@ -183,6 +206,9 @@ struct ReaderAnnotationsSidebar: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
+                .padding(.vertical, 10)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
             }
@@ -222,6 +248,31 @@ struct ReaderAnnotationsSidebar: View {
     } message: {
       Text(model.lastError ?? "")
     }
+  }
+
+  private func annotationExcerpt(_ text: String) -> String {
+    // Match desktop: join PDF line breaks, preserving literal bracket contents.
+    text.components(separatedBy: CharacterSet(charactersIn: "\r\n\u{2028}\u{2029}"))
+      .joined()
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func annotationMetadata(_ annotation: ReaderAnnotation) -> String {
+    let source = L10n.string(annotation.origin == .translation ? "sidebar.translation" : "sidebar.source")
+    let page = L10n.string("sidebar.page", String(annotation.page))
+    let timestamp = annotation.modifiedAt ?? (annotation.dateUnknown == true ? nil : annotation.createdAt)
+    let date = timestamp.flatMap { value in
+      ISO8601DateFormatter().date(from: value) ?? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions.insert(.withFractionalSeconds)
+        return formatter.date(from: value)
+      }()
+    }
+    let dateLabel = date?.formatted(
+      Date.FormatStyle().year().month(.twoDigits).day(.twoDigits).locale(L10n.locale)
+    )
+      ?? L10n.string("annotationBrowser.date.unknown")
+    return "\(source) · \(page) · \(dateLabel)"
   }
 
   private func quickLinkLocation(_ box: ReaderQuickLinkBox) -> String {
