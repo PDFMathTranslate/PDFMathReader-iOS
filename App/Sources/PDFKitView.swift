@@ -165,6 +165,7 @@ struct PDFKitView: UIViewRepresentable {
   var onScroll: (() -> Void)?
   /// Positive follows the reading axis (down/right); negative goes back.
   var onUserScroll: ((CGFloat) -> Void)? = nil
+  var onBackgroundTap: (() -> Void)? = nil
 
   func makeCoordinator() -> Coordinator {
     Coordinator(onStateChanged: onStateChanged, annotationModel: annotationModel)
@@ -212,6 +213,7 @@ struct PDFKitView: UIViewRepresentable {
     context.coordinator.setDrawingModel(drawingModel)
     context.coordinator.onScroll = onScroll
     context.coordinator.onUserScroll = onUserScroll
+    context.coordinator.onBackgroundTap = onBackgroundTap
     context.coordinator.observeScrolling()
     context.coordinator.apply(readingState, scaleRevision: reference.scaleRevision)
   }
@@ -227,6 +229,8 @@ struct PDFKitView: UIViewRepresentable {
     private let annotationModel: ReaderAnnotationViewModel?
     var onScroll: (() -> Void)?
     var onUserScroll: ((CGFloat) -> Void)?
+    var onBackgroundTap: (() -> Void)?
+    private let backgroundTap = UITapGestureRecognizer()
     private var lastPanTranslation: CGFloat = 0
     private var pendingPanDistance: CGFloat = 0
     private var scrollObservation: NSKeyValueObservation?
@@ -280,6 +284,11 @@ struct PDFKitView: UIViewRepresentable {
       fingerPress.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
       fingerPress.delegate = self
       view.addGestureRecognizer(fingerPress)
+      backgroundTap.addTarget(self, action: #selector(backgroundTapped(_:)))
+      backgroundTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+      backgroundTap.cancelsTouchesInView = false
+      backgroundTap.delegate = self
+      view.addGestureRecognizer(backgroundTap)
       view.addInteraction(editMenu)
       syncDrawingMode()
       view.registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: PDFView, _) in
@@ -450,6 +459,37 @@ struct PDFKitView: UIViewRepresentable {
       view.setCurrentSelection(word, animate: false)
       view.becomeFirstResponder()
       editMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
+    }
+
+    @objc private func backgroundTapped(_ gesture: UITapGestureRecognizer) {
+      guard gesture.state == .ended else { return }
+      onBackgroundTap?()
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+      guard gestureRecognizer === backgroundTap else { return true }
+      guard let view = pdfView, drawingModel?.isDrawing != true,
+            view.currentSelection == nil else { return false }
+      // Let PDFKit and annotation overlays own links, notes and controls.
+      var target = touch.view
+      while let current = target, current !== view {
+        if current is UIControl || current is UITextView { return false }
+        target = current.superview
+      }
+      let point = touch.location(in: view)
+      if annotationModel?.annotation(at: point, in: view) != nil { return false }
+      if let page = view.page(for: point, nearest: false),
+         page.annotation(at: view.convert(point, to: page)) != nil { return false }
+      return true
+    }
+
+    func gestureRecognizer(
+      _ gestureRecognizer: UIGestureRecognizer,
+      shouldBeRequiredToFailBy other: UIGestureRecognizer
+    ) -> Bool {
+      // A double-tap zoom/selection must never also toggle the header.
+      gestureRecognizer === backgroundTap
+        && (other as? UITapGestureRecognizer).map { $0.numberOfTapsRequired > 1 } == true
     }
 
     nonisolated func gestureRecognizer(

@@ -183,6 +183,7 @@ struct ReaderView: View {
                   }
               }
               .presentationDetents([.medium, .large])
+              .presentationBackground(.clear)
             }
         }
       } else if model.isLoadingDocument {
@@ -495,6 +496,10 @@ private struct ReaderDetail: View {
       onUserScroll: { distance in
         guard model.library.preferences.autoHideTitleBar, !drawings.isDrawing else { return }
         titleBarHidden = distance > 0
+      },
+      onBackgroundTap: {
+        guard !drawings.isDrawing else { return }
+        titleBarHidden.toggle()
       }
     )
     // Let the page use the landscape camera inset too. Only the document
@@ -998,7 +1003,29 @@ private struct ReaderSidebar: View {
         .padding(.horizontal, 8)
       }
     }
-    .background(.regularMaterial)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .scrollContentBackground(.hidden)
+    .containerBackground(.clear, for: .navigation)
+    .toolbarBackground(.hidden, for: .navigationBar)
+    .background {
+      ReaderSidebarGlassBackground()
+        .ignoresSafeArea()
+    }
+  }
+}
+
+private struct ReaderSidebarGlassBackground: View {
+  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+  var body: some View {
+    if reduceTransparency {
+      Color(uiColor: .systemBackground)
+    } else if #available(iOS 26.0, *) {
+      Color.clear
+        .glassEffect(.regular, in: Rectangle())
+    } else {
+      Rectangle().fill(.ultraThinMaterial)
+    }
   }
 }
 
@@ -1480,8 +1507,10 @@ private struct OutlineList: View {
           }
           .buttonStyle(.plain)
           .disabled(entry.page == nil)
+          .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
       }
     }
     .task(id: model.library.preferences.tocGenerationEnabled) { await model.loadGeneratedTOC() }

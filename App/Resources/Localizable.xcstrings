@@ -9,16 +9,94 @@
             "value": "Keep Awake While Document Is Open"
           }
         },
-        "zh-Hans": {
+        "zh-CN": {
           "stringUnit": {
             "state": "translated",
             "value": "文档打开时不休眠"
           }
         },
-        "zh-Hant": {
+        "zh-TW": {
           "stringUnit": {
             "state": "translated",
             "value": "文件開啟時不休眠"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء الشاشة مضاءة أثناء فتح المستند"
+          }
+        },
+        "arz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلّي الشاشة منوّرة طول ما المستند مفتوح"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "নথি খোলা থাকলে স্ক্রিন চালু রাখুন"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm bei geöffnetem Dokument eingeschaltet lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener la pantalla encendida mientras el documento esté abierto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder l’écran allumé tant que le document est ouvert"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "दस्तावेज़ खुला रहने पर स्क्रीन चालू रखें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書類を開いている間は画面を常時オン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "문서가 열려 있는 동안 화면 켜 두기"
+          }
+        },
+        "pcm": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep screen on as document dey open"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter o ecrã ligado enquanto o documento estiver aberto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не выключать экран, пока документ открыт"
+          }
+        },
+        "ur": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دستاویز کھلی ہونے تک اسکرین روشن رکھیں"
           }
         }
       }

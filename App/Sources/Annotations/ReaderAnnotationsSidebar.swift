@@ -222,6 +222,7 @@ struct ReaderAnnotationsSidebar: View {
       }
     }
     .listStyle(.plain)
+    .scrollContentBackground(.hidden)
     .sheet(item: $editing) { annotation in
       AnnotationCommentEditor(
         annotation: annotation,
