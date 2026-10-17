@@ -70,7 +70,9 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
   private var overlays: [Int: ReadingAidsPageOverlay] = [:]
   private var analyses: [Int: ReadingAidsPageAnalysis] = [:]
   private var analysisGeneration = 0
-  private var pendingAnalysisTasks: [Int: Task<Void, Never>] = [:]
+  // Read by the nonisolated deinit, which runs only once no other reference
+  // can mutate it.
+  nonisolated(unsafe) private var pendingAnalysisTasks: [Int: Task<Void, Never>] = [:]
   private var configurationObservers: [UUID: (ReadingAidsConfiguration) -> Void] = [:]
   // PDFKit can keep one overlay per page alive after it scrolls off screen.
   // Converted glyph rectangles are display-state geometry, so retain it only
@@ -95,7 +97,9 @@ public final class ReadingAidsOverlayProvider: ObservableObject, ReaderPageOverl
     self.readingAidsConfiguration = ReadingAidsConfiguration(preferences: preferences)
   }
 
-  isolated deinit {
+  // Not `isolated deinit`: its iOS 18 back-deployment frees an unallocated
+  // task-local scope and aborts the process.
+  deinit {
     pendingAnalysisTasks.values.forEach { $0.cancel() }
   }
 
@@ -379,8 +383,8 @@ public final class ReaderPageOverlayCompositeProvider: ReaderPageOverlayProvidin
 
   private let providers: [any ReaderPageOverlayProviding]
   private var composites: [Int: ReadingAidsCompositePageOverlay] = [:]
-  private weak var readingProvider: ReadingAidsOverlayProvider?
-  private var configurationObserverToken: UUID?
+  nonisolated(unsafe) private weak var readingProvider: ReadingAidsOverlayProvider?
+  nonisolated(unsafe) private var configurationObserverToken: UUID?
 
   public init(providers: [any ReaderPageOverlayProviding]) {
     self.providers = providers
@@ -394,9 +398,13 @@ public final class ReaderPageOverlayCompositeProvider: ReaderPageOverlayProvidin
     }
   }
 
-  isolated deinit {
-    if let readingProvider, let configurationObserverToken {
-      readingProvider.removeConfigurationObserver(configurationObserverToken)
+  // See ReadingAidsOverlayProvider's deinit for why this is not isolated.
+  deinit {
+    guard let readingProvider, let token = configurationObserverToken else { return }
+    if Thread.isMainThread {
+      MainActor.assumeIsolated { readingProvider.removeConfigurationObserver(token) }
+    } else {
+      Task { @MainActor in readingProvider.removeConfigurationObserver(token) }
     }
   }
 
