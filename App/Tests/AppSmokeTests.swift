@@ -100,7 +100,7 @@ final class AppSmokeTests: XCTestCase {
       let margins = view.pageBreakMargins
       state.scaleMode = .fitWidth
       coordinator.apply(state)
-      XCTAssertEqual(view.scaleFactor, 800 / (360 + margins.left + margins.right), accuracy: 0.01)
+      XCTAssertEqual(view.scaleFactor, 800.0 / 360.0, accuracy: 0.01)
       state.scaleMode = .fitPage
       coordinator.apply(state)
       XCTAssertEqual(view.scaleFactor, 400 / (540 + margins.top + margins.bottom), accuracy: 0.01)
@@ -117,6 +117,125 @@ final class AppSmokeTests: XCTestCase {
     view.displaysPageBreaks = false
     coordinator.apply(state)
     XCTAssertEqual(view.scaleFactor, 1.25, accuracy: 0.01)
+  }
+
+  @MainActor
+  func testFitWidthVerticalLocksHorizontalOffsetUntilZoomed() async throws {
+    let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 600, height: 1800)).pdfData {
+      $0.beginPage()
+    }
+    let document = try XCTUnwrap(ReaderPDFDocument(data: data))
+
+    for displaysPageBreaks in [true, false] {
+      let view = ReaderAnnotationPDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 600))
+      view.displaysPageBreaks = displaysPageBreaks
+      view.displayBox = .artBox
+      view.minScaleFactor = 0.1
+      view.maxScaleFactor = 5
+      let coordinator = PDFKitView.Coordinator(onStateChanged: { _ in }, annotationModel: nil)
+      coordinator.attach(view, document: document, overlayProvider: nil)
+
+      var state = ReadingState(pageCrop: PageCrop(x: 0.1, y: 0.1))
+      state.scrollDirection = .vertical
+      state.scaleMode = .fitWidth
+      coordinator.apply(state)
+      view.layoutIfNeeded()
+      try await Task.sleep(for: .milliseconds(100))
+
+      let page = try XCTUnwrap(document.page(at: 0))
+      let fittedPage = view.convert(page.bounds(for: view.displayBox), from: page)
+      XCTAssertEqual(fittedPage.width, view.bounds.width, accuracy: 1,
+        "Fit width must consume the viewport width without page-break margins (\(displaysPageBreaks))")
+      XCTAssertEqual(fittedPage.minX, 0, accuracy: 1,
+        "Fit width must not leave a horizontal cross-axis margin (\(displaysPageBreaks))")
+
+      coordinator.observeScrolling()
+      let fitOffset = scrollOffset(for: view)
+      let scroll = try XCTUnwrap(readerPDFScrollView(in: view))
+      let insets = scroll.adjustedContentInset
+      let maxY = max(-insets.top, scroll.contentSize.height - scroll.bounds.height + insets.bottom)
+      let mainOffset = min(maxY, fitOffset.y + 80)
+      XCTAssertGreaterThan(mainOffset, fitOffset.y + 10, "The fitted page must retain vertical scrolling")
+
+      scroll.contentOffset = CGPoint(x: fitOffset.x + 80, y: mainOffset)
+      try await Task.sleep(for: .milliseconds(100))
+      XCTAssertEqual(scroll.contentOffset.x, fitOffset.x, accuracy: 1,
+        "Fit width must clamp horizontal cross-axis movement (\(displaysPageBreaks))")
+      XCTAssertEqual(scroll.contentOffset.y, mainOffset, accuracy: 1,
+        "Clamping the cross-axis must preserve vertical scrolling (\(displaysPageBreaks))")
+
+      let fittedScale = view.scaleFactor
+      // A live pinch changes PDFKit's scale before the saved fit mode changes.
+      view.scaleFactor = fittedScale * 1.25
+      view.layoutIfNeeded()
+      try await Task.sleep(for: .milliseconds(100))
+      scroll.contentOffset = CGPoint(x: fitOffset.x + 40, y: mainOffset)
+      try await Task.sleep(for: .milliseconds(100))
+      XCTAssertGreaterThan(scroll.contentOffset.x, fitOffset.x + 10,
+        "Cross-axis movement must be available above the fitted width")
+      XCTAssertEqual(scroll.contentOffset.y, mainOffset, accuracy: 1,
+        "Zooming must preserve the main-axis offset")
+    }
+  }
+
+  @MainActor
+  func testFitHeightHorizontalLocksVerticalOffsetUntilZoomed() async throws {
+    let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 600, height: 1800)).pdfData {
+      $0.beginPage()
+    }
+    let document = try XCTUnwrap(ReaderPDFDocument(data: data))
+    let page = try XCTUnwrap(document.page(at: 0))
+    page.rotation = 90
+
+    for displaysPageBreaks in [true, false] {
+      let view = ReaderAnnotationPDFView(frame: CGRect(x: 0, y: 0, width: 600, height: 400))
+      view.displaysPageBreaks = displaysPageBreaks
+      view.displayBox = .artBox
+      view.minScaleFactor = 0.1
+      view.maxScaleFactor = 5
+      let coordinator = PDFKitView.Coordinator(onStateChanged: { _ in }, annotationModel: nil)
+      coordinator.attach(view, document: document, overlayProvider: nil)
+
+      var state = ReadingState(pageCrop: PageCrop(x: 0.1, y: 0.15))
+      state.scrollDirection = .horizontal
+      state.scaleMode = .fitHeight
+      coordinator.apply(state)
+      view.layoutIfNeeded()
+      try await Task.sleep(for: .milliseconds(100))
+
+      let fittedPage = view.convert(page.bounds(for: view.displayBox), from: page)
+      XCTAssertEqual(fittedPage.height, view.bounds.height, accuracy: 1,
+        "Fit height must consume the viewport height without page-break margins (\(displaysPageBreaks))")
+      XCTAssertEqual(fittedPage.minY, 0, accuracy: 1,
+        "Fit height must not leave a vertical cross-axis margin (\(displaysPageBreaks))")
+
+      coordinator.observeScrolling()
+      let fitOffset = scrollOffset(for: view)
+      let scroll = try XCTUnwrap(readerPDFScrollView(in: view))
+      let insets = scroll.adjustedContentInset
+      let maxX = max(-insets.left, scroll.contentSize.width - scroll.bounds.width + insets.right)
+      let mainOffset = min(maxX, fitOffset.x + 80)
+      XCTAssertGreaterThan(mainOffset, fitOffset.x + 10, "The fitted page must retain horizontal scrolling")
+
+      scroll.contentOffset = CGPoint(x: mainOffset, y: fitOffset.y + 80)
+      try await Task.sleep(for: .milliseconds(100))
+      XCTAssertEqual(scroll.contentOffset.y, fitOffset.y, accuracy: 1,
+        "Fit height must clamp vertical cross-axis movement (\(displaysPageBreaks))")
+      XCTAssertEqual(scroll.contentOffset.x, mainOffset, accuracy: 1,
+        "Clamping the cross-axis must preserve horizontal scrolling (\(displaysPageBreaks))")
+
+      let fittedScale = view.scaleFactor
+      // A live pinch changes PDFKit's scale before the saved fit mode changes.
+      view.scaleFactor = fittedScale * 1.25
+      view.layoutIfNeeded()
+      try await Task.sleep(for: .milliseconds(100))
+      scroll.contentOffset = CGPoint(x: mainOffset, y: fitOffset.y + 40)
+      try await Task.sleep(for: .milliseconds(100))
+      XCTAssertGreaterThan(scroll.contentOffset.y, fitOffset.y + 10,
+        "Cross-axis movement must be available above the fitted height")
+      XCTAssertEqual(scroll.contentOffset.x, mainOffset, accuracy: 1,
+        "Zooming must preserve the main-axis offset")
+    }
   }
 
   @MainActor
@@ -366,6 +485,11 @@ final class AppSmokeTests: XCTestCase {
       document.insert(page, at: index)
     }
     return try XCTUnwrap(document.dataRepresentation())
+  }
+
+  @MainActor
+  private func scrollOffset(for view: UIView) -> CGPoint {
+    readerPDFScrollView(in: view)?.contentOffset ?? .zero
   }
 }
 

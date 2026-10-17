@@ -891,6 +891,7 @@ private struct ReaderDetail: View {
     switch mode {
     case .fitPage: "arrow.up.left.and.arrow.down.right"
     case .fitWidth: "arrow.left.and.right"
+    case .fitHeight: "arrow.up.and.down"
     case .actualSize: "1.magnifyingglass"
     case .custom: "slider.horizontal.3"
     }
@@ -908,6 +909,7 @@ private struct ReaderDetail: View {
     switch mode {
     case .fitPage: L10n.string("ios.fitPage")
     case .fitWidth: L10n.string("menu.extra.messages.Fit Width")
+    case .fitHeight: L10n.string("menu.extra.messages.Fit Height")
     case .actualSize: L10n.string("ios.actualSize")
     case .custom: L10n.string("appearance.custom")
     }

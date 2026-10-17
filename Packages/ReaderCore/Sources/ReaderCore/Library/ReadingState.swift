@@ -3,6 +3,7 @@ import Foundation
 public enum ReaderScaleMode: String, Codable, CaseIterable, Sendable {
   case fitPage
   case fitWidth
+  case fitHeight
   case actualSize
   case custom
 }

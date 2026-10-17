@@ -255,6 +255,10 @@ struct PDFKitView: UIViewRepresentable {
     private var latestScaleRevision = 0
     private var appliedScaleRequest: ScaleRequest?
     private weak var scaleDocument: PDFDocument?
+    private var standardPageMargins = UIEdgeInsets.zero
+    private var isConstrainingOffset = false
+    private var fittedAxisOffset: CGPoint?
+
 
     init(
       onStateChanged: @escaping (PDFView) -> Void,
@@ -270,6 +274,7 @@ struct PDFKitView: UIViewRepresentable {
       overlayProvider: (any ReaderPageOverlayProviding)?
     ) {
       pdfView = view
+      standardPageMargins = view.displaysPageBreaks ? view.pageBreakMargins : PDFView().pageBreakMargins
       (view as? ReaderAnnotationPDFView)?.onViewportLayout = { [weak self] in
         guard let self, let state = self.latestReadingState else { return }
         self.apply(state, restorePage: false)
@@ -328,10 +333,12 @@ struct PDFKitView: UIViewRepresentable {
       scrollObservation = scrollView.observe(\.contentOffset, options: [.new, .old]) { [weak self] scrollView, change in
         guard change.newValue != change.oldValue else { return }
         MainActor.assumeIsolated {
-          if let view = self?.pdfView, readerPDFInteractionIsActive(view) {
-            self?.deferTranslationRendering()
+          guard let self, !self.isConstrainingOffset else { return }
+          self.constrainReadingAxis()
+          if let view = self.pdfView, readerPDFInteractionIsActive(view) {
+            self.deferTranslationRendering()
           }
-          self?.onScroll?()
+          self.onScroll?()
         }
       }
     }
@@ -342,6 +349,7 @@ struct PDFKitView: UIViewRepresentable {
 
     @objc private func handleReadingPinch(_ pinch: UIPinchGestureRecognizer) {
       deferTranslationRendering()
+      if pinch.state == .ended || pinch.state == .cancelled { constrainReadingAxis() }
     }
 
     /// Read the gesture rather than contentOffset: changing the header's safe
@@ -514,6 +522,7 @@ struct PDFKitView: UIViewRepresentable {
       guard let view = pdfView, !isReloadingAppearance,
         (view as? ReaderAnnotationPDFView)?.isUpdatingPageGeometry != true else { return }
       observeScrolling()
+      constrainReadingAxis()
       onStateChanged(view)
     }
 
@@ -551,6 +560,16 @@ struct PDFKitView: UIViewRepresentable {
 
       if view.displayMode != displayMode { view.displayMode = displayMode }
       if view.autoScales { view.autoScales = false }
+      // A fitted dimension uses the whole viewport. Keep spacing only along
+      // the reading axis instead of shrinking the page for cross-axis gutters.
+      var margins = standardPageMargins
+      if state.scaleMode == .fitWidth { margins.left = 0; margins.right = 0 }
+      if state.scaleMode == .fitHeight { margins.top = 0; margins.bottom = 0 }
+      if !view.displaysPageBreaks { margins = .zero }
+      if view.pageBreakMargins != margins {
+        view.pageBreakMargins = margins
+        view.layoutDocumentView()
+      }
       let request = ScaleRequest(
         mode: state.scaleMode, zoom: state.scaleMode == .custom ? state.zoom : 0,
         displayMode: state.displayMode, direction: state.scrollDirection, size: view.bounds.size,
@@ -561,11 +580,12 @@ struct PDFKitView: UIViewRepresentable {
       // fit-page. Translation/pager updates must not snap it back and discard
       // sharp tiles. Apply zoom only for a new setting, document or viewport size.
       if request != appliedScaleRequest || scaleDocument !== view.document {
+        fittedAxisOffset = nil
         appliedScaleRequest = request
         scaleDocument = view.document
         let baseScale: CGFloat
         switch state.scaleMode {
-        case .fitPage, .fitWidth:
+        case .fitPage, .fitWidth, .fitHeight:
           baseScale = fittedScale(in: view, state: state) ?? view.scaleFactorForSizeToFit
         case .actualSize: baseScale = 1
         case .custom: baseScale = CGFloat(state.zoom)
@@ -576,7 +596,7 @@ struct PDFKitView: UIViewRepresentable {
         if targetScale.isFinite, targetScale > 0, abs(view.scaleFactor - targetScale) > 0.001 {
           view.scaleFactor = targetScale
         }
-        if state.scaleMode == .fitPage || state.scaleMode == .fitWidth {
+        if state.scaleMode == .fitPage || state.scaleMode == .fitWidth || state.scaleMode == .fitHeight {
           view.layoutIfNeeded()
           alignFittedPage(in: view, state: state)
           // PDFKit can finish its zoom layout on the next turn. Reconcile the
@@ -599,20 +619,10 @@ struct PDFKitView: UIViewRepresentable {
     }
 
     private func alignFittedPage(in view: PDFView, state: ReadingState) {
-      guard let document = view.document, document.pageCount > 0,
+      guard view.document != nil,
         let scroll = Self.scrollView(in: view),
         !scroll.isTracking, !scroll.isDragging, !scroll.isZooming else { return }
-      let index = max(0, min(document.pageCount - 1, state.page - 1))
-      let twoUp = state.displayMode != .singlePage
-      let start = twoUp
-        ? (view.displaysAsBook ? (index == 0 ? 0 : 1 + ((index - 1) / 2) * 2) : (index / 2) * 2)
-        : index
-      let count = twoUp && !(view.displaysAsBook && start == 0) ? 2 : 1
-      var rect = CGRect.null
-      for i in start..<min(document.pageCount, start + count) {
-        guard let page = document.page(at: i) else { continue }
-        rect = rect.union(view.convert(page.bounds(for: view.displayBox), from: page))
-      }
+      let rect = fittedPageRect(in: view, state: state)
       guard !rect.isNull, rect.width > 0, rect.height > 0 else { return }
       // Horizontal continuous layout starts its first page at x=0. Without
       // leading/trailing scroll room the offset clamp pins a fitted narrow
@@ -625,7 +635,7 @@ struct PDFKitView: UIViewRepresentable {
       if scroll.contentInset != contentInset { scroll.contentInset = contentInset }
       var offset = scroll.contentOffset
       offset.x += rect.minX - max(0, (view.bounds.width - rect.width) / 2)
-      if state.scaleMode == .fitPage {
+      if state.scaleMode == .fitPage || state.scaleMode == .fitHeight {
         offset.y += rect.minY - max(0, (view.bounds.height - rect.height) / 2)
       }
       let insets = scroll.adjustedContentInset
@@ -634,6 +644,51 @@ struct PDFKitView: UIViewRepresentable {
       offset.y = min(max(-insets.top, offset.y), max(-insets.top,
         scroll.contentSize.height - scroll.bounds.height + insets.bottom))
       scroll.setContentOffset(offset, animated: false)
+      fittedAxisOffset = offset
+      constrainReadingAxis()
+    }
+
+    private func fittedPageRect(in view: PDFView, state: ReadingState) -> CGRect {
+      guard let document = view.document, document.pageCount > 0 else { return .null }
+      let index = max(0, min(document.pageCount - 1, state.page - 1))
+      let twoUp = state.displayMode != .singlePage
+      let start = twoUp
+        ? (view.displaysAsBook ? (index == 0 ? 0 : 1 + ((index - 1) / 2) * 2) : (index / 2) * 2)
+        : index
+      let count = twoUp && !(view.displaysAsBook && start == 0) ? 2 : 1
+      var rect = CGRect.null
+      for i in start..<min(document.pageCount, start + count) {
+        guard let page = document.page(at: i) else { continue }
+        rect = rect.union(view.convert(page.bounds(for: view.displayBox), from: page))
+      }
+      return rect
+    }
+
+    /// PDFKit permits cross-axis bounce even when a fitted page fills that
+    /// dimension. Reconcile only that coordinate, without replacing its scroll
+    /// delegate or interfering with the reading axis and pinch zoom.
+    private func constrainReadingAxis() {
+      guard !isConstrainingOffset, let view = pdfView,
+        let state = latestReadingState, let scroll = Self.scrollView(in: view),
+        !scroll.isZooming, scroll.pinchGestureRecognizer?.state != .began,
+        scroll.pinchGestureRecognizer?.state != .changed,
+        let fit = fittedScale(in: view, state: state)
+      else { return }
+      let locksX = state.scrollDirection == .vertical && state.scaleMode == .fitWidth
+      let locksY = state.scrollDirection == .horizontal && state.scaleMode == .fitHeight
+      guard locksX || locksY else { return }
+      // A live pinch can leave the saved fit mode unchanged. Compare the live
+      // scale, so zoomed pages regain both axes immediately.
+      guard view.scaleFactor <= fit + max(0.0001, fit * 0.001) else { return }
+      guard let fittedAxisOffset else { return }
+      var offset = scroll.contentOffset
+      if locksX { offset.x = fittedAxisOffset.x }
+      if locksY { offset.y = fittedAxisOffset.y }
+      guard abs(offset.x - scroll.contentOffset.x) > 0.01 ||
+        abs(offset.y - scroll.contentOffset.y) > 0.01 else { return }
+      isConstrainingOffset = true
+      scroll.setContentOffset(offset, animated: false)
+      isConstrainingOffset = false
     }
 
     /// PDFKit's continuous-layout auto scale always fits width, even when the
@@ -661,8 +716,12 @@ struct PDFKitView: UIViewRepresentable {
       }
       guard size.width > 0, size.height > 0 else { return nil }
       let widthScale = view.bounds.width / size.width
-      return state.scaleMode == .fitWidth ? widthScale
-        : min(widthScale, view.bounds.height / size.height)
+      let heightScale = view.bounds.height / size.height
+      switch state.scaleMode {
+      case .fitWidth: return widthScale
+      case .fitHeight: return heightScale
+      default: return min(widthScale, heightScale)
+      }
     }
 
     deinit {
