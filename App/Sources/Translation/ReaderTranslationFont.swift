@@ -173,7 +173,7 @@ struct ReaderRemoteTranslationFont {
       context.translateBy(x: run.rect.minX, y: run.rect.maxY)
       context.scaleBy(x: 1, y: -1)
       context.clip(to: rect.insetBy(dx: -0.5, dy: -0.5))
-      backgroundColor(in: background, beside: run.rect.applying(transform).standardized).setFill()
+      Self.backgroundColor(in: background, beside: run.rect.applying(transform).standardized).setFill()
       context.fill(rect.insetBy(dx: -0.5, dy: -0.5))
       let height = (run.text as NSString).size(withAttributes: [.font: font]).height
       (run.text as NSString).draw(
@@ -184,25 +184,41 @@ struct ReaderRemoteTranslationFont {
     }
   }
 
-  /// Sample just outside the glyph box so tinted paper and solid caption
-  /// backgrounds do not acquire white rectangles when their text is replaced.
-  private func backgroundColor(in image: UIImage, beside rect: CGRect) -> UIColor {
+  /// Use the dominant surrounding paper color, never a single pixel that may
+  /// belong to a neighboring glyph or its antialiased edge.
+  static func backgroundColor(in image: UIImage, beside rect: CGRect) -> UIColor {
     guard let cgImage = image.cgImage else { return .white }
-    let x = max(0, min(cgImage.width - 1, Int((rect.minX - 1) * image.scale)))
-    let y = max(0, min(cgImage.height - 1, Int((rect.minY - 1) * image.scale)))
-    guard let sample = cgImage.cropping(to: CGRect(x: x, y: y, width: 1, height: 1)) else { return .white }
-    var pixel = [UInt8](repeating: 0, count: 4)
-    return pixel.withUnsafeMutableBytes { bytes in
+    let region = rect.insetBy(dx: -3, dy: -3)
+      .applying(CGAffineTransform(scaleX: image.scale, y: image.scale)).integral
+      .intersection(CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+    guard !region.isEmpty, !region.isNull,
+      let sample = cgImage.cropping(to: region) else { return .white }
+    let width = sample.width, height = sample.height
+    var pixels = [UInt8](repeating: 0, count: width * height * 4)
+    return pixels.withUnsafeMutableBytes { bytes in
       guard let context = CGContext(
-        data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8,
+        bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
       ) else { return .white }
-      context.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+      context.draw(sample, in: CGRect(x: 0, y: 0, width: width, height: height))
       let values = bytes.bindMemory(to: UInt8.self)
-      let alpha = CGFloat(values[3]) / 255
-      guard alpha > 0 else { return .clear }
-      return UIColor(red: CGFloat(values[0]) / 255 / alpha, green: CGFloat(values[1]) / 255 / alpha,
-                     blue: CGFloat(values[2]) / 255 / alpha, alpha: alpha)
+      // Quantize to combine small rasterization differences on the same paper.
+      var bins: [Int: (count: Int, red: Int, green: Int, blue: Int)] = [:]
+      for offset in stride(from: 0, to: values.count, by: 4) {
+        let alpha = Int(values[offset + 3])
+        // Composite transparency onto white, matching the PDF paper surface.
+        let r = min(255, Int(values[offset]) + 255 - alpha)
+        let g = min(255, Int(values[offset + 1]) + 255 - alpha)
+        let b = min(255, Int(values[offset + 2]) + 255 - alpha)
+        let key = (r / 16 << 8) | (g / 16 << 4) | (b / 16)
+        let bin = bins[key] ?? (0, 0, 0, 0)
+        bins[key] = (bin.count + 1, bin.red + r, bin.green + g, bin.blue + b)
+      }
+      guard let paper = bins.values.max(by: { $0.count < $1.count }) else { return .white }
+      let divisor = CGFloat(paper.count) * 255
+      return UIColor(red: CGFloat(paper.red) / divisor, green: CGFloat(paper.green) / divisor,
+                     blue: CGFloat(paper.blue) / divisor, alpha: 1)
     }
   }
 

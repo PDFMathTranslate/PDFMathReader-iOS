@@ -6,6 +6,30 @@ import XCTest
 
 final class TranslationFontTests: XCTestCase {
   @MainActor
+  func testReplacementBackgroundIgnoresNeighboringInk() {
+    for paper in [UIColor.white, UIColor(red: 0.9, green: 0.85, blue: 0.7, alpha: 1)] {
+      let format = UIGraphicsImageRendererFormat()
+      format.scale = 1
+      let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 60), format: format).image { renderer in
+        paper.setFill()
+        renderer.fill(CGRect(x: 0, y: 0, width: 100, height: 60))
+        UIColor.darkGray.setFill()
+        // The old one-pixel sampler landed here and filled the whole word gray.
+        renderer.fill(CGRect(x: 19, y: 19, width: 2, height: 2))
+      }
+      let sampled = ReaderRemoteTranslationFont.backgroundColor(
+        in: image, beside: CGRect(x: 20, y: 20, width: 50, height: 20))
+      var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+      var er: CGFloat = 0, eg: CGFloat = 0, eb: CGFloat = 0, ea: CGFloat = 0
+      sampled.getRed(&r, green: &g, blue: &b, alpha: &a)
+      paper.getRed(&er, green: &eg, blue: &eb, alpha: &ea)
+      XCTAssertEqual(r, er, accuracy: 0.01)
+      XCTAssertEqual(g, eg, accuracy: 0.01)
+      XCTAssertEqual(b, eb, accuracy: 0.01)
+    }
+  }
+
+  @MainActor
   func testSavedFontUpdatesCompletedTranslationWithoutReopeningReader() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
