@@ -1,15 +1,16 @@
-# PDFMathReader for iOS
 
-Read scientific documents on iPhone and iPad with translation, annotations, and Apple Pencil support. A native SwiftUI and PDFKit companion to [PDFMathReader for desktop](https://github.com/PDFMathTranslate/PDFMathReader), powered by [PDFMathTranslate](https://github.com/PDFMathTranslate/PDFMathTranslate).
+<img src="docs/banner.jpg" alt="Demo" width="100%">
+  
+  
+# <img src="docs/icon.png" alt="PDFMathReader app icon" style="height: 1em; width: auto;"> PDFMathReader for iOS
 
+Read scientific documents in your language, in realtime, on any platform.  
+Powered by [PDFMathTranslate](https://github.com/PDFMathTranslate/PDFMathTranslate) with frontier artificial intelligence.
+
+A mobile companion for the [desktop version](https://github.com/PDFMathTranslate/PDFMathReader).
+
+## Screenshot on iPad
 ![PDFMathReader on iPad](docs/screenshots/ipad.png)
-
-<details>
-<summary>iPhone screenshot</summary>
-
-<img src="docs/screenshots/iphone.png" alt="PDFMathReader on iPhone" width="360">
-
-</details>
 
 ## Features
 
