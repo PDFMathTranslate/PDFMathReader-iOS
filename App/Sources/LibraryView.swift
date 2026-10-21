@@ -267,7 +267,9 @@ private struct RecentDocumentCard: View {
               Text(L10n.string("ios.pagesCount", String(pageCount)))
             }
             Text("·")
-            Text(document.lastOpened, style: .relative)
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+              Text(L10n.string(lastOpenedLabelKey(relativeTo: context.date)))
+            }
           }
           .font(.caption)
           .foregroundStyle(.secondary)
@@ -281,6 +283,17 @@ private struct RecentDocumentCard: View {
     .accessibilityLabel(document.title)
     .accessibilityIdentifier("library.recent.\(document.id)")
     .accessibilityHint(L10n.string("ios.openPDF"))
+  }
+
+  private func lastOpenedLabelKey(relativeTo now: Date) -> String {
+    let calendar = Calendar.current
+    if calendar.isDate(document.lastOpened, inSameDayAs: now) {
+      return "ios.lastOpenedToday"
+    }
+    if calendar.isDate(document.lastOpened, equalTo: now, toGranularity: .weekOfYear) {
+      return "ios.lastOpenedThisWeek"
+    }
+    return "ios.lastOpenedBeforeThisWeek"
   }
 }
 
