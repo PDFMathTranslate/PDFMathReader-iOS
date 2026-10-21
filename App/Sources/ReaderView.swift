@@ -678,11 +678,19 @@ private struct ReaderDetail: View {
           .labelStyle(.iconOnly)
         }
       }
-      Text(model.session.title)
-        .font(.headline)
-        .lineLimit(1)
-        .frame(maxWidth: .infinity)
-        .accessibilityAddTraits(.isHeader)
+      HStack(spacing: 6) {
+        if model.library.computerDocuments.isManaged(model.session) {
+          Image(systemName: "desktopcomputer")
+            .foregroundStyle(.tint)
+            .accessibilityLabel(L10n.string("companion.onYourComputer"))
+            .accessibilityIdentifier("reader.computerConnection")
+        }
+        Text(model.session.title)
+          .lineLimit(1)
+          .accessibilityAddTraits(.isHeader)
+      }
+      .font(.headline)
+      .frame(maxWidth: .infinity)
       HStack(spacing: 4) {
         Button {
           drawings.isDrawing.toggle()

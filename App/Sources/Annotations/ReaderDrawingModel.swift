@@ -302,7 +302,13 @@ final class ReaderDrawingModel: NSObject, ObservableObject, PKCanvasViewDelegate
 
   private func capture(_ canvas: ReaderPencilCanvas) {
     guard isPrepared, canSave, !isApplyingPreparedDrawings else { return }
-    drawings[canvas.pageIndex] = canvas.drawing
+    let drawing = canvas.drawing
+    if let previous = drawings[canvas.pageIndex] {
+      guard previous.dataRepresentation() != drawing.dataRepresentation() else { return }
+    }
+    // Export captures visible canvases too. Publishing an unchanged drawing
+    // invalidates the Handoff snapshot that is currently being exported.
+    drawings[canvas.pageIndex] = drawing
     isDirty = true
   }
 

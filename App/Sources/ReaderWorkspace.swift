@@ -1,4 +1,5 @@
 import SwiftUI
+import ReaderCore
 
 private struct ReaderWorkspaceSnapshot: Codable {
   let tabs: [ReaderWindowValue]
@@ -37,6 +38,7 @@ struct ReaderWorkspace: View {
   @EnvironmentObject private var library: LibraryModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @StateObject private var tabs = ReaderTabsModel()
+  @StateObject private var handoff = ReaderHandoffCoordinator()
   @State private var launchState = ReaderWorkspaceLaunchState()
   @State private var isRestoringWorkspace = false
   @SceneStorage("readerWorkspace.snapshot") private var storedWorkspaceData: Data?
@@ -80,7 +82,7 @@ struct ReaderWorkspace: View {
         if tabs.tabs.count > 1 { tabStrip }
       })
     })
-    .disabled(isClosingComputerDocument || library.epubConversionsInProgress > 0)
+    .disabled(isClosingComputerDocument || handoff.isTransferring || library.epubConversionsInProgress > 0)
     .overlay {
       if library.epubConversionsInProgress > 0 {
         ProgressView(L10n.string("ios.preparingEPUB"))
@@ -108,7 +110,7 @@ struct ReaderWorkspace: View {
       }
     }
     .onChange(of: scenePhase) { _, phase in
-      guard phase != .active else { return }
+      guard phase != .active else { handoff.refresh(); return }
       Task {
         let background = UIApplication.shared.beginBackgroundTask(withName: "Sync computer document")
         defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
@@ -117,6 +119,28 @@ struct ReaderWorkspace: View {
         }
       }
     }
+    .onContinueUserActivity(ReaderHandoffActivity.activityType) { activity in
+      guard let payload = ReaderHandoffActivity(userInfo: activity.userInfo) else {
+        library.lastError = CompanionDocumentError.invalidRequest.localizedDescription
+        return
+      }
+      launchState.explicitOpenReceived = true
+      launchState.resolved = true
+      Task {
+        if let session = await library.computerDocuments.continueHandoff(payload, library: library) {
+          showingLibrary = false
+          openExplicitly(session)
+        }
+      }
+    }
+    .onChange(of: tabs.selectedID, initial: true) { _, _ in
+      handoff.start(tab: tabs.selectedTab, library: library) { id in
+        tabs.close(id)
+        persistWorkspace()
+        if tabs.tabs.isEmpty { onEmpty?() }
+      }
+    }
+    .onDisappear { handoff.stop() }
     .preferredColorScheme(library.preferences.theme.colorScheme)
     .sheet(isPresented: $showingLibrary) {
       NavigationStack {

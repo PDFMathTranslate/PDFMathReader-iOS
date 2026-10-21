@@ -36,6 +36,7 @@ final class CompanionDocumentManager: ObservableObject {
   private var operations: Set<String> = []
   private var lastUploadedHash: [String: String] = [:]
   private var loadFailed = false
+  private var lastOpenError: (any Error)?
 
   init(directory: URL = LibraryDirectory.default.appendingPathComponent("Computer Documents"),
        client: any CompanionDocumentServing = CompanionDocumentClient(),
@@ -121,6 +122,7 @@ final class CompanionDocumentManager: ObservableObject {
 
   private func open(documentID: String, title: String, computer: String,
                     library: LibraryModel) async -> DocumentSession? {
+    lastOpenError = nil
     let key = key(computer: computer, document: documentID)
     guard !loadFailed else { toast = L10n.string("ios.computerSessionUnavailable"); return nil }
     guard !operations.contains(key), !activeSessions.contains(key) else {
@@ -191,7 +193,75 @@ final class CompanionDocumentManager: ObservableObject {
       try persist()
       activeSessions.insert(key)
       return DocumentSession(id: session.id, title: title, url: session.url, access: session.access)
+    } catch { lastOpenError = error; toast = error.localizedDescription; return nil }
+  }
+
+  /// Serialize the native continuation after any periodic save already in
+  /// flight. Never drop a requested release because a heartbeat save is busy.
+  func releaseForHandoff(_ tab: ReaderTab) async -> Bool {
+    guard let key = journals.first(where: { fileURL($0.value) == tab.session.url })?.key else { return false }
+    for _ in 0..<300 {
+      if !operations.contains(key) { return await sync(tab, release: true) }
+      do { try await Task.sleep(for: .milliseconds(100)) } catch { return false }
+    }
+    toast = L10n.string("ios.computerSaving")
+    return false
+  }
+
+  /// The native activity identifies the paired computer's document, never a
+  /// sandbox URL. A released session cannot advertise editable ownership.
+  func handoffActivity(for tab: ReaderTab) -> ReaderHandoffActivity? {
+    guard let journal = journals.values.first(where: { fileURL($0) == tab.session.url }),
+          !journal.released else { return nil }
+    return ReaderHandoffActivity(documentID: journal.documentID,
+      page: tab.model.readingState.page, serverURL: journal.computerURL)
+  }
+
+  /// Handoff selects an ID on the configured, authenticated computer. Never
+  /// send stored pairing credentials to an address supplied by userInfo.
+  func continueHandoff(_ activity: ReaderHandoffActivity, library: LibraryModel) async -> DocumentSession? {
+    let computer = normalizeCompanionURL(library.preferences.companionURL)
+    guard !computer.isEmpty else {
+      toast = CompanionDocumentError.invalidServerURL.localizedDescription
+      return nil
+    }
+    let title: String
+    do {
+      let available = try await client.list(url: computer, pairingCode: try await credentials())
+      title = available.first(where: { $0.id == activity.documentID })?.title ?? "PDFMathReader"
     } catch { toast = error.localizedDescription; return nil }
+    var continued: DocumentSession?
+    // Native activity delivery and the sender's final save run concurrently.
+    // Retry a held lock, never force takeover or load an older local copy.
+    for _ in 0..<60 {
+      continued = await open(documentID: activity.documentID, title: title,
+        computer: computer, library: library)
+      if continued != nil { break }
+      guard let error = lastOpenError as? CompanionDocumentError, error == .documentBusy else { return nil }
+      do { try await Task.sleep(for: .milliseconds(500)) } catch { return nil }
+    }
+    guard let session = continued else { return nil }
+    toast = nil
+    do {
+      let data = try Data(contentsOf: session.url)
+      guard let pdf = PDFDocument(data: data), activity.page <= pdf.pageCount else {
+        throw CompanionDocumentError.invalidDocument
+      }
+      // This explicit continuation receives the latest remote revision. Old
+      // local sidecars (including deletions) belong to the previous revision.
+      let state = try ReaderAnnotationPDF.importAnnotations(from: data)
+      _ = try ReaderAnnotationStore().save(state.annotations, nativeRefs: state.nativeRefs,
+        for: session.id, sourceData: data)
+      let metadata = try ReaderTransferPDF.metadata(from: pdf)
+      try ReaderQuickLinkStore().save(metadata?.quickLinks ?? [], for: session.id)
+      var reading = metadata?.readingState ?? library.readingState(for: session)
+      reading.page = activity.page
+      library.saveReadingState(reading, for: session)
+      return session
+    } catch {
+      toast = error.localizedDescription
+      return nil
+    }
   }
 
   func isManaged(_ session: DocumentSession) -> Bool { handles(session.url) }
@@ -244,13 +314,21 @@ final class CompanionDocumentManager: ObservableObject {
         journal = journals[key]!
       }
       await tab.annotations.prepare()
+      await tab.annotations.flushPendingSaves()
       await tab.drawings.prepare()
       guard tab.annotations.lastError == nil, tab.drawings.lastError == nil,
             let source = tab.annotations.exportSourceData else { throw CocoaError(.fileReadCorruptFile) }
       tab.model.persistReadingState()
-      let data = try ReaderDrawingPDF.embed(tab.drawings.exportDrawings(), in:
-        ReaderTransferPDF.export(sourceData: source, annotations: tab.annotations.annotations,
-          quickLinks: tab.annotations.quickLinks, readingState: tab.model.readingState))
+      let annotations = tab.annotations.annotations
+      let quickLinks = tab.annotations.quickLinks
+      let readingState = tab.model.readingState
+      let nativeRefs = tab.annotations.exportNativeRefs
+      let drawings = try tab.drawings.exportDrawings()
+      let portable = try await Task.detached(priority: .utility) {
+        try ReaderTransferPDF.export(sourceData: source, annotations: annotations,
+          quickLinks: quickLinks, readingState: readingState, nativeRefs: nativeRefs)
+      }.value
+      let data = try ReaderDrawingPDF.embed(drawings, in: portable)
       guard let pdf = PDFDocument(data: data), pdf.pageCount == journal.pageCount else {
         throw CocoaError(.fileReadCorruptFile)
       }

@@ -1,3 +1,4 @@
+import Combine
 import PDFKit
 import PencilKit
 import ReaderCore
@@ -178,6 +179,59 @@ final class ReaderDrawingModelTests: XCTestCase {
     XCTAssertEqual(model.drawings[0]?.strokes.count, embeddedDrawing.strokes.count)
     XCTAssertEqual(canvas.drawing.strokes.count, embeddedDrawing.strokes.count)
     XCTAssertFalse(marker.shouldDisplay)
+  }
+
+  func testExportDrawingsPreservesDrawingWithoutRepublishingUnchangedCanvas() async throws {
+    let fixture = try makeFixture(pageCount: 1)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let model = ReaderDrawingModel(session: fixture.session, directory: fixture.directory)
+    await model.prepare()
+    let canvas = model.canvas(for: 0, page: try XCTUnwrap(fixture.document.page(at: 0)))
+
+    var drawingEvents = 0
+    var cancellables = Set<AnyCancellable>()
+    model.$drawings.sink { _ in drawingEvents += 1 }.store(in: &cancellables)
+    let baselineEvents = drawingEvents
+
+    canvas.drawing = sampleDrawing()
+    model.canvasViewDrawingDidChange(canvas)
+    model.flush()
+    let capturedEvents = drawingEvents
+    XCTAssertEqual(capturedEvents, baselineEvents + 1)
+    XCTAssertEqual(model.drawings[0]?.strokes.count, 1)
+
+    let firstExport = try model.exportDrawings()
+    XCTAssertEqual(drawingEvents, capturedEvents)
+    let secondExport = try model.exportDrawings()
+
+    XCTAssertEqual(drawingEvents, capturedEvents)
+    XCTAssertEqual(firstExport[0]?.dataRepresentation(), secondExport[0]?.dataRepresentation())
+    XCTAssertEqual(secondExport[0]?.strokes.count, 1)
+  }
+
+  func testExportDrawingsDoesNotRepublishUnchangedEmptyCanvas() async throws {
+    let fixture = try makeFixture(pageCount: 1)
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let model = ReaderDrawingModel(session: fixture.session, directory: fixture.directory)
+    await model.prepare()
+    let canvas = model.canvas(for: 0, page: try XCTUnwrap(fixture.document.page(at: 0)))
+
+    var drawingEvents = 0
+    var cancellables = Set<AnyCancellable>()
+    model.$drawings.sink { _ in drawingEvents += 1 }.store(in: &cancellables)
+    let baselineEvents = drawingEvents
+
+    model.canvasViewDrawingDidChange(canvas)
+    model.flush()
+    let capturedEvents = drawingEvents
+    XCTAssertEqual(capturedEvents, baselineEvents + 1)
+    XCTAssertTrue(model.drawings[0]?.strokes.isEmpty == true)
+
+    _ = try model.exportDrawings()
+    XCTAssertEqual(drawingEvents, capturedEvents)
+    _ = try model.exportDrawings()
+    XCTAssertEqual(drawingEvents, capturedEvents)
+    XCTAssertTrue(model.drawings[0]?.strokes.isEmpty == true)
   }
 
   private func sampleDrawing() -> PKDrawing {

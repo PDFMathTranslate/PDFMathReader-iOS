@@ -43,12 +43,9 @@ not synchronize back to the sender.
 
 ## Native Handoff
 
-This feature uses the system AirDrop share sheet for discovery and transfer.
-Native `NSUserActivity` Handoff is a separate integration and is not advertised
-by this implementation. Both apps need a compatible activity receiver and must
-be signed with the same Apple developer Team ID. A PDF also needs a real file
-transfer mechanism, such as continuation streams; a sandbox URL in `userInfo`
-is not usable on another device.
+Native `NSUserActivity` Handoff is also supported. See [Native Handoff](HANDOFF.md)
+for pairing, signing, and device requirements. AirDrop remains an independent
+way to send a portable copy through the system share sheet.
 
 See [Apple's Handoff documentation](https://developer.apple.com/documentation/foundation/implementing-handoff-in-your-app).
 

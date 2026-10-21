@@ -927,9 +927,15 @@ public enum ReaderAnnotationPDFError: Error, Equatable, LocalizedError, Sendable
 
 private extension Array where Element: Equatable {
   func firstRange(of needle: [Element], startingAt start: Int = 0) -> Int? {
-    guard !needle.isEmpty, start <= count - needle.count else { return nil }
-    for index in start...(count - needle.count) where Array(self[index..<(index + needle.count)]) == needle {
-      return index
+    guard !needle.isEmpty, start >= 0, start <= count - needle.count else { return nil }
+    // PDF streams can contain millions of bytes. Compare in place rather than
+    // allocating an ArraySlice copy for every candidate byte.
+    for index in start...(count - needle.count) where self[index] == needle[0] {
+      var offset = 1
+      while offset < needle.count, self[index + offset] == needle[offset] {
+        offset += 1
+      }
+      if offset == needle.count { return index }
     }
     return nil
   }

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @preconcurrency import PDFKit
 
@@ -52,6 +53,32 @@ public struct CompanionDocumentSnapshot: Codable, Sendable, Equatable {
     self.nativeRefs = nativeRefs
     self.quickLinks = quickLinks
     self.readingState = readingState
+  }
+}
+
+/// The desktop document identity returned after importing an iOS-local PDF.
+/// Repeating an import with the same source ID is safe when the desktop still
+/// has the same content; the desktop returns this same identity instead of
+/// creating another recent document.
+public struct CompanionDocumentUploadReceipt: Codable, Sendable, Equatable {
+  public let documentID: String
+  public let revision: String
+  public let sha256: String
+  public let byteCount: Int
+  public let pageCount: Int
+
+  public init(
+    documentID: String,
+    revision: String,
+    sha256: String,
+    byteCount: Int,
+    pageCount: Int
+  ) {
+    self.documentID = documentID
+    self.revision = revision
+    self.sha256 = sha256
+    self.byteCount = byteCount
+    self.pageCount = pageCount
   }
 }
 
@@ -167,19 +194,35 @@ public protocol CompanionDocumentServing: Sendable {
   ) async throws -> String
 }
 
+/// The create-only import surface is separate from the existing document
+/// session protocol so test doubles and callers that only serve existing
+/// documents do not need to implement uploads.
+public protocol CompanionDocumentUploading: Sendable {
+  func upload(
+    url: String?,
+    pairingCode: String,
+    sourceID: String,
+    title: String,
+    pdf: Data,
+    pageCount: Int
+  ) async throws -> CompanionDocumentUploadReceipt
+}
+
 /// Collects a response while enforcing its byte bound as URLSession delivers
 /// chunks. URLSession's convenience `data(for:)` API only exposes the body
 /// after it has already collected it, which is too late for a large PDF.
 private final class BoundedResponseDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
   private let limit: Int
+  private let operation: String
   private let lock = NSLock()
   private var body = Data()
   private var response: URLResponse?
   private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
   private var terminalResult: Result<(Data, URLResponse), Error>?
 
-  init(limit: Int) {
+  init(limit: Int, operation: String) {
     self.limit = max(1, limit)
+    self.operation = operation
   }
 
   func perform(_ task: URLSessionDataTask) async throws -> (Data, URLResponse) {
@@ -232,7 +275,7 @@ private final class BoundedResponseDelegate: NSObject, URLSessionDataDelegate, @
 
   func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
     if let error {
-      finish(.failure(CompanionDocumentClient.mapTransportError(error)))
+      finish(.failure(CompanionDocumentClient.mapTransportError(error, operation: operation)))
       return
     }
     lock.lock()
@@ -260,8 +303,9 @@ private final class BoundedResponseDelegate: NSObject, URLSessionDataDelegate, @
   }
 }
 
-/// Client for the paired desktop's recent-document and exclusive-session API.
-public actor CompanionDocumentClient: CompanionDocumentServing {
+/// Client for the paired desktop's recent-document, import, and
+/// exclusive-session APIs.
+public actor CompanionDocumentClient: CompanionDocumentServing, CompanionDocumentUploading {
   public static let protocolVersion = 1
 
   private struct DocumentListResponse: Decodable {
@@ -300,6 +344,42 @@ public actor CompanionDocumentClient: CompanionDocumentServing {
     let revision: String
   }
 
+  private struct UploadRequest: Encodable {
+    let sourceID: String
+    let title: String
+    let pdf: Data
+    let sha256: String
+    let byteCount: Int
+    let pageCount: Int
+  }
+
+  private struct UploadResponse: Decodable {
+    let documentID: String
+    let revision: String
+    let sha256: String
+    let byteCount: Int
+    let pageCount: Int
+  }
+
+  private struct TransportDiagnostic: Codable, Sendable {
+    let status: String
+    let time: Date
+    let operation: String
+    let errorDomain: String
+    let errorCode: Int
+    let underlyingErrorDomain: String?
+    let underlyingErrorCode: Int?
+  }
+
+  private static let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "PDFMathReader",
+    category: "Handoff"
+  )
+  private static let maximumTransportDiagnosticBytes = 4 * 1024
+  private static let transportDiagnosticURL = LibraryDirectory.default
+    .appendingPathComponent("Handoff", isDirectory: true)
+    .appendingPathComponent("transport-error.json")
+
   private let session: URLSession
   private let configuration: CompanionDocumentClientConfiguration
 
@@ -326,6 +406,73 @@ public actor CompanionDocumentClient: CompanionDocumentServing {
       throw CompanionDocumentError.responseTooLarge
     }
     return body.documents
+  }
+
+  /// Imports a portable iOS PDF into the paired desktop's recent documents.
+  /// `sourceID` is the stable, caller-owned idempotency key. The desktop must
+  /// create a document for a new key and return the existing document identity
+  /// for a retry with the same key and bytes; it never overwrites an existing
+  /// desktop document through this endpoint.
+  public func upload(
+    url: String?,
+    pairingCode: String,
+    sourceID: String,
+    title: String,
+    pdf: Data,
+    pageCount: Int
+  ) async throws -> CompanionDocumentUploadReceipt {
+    let context = try Self.context(url: url, pairingCode: pairingCode)
+    try Self.validateIdentifier(sourceID)
+    try Self.validateDeviceField(title)
+    let sha256 = DocumentIdentity.contentHash(for: pdf)
+    try Self.validatePDF(
+      pdf,
+      expectedByteCount: pdf.count,
+      expectedHash: sha256,
+      expectedPageCount: pageCount,
+      maxBytes: configuration.maxDocumentBytes
+    )
+
+    var request = Self.request(
+      base: context.base,
+      path: "/companion/v1/documents/import",
+      code: context.code,
+      method: "POST"
+    )
+    request.httpBody = try JSONEncoder().encode(
+      UploadRequest(
+        sourceID: sourceID,
+        title: title,
+        pdf: pdf,
+        sha256: sha256,
+        byteCount: pdf.count,
+        pageCount: pageCount
+      )
+    )
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+    let (data, response) = try await send(
+      request,
+      operation: "upload",
+      responseLimit: configuration.maxMetadataResponseBytes
+    )
+    try Self.check(response, body: data)
+    try Self.checkResponseSize(data, limit: configuration.maxMetadataResponseBytes)
+    let body = try Self.decode(UploadResponse.self, from: data)
+    try Self.validateIdentifier(body.documentID)
+    guard !body.revision.isEmpty, body.revision.utf8.count <= 256,
+      body.byteCount == pdf.count, body.pageCount == pageCount,
+      body.sha256.caseInsensitiveCompare(sha256) == .orderedSame
+    else {
+      throw CompanionDocumentError.invalidResponse
+    }
+    return CompanionDocumentUploadReceipt(
+      documentID: body.documentID,
+      revision: body.revision,
+      sha256: body.sha256,
+      byteCount: body.byteCount,
+      pageCount: body.pageCount
+    )
   }
 
   /// Acquires one document for this device. `sessionID` is supplied by the
@@ -539,7 +686,7 @@ public actor CompanionDocumentClient: CompanionDocumentServing {
     try Task.checkCancellation()
     let request = await CompanionDeviceIdentity.identify(request)
     let urlSessionConfiguration = session.configuration
-    let delegate = BoundedResponseDelegate(limit: responseLimit)
+    let delegate = BoundedResponseDelegate(limit: responseLimit, operation: operation)
     let boundedSession = URLSession(
       configuration: urlSessionConfiguration,
       delegate: delegate,
@@ -709,11 +856,73 @@ public actor CompanionDocumentClient: CompanionDocumentServing {
     }
   }
 
-  fileprivate nonisolated static func mapTransportError(_ error: Error) -> Error {
+  fileprivate nonisolated static func mapTransportError(
+    _ error: Error,
+    operation: String = "unknown"
+  ) -> Error {
     if error is CompanionDocumentError { return error }
     if error is CancellationError { return error }
-    if error is URLError { return CompanionDocumentError.networkFailure }
+    if isTransportCancellation(error) { return CompanionDocumentError.networkFailure }
+    recordTransportDiagnostic(error, operation: operation)
     return CompanionDocumentError.networkFailure
+  }
+
+  private nonisolated static func recordTransportDiagnostic(_ error: Error, operation: String) {
+    let nsError = error as NSError
+    let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+    let diagnostic = TransportDiagnostic(
+      status: "networkFailure",
+      time: Date(),
+      operation: safeTransportValue(operation, fallback: "unknown"),
+      errorDomain: safeTransportValue(nsError.domain, fallback: "Error"),
+      errorCode: nsError.code,
+      underlyingErrorDomain: underlying.map { safeTransportValue($0.domain, fallback: "Error") },
+      underlyingErrorCode: underlying?.code
+    )
+
+    do {
+      let encoder = JSONEncoder()
+      encoder.dateEncodingStrategy = .iso8601
+      encoder.outputFormatting = [.sortedKeys]
+      let data = try encoder.encode(diagnostic)
+      guard data.count <= maximumTransportDiagnosticBytes else {
+        logger.error("handoff transport diagnostic exceeded its size bound")
+        return
+      }
+      try FileManager.default.createDirectory(
+        at: transportDiagnosticURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try data.write(to: transportDiagnosticURL, options: [.atomic])
+    } catch {
+      // Transport diagnostics are best effort and must never alter handoff behavior.
+      logger.error("handoff transport diagnostic write failed")
+    }
+
+    let underlyingDomain = diagnostic.underlyingErrorDomain ?? "-"
+    let underlyingCode = diagnostic.underlyingErrorCode.map(String.init) ?? "-"
+    logger.error(
+      "handoff transport failure operation=\(diagnostic.operation, privacy: .public) errorDomain=\(diagnostic.errorDomain, privacy: .public) errorCode=\(diagnostic.errorCode, privacy: .public) underlyingDomain=\(underlyingDomain, privacy: .public) underlyingCode=\(underlyingCode, privacy: .public)"
+    )
+  }
+
+  private nonisolated static func safeTransportValue(_ value: String, fallback: String) -> String {
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+    let filtered = String(value.unicodeScalars.filter { allowed.contains($0) }.prefix(128))
+    return filtered.isEmpty ? fallback : filtered
+  }
+
+  private nonisolated static func isTransportCancellation(_ error: Error, depth: Int = 0) -> Bool {
+    guard depth < 4 else { return false }
+    let nsError = error as NSError
+    if nsError.domain == NSURLErrorDomain,
+      nsError.code == URLError.Code.cancelled.rawValue {
+      return true
+    }
+    guard let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError else {
+      return false
+    }
+    return isTransportCancellation(underlying, depth: depth + 1)
   }
 
   private nonisolated static func sleep(seconds: TimeInterval) async throws {

@@ -220,6 +220,82 @@ struct CompanionDocumentClientTests {
   }
 
   @Test
+  func uploadUsesAuthenticatedCreateOnlyImportAndReturnsDesktopIdentity() async throws {
+    let pdf = documentPDF(pageCount: 2)
+    let sourceID = "ios-source-1"
+    let hash = DocumentIdentity.contentHash(for: pdf)
+    documentMock.install { request in
+      #expect(request.httpMethod == "POST")
+      #expect(request.url?.path == "/companion/v1/documents/import")
+      #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer ABCDEFGH")
+      #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+      let body = try! #require(JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any])
+      #expect(body["sourceID"] as? String == sourceID)
+      #expect(body["title"] as? String == "Imported paper.pdf")
+      #expect(body["sha256"] as? String == hash)
+      #expect(body["byteCount"] as? Int == pdf.count)
+      #expect(body["pageCount"] as? Int == 2)
+      #expect(Data(base64Encoded: body["pdf"] as? String ?? "") == pdf)
+      return DocumentMockResponse(
+        statusCode: 201,
+        body: jsonData([
+          "documentID": "desktop-import-1",
+          "revision": hash,
+          "sha256": hash,
+          "byteCount": pdf.count,
+          "pageCount": 2,
+        ])
+      )
+    }
+
+    let client = CompanionDocumentClient(session: documentSession())
+    let receipt = try await client.upload(
+      url: "http://mac.test:8891/",
+      pairingCode: "abcd-efgh",
+      sourceID: sourceID,
+      title: "Imported paper.pdf",
+      pdf: pdf,
+      pageCount: 2
+    )
+    #expect(
+      receipt == CompanionDocumentUploadReceipt(
+        documentID: "desktop-import-1",
+        revision: hash,
+        sha256: hash,
+        byteCount: pdf.count,
+        pageCount: 2
+      )
+    )
+  }
+
+  @Test
+  func uploadValidatesSourceAndPDFBeforeSending() async throws {
+    documentMock.install { _ in DocumentMockResponse(statusCode: 500) }
+    let client = CompanionDocumentClient(session: documentSession())
+    await #expect(throws: CompanionDocumentError.invalidIdentifier) {
+      try await client.upload(
+        url: "mac.test",
+        pairingCode: "ABCD",
+        sourceID: "ios/source",
+        title: "Paper.pdf",
+        pdf: Data("not a PDF".utf8),
+        pageCount: 1
+      )
+    }
+    await #expect(throws: CompanionDocumentError.invalidDocument) {
+      try await client.upload(
+        url: "mac.test",
+        pairingCode: "ABCD",
+        sourceID: "ios-source",
+        title: "Paper.pdf",
+        pdf: Data("not a PDF".utf8),
+        pageCount: 1
+      )
+    }
+    #expect(documentMock.requestsSnapshot().isEmpty)
+  }
+
+  @Test
   func acquireDecodesOptionalStateWithISOAndReferenceDateTimestamps() async throws {
     let pdf = documentPDF(pageCount: 1)
     let annotation: [String: Any] = [
