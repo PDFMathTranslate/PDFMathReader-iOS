@@ -20,6 +20,7 @@ struct OutlineEntry: Identifiable, Hashable, Sendable {
 @MainActor
 final class ReaderViewModel: ObservableObject {
   let session: DocumentSession
+  private(set) var displayDocument: ReaderPDFDocument?
   @Published private(set) var document: PDFDocument?
   @Published private(set) var isLoadingDocument = true
   private var loadingDocument = false
@@ -32,6 +33,16 @@ final class ReaderViewModel: ObservableObject {
   @Published private(set) var translationCoordinator: ReaderTranslationCoordinator?
   // Generated TOC extracts every page, so compute it once per document.
   @Published private var cachedGeneratedTOC: [OutlineEntry]?
+  // PDFKit's native outline is stable for the lifetime of the reader. Keep
+  // the flattened entries so SwiftUI body updates do not walk the tree again.
+  private var cachedNativeOutlineEntries: [OutlineEntry]?
+#if DEBUG
+  private var outlineCacheBuildCount = 0
+  private var generatedTOCLoadCount = 0
+
+  var debugOutlineCacheBuildCount: Int { outlineCacheBuildCount }
+  var debugGeneratedTOCLoadCount: Int { generatedTOCLoadCount }
+#endif
   private var cancellables = Set<AnyCancellable>()
   private var readingStateSaveTask: Task<Void, Never>?
   private(set) var isReaderActive = true
@@ -70,7 +81,20 @@ final class ReaderViewModel: ObservableObject {
     let session = session
     let loaded = await Task.detached(priority: .userInitiated) {
       withExtendedLifetime(session.access) {
-        LoadedReaderPDF(document: ReaderPDFDocument(url: session.url))
+        let source = ReaderPDFDocument(url: session.url)
+        let display = ReaderPDFDocument(url: session.url)
+        // PDFKit resolves its page tree lazily. Prepare display geometry on
+        // this worker before UIKit asks for every page during initial layout.
+        if let display {
+          for index in 0..<display.pageCount {
+            guard !Task.isCancelled else { break }
+            if let page = display.page(at: index) {
+              _ = page.bounds(for: .cropBox)
+              _ = page.rotation
+            }
+          }
+        }
+        return LoadedReaderPDF(document: source, displayDocument: display)
       }
     }.value
     guard !Task.isCancelled else { return }
@@ -83,6 +107,7 @@ final class ReaderViewModel: ObservableObject {
         .removeDuplicates()
         .sink { [weak self] _ in self?.objectWillChange.send() }
         .store(in: &cancellables)
+      self.displayDocument = loaded.displayDocument
       self.document = document
       isLoadingDocument = false
       library.updateDocumentMetadata(for: session, document: document)
@@ -95,17 +120,21 @@ final class ReaderViewModel: ObservableObject {
   var pageCount: Int { document?.pageCount ?? 0 }
 
   var outlineEntries: [OutlineEntry] {
-    if let root = document?.outlineRoot {
-      var entries: [OutlineEntry] = []
-      appendOutlineEntries(from: root, depth: 0, path: "", into: &entries)
-      if !entries.isEmpty { return entries }
-    }
+    let nativeEntries = nativeOutlineEntries()
+    if !nativeEntries.isEmpty { return nativeEntries }
     guard library.preferences.tocGenerationEnabled else { return [] }
     return cachedGeneratedTOC ?? []
   }
 
   func loadGeneratedTOC() async {
-    guard cachedGeneratedTOC == nil, library.preferences.tocGenerationEnabled else { return }
+    guard document != nil,
+      cachedGeneratedTOC == nil,
+      library.preferences.tocGenerationEnabled,
+      nativeOutlineEntries().isEmpty
+    else { return }
+#if DEBUG
+    generatedTOCLoadCount += 1
+#endif
     let session = session
     let entries = await Task.detached(priority: .utility) {
       withExtendedLifetime(session.access) {
@@ -267,6 +296,21 @@ final class ReaderViewModel: ObservableObject {
     library.saveReadingState(readingState, for: session)
   }
 
+  private func nativeOutlineEntries() -> [OutlineEntry] {
+    guard let document else { return [] }
+    if let cachedNativeOutlineEntries { return cachedNativeOutlineEntries }
+
+    var entries: [OutlineEntry] = []
+    if let root = document.outlineRoot {
+      appendOutlineEntries(from: root, depth: 0, path: "", into: &entries)
+    }
+    cachedNativeOutlineEntries = entries
+#if DEBUG
+    outlineCacheBuildCount += 1
+#endif
+    return entries
+  }
+
   private func appendOutlineEntries(
     from outline: PDFOutline,
     depth: Int,
@@ -301,4 +345,5 @@ final class ReaderViewModel: ObservableObject {
 /// before the main actor installs it in PDFView.
 private struct LoadedReaderPDF: @unchecked Sendable {
   let document: PDFDocument?
+  let displayDocument: ReaderPDFDocument?
 }

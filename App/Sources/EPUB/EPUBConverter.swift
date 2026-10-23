@@ -70,9 +70,12 @@ enum EPUBConverter {
     let name = fontName.trimmingCharacters(in: .whitespacesAndNewlines)
     let family = UIFont.familyNames.first { $0.caseInsensitiveCompare(name) == .orderedSame }
       ?? UIFont(name: name, size: 12)?.familyName ?? (serif ? "serif" : "")
-    let key = cacheKey(for: data, fontFamily: family)
+    let key = await Task.detached(priority: .userInitiated) {
+      cacheKey(for: data, fontFamily: family)
+    }.value
+    try Task.checkCancellation()
     let destination = directory.appendingPathComponent(key).appendingPathExtension("pdf")
-    if isValidCachedPDF(at: destination) {
+    if await cachedPDFIsValid(at: destination) {
       return destination
     }
 
@@ -105,7 +108,7 @@ enum EPUBConverter {
 
     // A second caller can enter after the first await above. Recheck the
     // cache after creating the directory before doing any WebKit work.
-    if isValidCachedPDF(at: destination) {
+    if await cachedPDFIsValid(at: destination) {
       return destination
     }
 
@@ -126,15 +129,23 @@ enum EPUBConverter {
     guard pdfData.count <= maximumPDFBytes else {
       throw EPUBConversionError.outputTooLarge
     }
-    guard PDFDocument(data: pdfData)?.pageCount ?? 0 > 0 else {
+    guard await Task.detached(priority: .userInitiated, operation: {
+      PDFDocument(data: pdfData)?.pageCount ?? 0 > 0
+    }).value else {
       throw EPUBConversionError.invalidOutput
     }
 
     // Do not overwrite an existing valid PDF. This is important because the
     // PDF is also the annotation store for converted EPUBs.
-    if isValidCachedPDF(at: destination) {
+    if await cachedPDFIsValid(at: destination) {
       return destination
     }
+    return try await Task.detached(priority: .userInitiated) {
+      try persistPDF(pdfData, directory: directory, key: key, destination: destination)
+    }.value
+  }
+
+  private static func persistPDF(_ pdfData: Data, directory: URL, key: String, destination: URL) throws -> URL {
     let temporary = directory.appendingPathComponent(".\(key).\(UUID().uuidString).tmp")
     do {
       try pdfData.write(to: temporary, options: [.atomic])
@@ -160,7 +171,9 @@ enum EPUBConverter {
   private static func render(package: EPUBPackage, fontFamily: String) async throws -> Data {
     guard !package.chapters.isEmpty else { throw EPUBConversionError.emptyBook }
 
-    let files = EPUBAssetStore(files: package.files, mediaTypes: package.mediaTypes, fontFamily: fontFamily)
+    let files = await Task.detached(priority: .userInitiated) {
+      EPUBAssetStore(files: package.files, mediaTypes: package.mediaTypes, fontFamily: fontFamily)
+    }.value
     let schemeHandler = EPUBSchemeHandler(store: files)
     let configuration = try await makeWebViewConfiguration(schemeHandler: schemeHandler)
     let webView = WKWebView(frame: pageRect, configuration: configuration)
@@ -176,9 +189,7 @@ enum EPUBConverter {
       webView.removeFromSuperview()
     }
 
-    let output = PDFDocument()
-    var chapterStarts: [String: Int] = [:]
-    var accumulatedPDFBytes = 0
+    let output = PDFAssembly()
     for chapter in package.chapters {
       try Task.checkCancellation()
       let path = normalizedAssetPath(chapter.path) ?? chapter.path
@@ -186,7 +197,6 @@ enum EPUBConverter {
         throw EPUBConversionError.chapterFailed(chapter.path, "The chapter file is missing.")
       }
 
-      let chapterStart = output.pageCount
       do {
         let chapterURL = try epubURL(for: path)
         let waiter = WebViewLoadWaiter(webView: webView, timeout: chapterTimeout)
@@ -207,27 +217,12 @@ enum EPUBConverter {
         guard pageCount > 0 else {
           throw EPUBConversionError.chapterFailed(chapter.path, "The chapter has no printable pages.")
         }
-        guard pageCount <= maximumPages, output.pageCount <= maximumPages - pageCount else {
-          throw EPUBConversionError.tooManyPages
-        }
+        try await output.validatePageCount(pageCount)
 
-        let chapterPDF = try print(renderer: renderer, pageCount: pageCount)
-        guard chapterPDF.count <= maximumPDFBytes,
-              accumulatedPDFBytes <= maximumPDFBytes - chapterPDF.count else {
-          throw EPUBConversionError.outputTooLarge
-        }
-        accumulatedPDFBytes += chapterPDF.count
-        guard let document = PDFDocument(data: chapterPDF), document.pageCount == pageCount else {
-          throw EPUBConversionError.chapterFailed(chapter.path, "The printed chapter is not a valid PDF.")
-        }
-        chapterStarts[path] = chapterStart
-        for index in 0..<document.pageCount {
-          guard let page = document.page(at: index)?.copy() as? PDFPage else {
-            throw EPUBConversionError.chapterFailed(chapter.path, "A printed page could not be copied.")
-          }
-          document.retainBacking(of: page)
-          output.insert(page, at: output.pageCount)
-        }
+        let chapterPDF = try await print(renderer: renderer, pageCount: pageCount)
+        try await output.append(chapterPDF, path: path, pageCount: pageCount)
+        // Give scrolling, progress display and cancellation a turn between chapters.
+        await Task.yield()
       } catch is CancellationError {
         throw CancellationError()
       } catch let error as EPUBConversionError {
@@ -237,15 +232,54 @@ enum EPUBConverter {
       }
     }
 
-    guard output.pageCount > 0 else { throw EPUBConversionError.emptyBook }
-    addMetadata(to: output, package: package)
-    addOutline(to: output, package: package, chapterStarts: chapterStarts)
-    guard output.pageCount <= maximumPages,
-          let data = output.dataRepresentation(),
-          data.count <= maximumPDFBytes else {
-      throw EPUBConversionError.outputTooLarge
+    return try await output.finish(package: package)
+  }
+
+  /// Owns an independent PDFKit document on a background executor. Only bytes
+  /// cross the actor boundary; the display/WebKit documents never leave main.
+  private actor PDFAssembly {
+    private let document = PDFDocument()
+    private var chapterStarts: [String: Int] = [:]
+    private var accumulatedBytes = 0
+
+    func validatePageCount(_ count: Int) throws {
+      guard count <= maximumPages, document.pageCount <= maximumPages - count else {
+        throw EPUBConversionError.tooManyPages
+      }
     }
-    return data
+
+    func append(_ data: Data, path: String, pageCount: Int) throws {
+      try Task.checkCancellation()
+      try validatePageCount(pageCount)
+      guard data.count <= maximumPDFBytes,
+            accumulatedBytes <= maximumPDFBytes - data.count else {
+        throw EPUBConversionError.outputTooLarge
+      }
+      guard let chapter = PDFDocument(data: data), chapter.pageCount == pageCount else {
+        throw EPUBConversionError.chapterFailed(path, "The printed chapter is not a valid PDF.")
+      }
+      accumulatedBytes += data.count
+      chapterStarts[path] = document.pageCount
+      for index in 0..<pageCount {
+        try Task.checkCancellation()
+        guard let page = chapter.page(at: index)?.copy() as? PDFPage else {
+          throw EPUBConversionError.chapterFailed(path, "A printed page could not be copied.")
+        }
+        chapter.retainBacking(of: page)
+        document.insert(page, at: document.pageCount)
+      }
+    }
+
+    func finish(package: EPUBPackage) throws -> Data {
+      try Task.checkCancellation()
+      guard document.pageCount > 0 else { throw EPUBConversionError.emptyBook }
+      addMetadata(to: document, package: package)
+      addOutline(to: document, package: package, chapterStarts: chapterStarts)
+      guard let data = document.dataRepresentation(), data.count <= maximumPDFBytes else {
+        throw EPUBConversionError.outputTooLarge
+      }
+      return data
+    }
   }
 
   @MainActor
@@ -280,22 +314,35 @@ enum EPUBConverter {
     }
   }
 
-  private static func print(renderer: UIPrintPageRenderer, pageCount: Int) throws -> Data {
+  @MainActor
+  private static func print(renderer: UIPrintPageRenderer, pageCount: Int) async throws -> Data {
     let data = NSMutableData()
-    UIGraphicsBeginPDFContextToData(data, pageRect, nil)
-    var contextIsOpen = true
-    defer {
-      if contextIsOpen {
-        UIGraphicsEndPDFContext()
-      }
+    var mediaBox = pageRect
+    guard let consumer = CGDataConsumer(data: data),
+          let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+      throw EPUBConversionError.invalidOutput
     }
+    var closed = false
+    defer { if !closed { context.closePDF() } }
     for page in 0..<pageCount {
       try Task.checkCancellation()
-      UIGraphicsBeginPDFPageWithInfo(pageRect, nil)
-      renderer.drawPage(at: page, in: pageRect)
+      autoreleasepool {
+        context.beginPDFPage(nil)
+        context.saveGState()
+        // UIKit print formatters draw in a top-left coordinate system.
+        context.translateBy(x: 0, y: pageRect.height)
+        context.scaleBy(x: 1, y: -1)
+        UIGraphicsPushContext(context)
+        renderer.drawPage(at: page, in: pageRect)
+        UIGraphicsPopContext()
+        context.restoreGState()
+        context.endPDFPage()
+      }
+      // No thread-local UIKit context remains installed across suspension.
+      await Task.yield()
     }
-    UIGraphicsEndPDFContext()
-    contextIsOpen = false
+    context.closePDF()
+    closed = true
     return data as Data
   }
 
@@ -371,10 +418,15 @@ enum EPUBConverter {
   }
 
   private static func cacheKey(for data: Data, fontFamily: String) -> String {
-    var input = Data("epub:\(converterVersion):".utf8)
-    input.append(data)
-    if !fontFamily.isEmpty { input.append(Data("\0font-v1:\(fontFamily)".utf8)) }
-    return SHA256.hash(data: input).map { String(format: "%02x", $0) }.joined()
+    var hash = SHA256()
+    hash.update(data: Data("epub:\(converterVersion):".utf8))
+    hash.update(data: data)
+    if !fontFamily.isEmpty { hash.update(data: Data("\0font-v1:\(fontFamily)".utf8)) }
+    return hash.finalize().map { String(format: "%02x", $0) }.joined()
+  }
+
+  private static func cachedPDFIsValid(at url: URL) async -> Bool {
+    await Task.detached(priority: .userInitiated) { isValidCachedPDF(at: url) }.value
   }
 
   private static func isValidCachedPDF(at url: URL) -> Bool {

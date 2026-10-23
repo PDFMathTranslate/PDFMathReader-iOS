@@ -517,6 +517,7 @@ private struct ReaderDetail: View {
   private func documentView(overlayProviders: [any ReaderPageOverlayProviding]) -> some View {
     PDFKitView(
       document: model.document!,
+      preparedDisplayDocument: model.displayDocument,
       readingState: $model.readingState,
       reference: model.pdfViewReference,
       overlayProvider: ReaderPageOverlayCompositeProvider(providers: overlayProviders),

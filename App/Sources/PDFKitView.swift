@@ -99,7 +99,11 @@ final class PDFViewReference: ObservableObject {
 
   func attach(_ view: PDFView) {
     self.view = view
-    version += 1
+    // makeUIView runs inside a SwiftUI update; notify observers afterward.
+    DispatchQueue.main.async { [weak self, weak view] in
+      guard let self, let view, self.view === view else { return }
+      self.version += 1
+    }
   }
 }
 
@@ -156,6 +160,7 @@ private final class PDFPageOverlayBridge: NSObject, @preconcurrency PDFPageOverl
 struct PDFKitView: UIViewRepresentable {
   @EnvironmentObject private var library: LibraryModel
   let document: PDFDocument
+  var preparedDisplayDocument: PDFDocument? = nil
   @Binding var readingState: ReadingState
   @ObservedObject var reference: PDFViewReference
   let overlayProvider: (any ReaderPageOverlayProviding)?
@@ -182,9 +187,7 @@ struct PDFKitView: UIViewRepresentable {
     // The view has no window yet, so take the appearance from SwiftUI.
     // Keep search, outlines and translation requests on the source document;
     // the view owns temporary compacted pages independently.
-    let displayDocument = document.documentURL.flatMap { ReaderPDFDocument(url: $0) }
-      ?? document.dataRepresentation().flatMap { ReaderPDFDocument(data: $0) }
-      ?? document
+    let displayDocument = preparedDisplayDocument ?? document
     (displayDocument as? ReaderPDFDocument)?.pageCrop = readingState.pageCrop ?? PageCrop()
     view.displayBox = .artBox
     (displayDocument as? ReaderPDFDocument)?.invertsPages = context.environment.colorScheme == .dark
@@ -226,6 +229,8 @@ struct PDFKitView: UIViewRepresentable {
     private let overlayBridge = PDFPageOverlayBridge()
     private var annotationController: ReaderAnnotationInteractionController?
     private let onStateChanged: (PDFView) -> Void
+    private var stateNotificationPending = false
+    private var scrollNotificationPending = false
     private let annotationModel: ReaderAnnotationViewModel?
     var onScroll: (() -> Void)?
     var onUserScroll: ((CGFloat) -> Void)?
@@ -248,7 +253,7 @@ struct PDFKitView: UIViewRepresentable {
       let direction: ReaderScrollDirection
       let size: CGSize
       let showsPageBreaks: Bool
-      let pageIndex: Int
+      let fittedScale: CGFloat?
       let revision: Int
     }
     private var latestReadingState: ReadingState?
@@ -338,7 +343,7 @@ struct PDFKitView: UIViewRepresentable {
           if let view = self.pdfView, readerPDFInteractionIsActive(view) {
             self.deferTranslationRendering()
           }
-          self.onScroll?()
+          self.scheduleScrollNotification()
         }
       }
     }
@@ -401,7 +406,7 @@ struct PDFKitView: UIViewRepresentable {
       view.scaleFactor = scale
       if let destination { view.go(to: destination) }
       isReloadingAppearance = false
-      onStateChanged(view)
+      scheduleStateNotification()
     }
 
     func updateOverlayProvider(_ provider: (any ReaderPageOverlayProviding)?) {
@@ -523,7 +528,30 @@ struct PDFKitView: UIViewRepresentable {
         (view as? ReaderAnnotationPDFView)?.isUpdatingPageGeometry != true else { return }
       observeScrolling()
       constrainReadingAxis()
-      onStateChanged(view)
+      scheduleStateNotification()
+    }
+
+    private func scheduleStateNotification() {
+      guard !stateNotificationPending else { return }
+      stateNotificationPending = true
+      // PDFKit posts synchronously while applying scale, page and layout.
+      // Publish only the settled viewport, outside SwiftUI's update stack.
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.stateNotificationPending = false
+        guard let view = self.pdfView else { return }
+        self.onStateChanged(view)
+      }
+    }
+
+    private func scheduleScrollNotification() {
+      guard !scrollNotificationPending else { return }
+      scrollNotificationPending = true
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.scrollNotificationPending = false
+        self.onScroll?()
+      }
     }
 
     @MainActor
@@ -573,12 +601,15 @@ struct PDFKitView: UIViewRepresentable {
       let request = ScaleRequest(
         mode: state.scaleMode, zoom: state.scaleMode == .custom ? state.zoom : 0,
         displayMode: state.displayMode, direction: state.scrollDirection, size: view.bounds.size,
-        showsPageBreaks: view.displaysPageBreaks, pageIndex: state.page - 1,
+        showsPageBreaks: view.displaysPageBreaks,
+        fittedScale: state.scaleMode == .custom || state.scaleMode == .actualSize
+          ? nil : fittedScale(in: view, state: state),
         revision: latestScaleRevision
       )
       // A pinch can change PDFKit's live zoom while the saved mode is still
       // fit-page. Translation/pager updates must not snap it back and discard
-      // sharp tiles. Apply zoom only for a new setting, document or viewport size.
+      // sharp tiles. Same-sized page transitions must also retain the live
+      // offset: realignment during deceleration interrupts continuous scrolling.
       if request != appliedScaleRequest || scaleDocument !== view.document {
         fittedAxisOffset = nil
         appliedScaleRequest = request
@@ -671,16 +702,15 @@ struct PDFKitView: UIViewRepresentable {
       guard !isConstrainingOffset, let view = pdfView,
         let state = latestReadingState, let scroll = Self.scrollView(in: view),
         !scroll.isZooming, scroll.pinchGestureRecognizer?.state != .began,
-        scroll.pinchGestureRecognizer?.state != .changed,
-        let fit = fittedScale(in: view, state: state)
+        scroll.pinchGestureRecognizer?.state != .changed
       else { return }
       let locksX = state.scrollDirection == .vertical && state.scaleMode == .fitWidth
       let locksY = state.scrollDirection == .horizontal && state.scaleMode == .fitHeight
-      guard locksX || locksY else { return }
+      guard locksX || locksY, let fittedAxisOffset,
+        let fit = appliedScaleRequest?.fittedScale else { return }
       // A live pinch can leave the saved fit mode unchanged. Compare the live
       // scale, so zoomed pages regain both axes immediately.
       guard view.scaleFactor <= fit + max(0.0001, fit * 0.001) else { return }
-      guard let fittedAxisOffset else { return }
       var offset = scroll.contentOffset
       if locksX { offset.x = fittedAxisOffset.x }
       if locksY { offset.y = fittedAxisOffset.y }

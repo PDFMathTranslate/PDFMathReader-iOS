@@ -23,9 +23,9 @@ public enum MathPageTranslatorError: Error, LocalizedError, Sendable, Equatable 
 /// Translates and caches a single PDF page through a remote math kernel: a
 /// zotero-pdf2zh server, or PDFMathReader on the user's computer.
 ///
-/// PDFKit is main-actor bound by the app, so page extraction and cache I/O are
-/// kept on the main actor while the network work remains isolated in the
-/// kernel client actors.
+/// PDFKit is main-actor bound by the app, so live-document page extraction and
+/// in-memory compatibility serialization remain on the main actor while URL-
+/// backed legacy lookup can use an independently opened document off actor.
 @MainActor
 public final class MathPageTranslator {
   public let client: RemoteKernelClient
@@ -37,8 +37,16 @@ public final class MathPageTranslator {
     let task: Task<Data, Error>
     var waiters: Set<UUID>
   }
+  private struct LegacySerializationKey: Hashable, Sendable {
+    let sourceURL: String
+    let cacheScope: String
+  }
   private static var pending: [String: PendingPage] = [:]
   private let fileManager: FileManager
+  // The completed task retains at most one source serialization for this
+  // session. A scope change drops the previous book's data.
+  private var legacySerializationKey: LegacySerializationKey?
+  private var legacySerializationTask: Task<Data?, Never>?
 
   public init(
     client: RemoteKernelClient,
@@ -216,19 +224,39 @@ public final class MathPageTranslator {
       }
       // Import pre-document-directory entries once; a cache upgrade must not
       // repeat a translation that has already completed.
-      if !cacheScope.isEmpty, let serialized = document.dataRepresentation() {
+      // Legacy entries live directly in the cache root. New installations and
+      // cleared caches have none, so do not serialize an entire book merely
+      // to discover that there is nothing to migrate (including cacheOnly).
+      let hasLegacyEntries = (try? fileManager.contentsOfDirectory(
+        at: cacheDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+      ))?.contains { $0.pathExtension.lowercased() == "pdf" } ?? false
+      if !cacheScope.isEmpty, hasLegacyEntries {
         var legacy = options
         if legacy["remote"] != nil { legacy.removeValue(forKey: "glossary") }
         if legacy["companion"] != nil, legacy["sourceLanguage"] as? String == "English" {
           legacy["sourceLanguage"] = ""
         }
-        let legacyKey = try cacheKey(sourceData: serialized, descriptor: legacy)
-        let legacyURL = cacheDirectory.appendingPathComponent(legacyKey).appendingPathExtension("pdf")
-        if let cached = try? readCachedPDF(at: legacyURL) {
-          try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-          try? cached.write(to: resultURL, options: .atomic)
-          try? cached.write(to: compatibleURL, options: .atomic)
-          return cached
+
+        let legacyKey: String?
+        if let sourceURL = document.documentURL {
+          legacyKey = try await legacyCacheKey(
+            for: sourceURL, cacheScope: cacheScope, descriptor: legacy
+          )
+        } else {
+          // Keep the legacy behavior for documents created from in-memory data.
+          legacyKey = try document.dataRepresentation().map {
+            try cacheKey(sourceData: $0, descriptor: legacy)
+          }
+        }
+        try Task.checkCancellation()
+        if let legacyKey {
+          let legacyURL = cacheDirectory.appendingPathComponent(legacyKey).appendingPathExtension("pdf")
+          if let cached = try? readCachedPDF(at: legacyURL) {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? cached.write(to: resultURL, options: .atomic)
+            try? cached.write(to: compatibleURL, options: .atomic)
+            return cached
+          }
         }
       }
     }
@@ -328,15 +356,22 @@ public final class MathPageTranslator {
     engine: String = "pdf_math_precise",
     cacheScope: String = ""
   ) throws -> URL {
-    guard pageIndex >= 0, pageIndex < document.pageCount,
-      let sourceData = document.dataRepresentation()
-    else {
+    guard pageIndex >= 0, pageIndex < document.pageCount else {
       throw MathPageTranslatorError.invalidDocument
+    }
+    let sourceData: Data
+    if cacheScope.isEmpty {
+      guard let data = document.dataRepresentation() else {
+        throw MathPageTranslatorError.invalidDocument
+      }
+      sourceData = data
+    } else {
+      sourceData = Data(cacheScope.utf8)
     }
     let normalizedURL = normalizeRemoteKernelUrl(serverURL)
     guard !normalizedURL.isEmpty else { throw RemoteKernelError.invalidServerURL }
     let key = try cacheKey(
-      sourceData: cacheScope.isEmpty ? sourceData : Data(cacheScope.utf8),
+      sourceData: sourceData,
       descriptor: Self.remoteDescriptor(
         serverURL: normalizedURL,
         pageNumber: pageIndex + 1,
@@ -356,6 +391,52 @@ public final class MathPageTranslator {
 
   public func removeCachedPage(at url: URL) throws {
     try fileManager.removeItem(at: url)
+  }
+
+  private func legacyNormalizedSourceData(for sourceURL: URL, cacheScope: String) async -> Data? {
+    let sourceIdentity = LegacySerializationKey(
+      sourceURL: sourceURL.standardizedFileURL.absoluteString,
+      cacheScope: cacheScope
+    )
+    if sourceIdentity == legacySerializationKey, let existing = legacySerializationTask {
+      return await existing.value
+    }
+
+    legacySerializationTask?.cancel()
+    let task = Task.detached(priority: .utility) { () -> Data? in
+      // Do not capture or pass the live PDFDocument across actors. The source
+      // URL is the stable identity for the legacy cache lookup. Normalize the
+      // complete serialized source here as well; stablePDFData scans and
+      // re-encodes the whole PDF.
+      guard let sourceDocument = PDFDocument(url: sourceURL) else { return nil }
+      guard let data = sourceDocument.dataRepresentation() else { return nil }
+      return Self.stablePDFData(data)
+    }
+    legacySerializationKey = sourceIdentity
+    legacySerializationTask = task
+    return await task.value
+  }
+
+  private func legacyCacheKey(
+    for sourceURL: URL,
+    cacheScope: String,
+    descriptor: [String: Any]
+  ) async throws -> String? {
+    guard let normalizedSourceData = await legacyNormalizedSourceData(
+      for: sourceURL, cacheScope: cacheScope
+    ) else {
+      return nil
+    }
+    try Task.checkCancellation()
+    // JSON serialization is small and remains on the actor. The large source
+    // data is only captured by the detached hashing task.
+    let descriptorData = try JSONSerialization.data(withJSONObject: descriptor, options: [.sortedKeys])
+    let task = Task.detached(priority: .utility) {
+      Self.cacheKey(normalizedSourceData: normalizedSourceData, descriptorData: descriptorData)
+    }
+    let key = await task.value
+    try Task.checkCancellation()
+    return key
   }
 
   private func makeSinglePage(_ sourcePage: PDFPage) throws -> Data {
@@ -405,13 +486,22 @@ public final class MathPageTranslator {
 
   private func cacheKey(sourceData: Data, descriptor: [String: Any]) throws -> String {
     let descriptorData = try JSONSerialization.data(withJSONObject: descriptor, options: [.sortedKeys])
+    return Self.cacheKey(
+      normalizedSourceData: Self.stablePDFData(sourceData), descriptorData: descriptorData
+    )
+  }
+
+  private nonisolated static func cacheKey(
+    normalizedSourceData: Data,
+    descriptorData: Data
+  ) -> String {
     var input = Data()
-    input.append(Self.stablePDFData(sourceData))
+    input.append(normalizedSourceData)
     input.append(descriptorData)
     return SHA256.hash(data: input).map { String(format: "%02x", $0) }.joined()
   }
 
-  private static func stablePDFData(_ data: Data) -> Data {
+  private nonisolated static func stablePDFData(_ data: Data) -> Data {
     // PDFKit regenerates the trailer identifier on every serialization. It is
     // not document content and would otherwise make the page cache miss.
     let text = String(decoding: data, as: UTF8.self)

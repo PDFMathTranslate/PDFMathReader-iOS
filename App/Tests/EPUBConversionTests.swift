@@ -55,6 +55,38 @@ final class EPUBConversionTests: XCTestCase {
     XCTAssertEqual(second.page(at: 0)?.annotations.count, 1)
   }
 
+  func testLongBookConversionKeepsMainActorResponsive() async throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = try fixtureEPUB(repetitions: 2_400)
+    var previousTick = Date()
+    var longestGap: TimeInterval = 0
+    var ticks = 0
+    let heartbeat = Task { @MainActor in
+      while !Task.isCancelled {
+        let now = Date()
+        longestGap = max(longestGap, now.timeIntervalSince(previousTick))
+        previousTick = now
+        ticks += 1
+        try? await Task.sleep(for: .milliseconds(20))
+      }
+    }
+    defer { heartbeat.cancel() }
+    let url = try await EPUBConverter.convert(data: source, directory: root)
+    longestGap = max(longestGap, Date().timeIntervalSince(previousTick))
+    heartbeat.cancel()
+    let document = try XCTUnwrap(PDFDocument(url: url))
+    XCTAssertGreaterThan(document.pageCount, 50)
+    XCTAssertGreaterThan(ticks, 5)
+    // A broad hang threshold allows WebKit startup on physical devices while
+    // catching a return to uninterrupted whole-book work on the main actor.
+    XCTAssertLessThan(longestGap, 2, "Main actor stalled for \(longestGap)s")
+    let report = XCTAttachment(string: "pages=\(document.pageCount), mainActorTicks=\(ticks), longestGapSeconds=\(longestGap)")
+    report.name = "EPUB conversion responsiveness"
+    report.lifetime = .keepAlways
+    add(report)
+  }
+
   func testSelectedFontOverridesBookStylesAndUsesSeparateCache() async throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -168,10 +200,10 @@ final class EPUBConversionTests: XCTestCase {
     return directory
   }
 
-  private func fixtureEPUB(missingStylesheet: Bool = false) throws -> Data {
+  private func fixtureEPUB(missingStylesheet: Bool = false, repetitions: Int = 240) throws -> Data {
     let chapterText = String(
       repeating: "This is selectable EPUB text used by the conversion test. ",
-      count: 240
+      count: repetitions
     )
     let optionalStylesheet = missingStylesheet
       ? "<link rel=\"stylesheet\" href=\"style/0001.css\" />" : ""

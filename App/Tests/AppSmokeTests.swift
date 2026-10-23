@@ -7,6 +7,62 @@ import ReaderCore
 
 final class AppSmokeTests: XCTestCase {
   @MainActor
+  func testLayoutNotificationsPublishAfterUpdateAndCoalesce() async throws {
+    let document = PDFDocument()
+    document.insert(PDFPage(), at: 0)
+    let view = ReaderAnnotationPDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 700))
+    let delivered = expectation(description: "settled viewport")
+    var notifications = 0
+    let coordinator = PDFKitView.Coordinator(onStateChanged: { _ in
+      notifications += 1
+      delivered.fulfill()
+    }, annotationModel: nil)
+    coordinator.attach(view, document: document, overlayProvider: nil)
+    for _ in 0..<3 {
+      NotificationCenter.default.post(name: .PDFViewPageChanged, object: view)
+    }
+    XCTAssertEqual(notifications, 0, "Layout must not publish during a SwiftUI update")
+    await fulfillment(of: [delivered], timeout: 2)
+    XCTAssertEqual(notifications, 1)
+    withExtendedLifetime(coordinator) {}
+  }
+
+  @MainActor
+  func testSameSizePageChangePreservesContinuousScrollAndLiveZoom() async throws {
+    let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 600, height: 900)).pdfData {
+      for _ in 0..<8 { $0.beginPage() }
+    }
+    let document = try XCTUnwrap(PDFDocument(data: data))
+    let view = ReaderAnnotationPDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 700))
+    view.displaysPageBreaks = false
+    view.minScaleFactor = 0.1
+    view.maxScaleFactor = 5
+    let coordinator = PDFKitView.Coordinator(onStateChanged: { _ in }, annotationModel: nil)
+    coordinator.attach(view, document: document, overlayProvider: nil)
+    var state = ReadingState()
+    state.scrollDirection = .vertical
+    state.scaleMode = .fitPage
+    coordinator.apply(state)
+    try await Task.sleep(for: .milliseconds(100))
+    let scroll = try XCTUnwrap(readerPDFScrollView(in: view))
+    scroll.contentOffset.y = 730
+    let offset = scroll.contentOffset
+    state.page = 2
+    coordinator.apply(state, restorePage: false)
+    try await Task.sleep(for: .milliseconds(100))
+    XCTAssertEqual(scroll.contentOffset.y, offset.y, accuracy: 1,
+      "Crossing a uniform page must not snap the continuous scroll to a page edge")
+
+    view.scaleFactor *= 1.25
+    view.layoutIfNeeded()
+    let liveScale = view.scaleFactor
+    state.page = 3
+    coordinator.apply(state, restorePage: false)
+    XCTAssertEqual(view.scaleFactor, liveScale, accuracy: 0.001,
+      "A page notification must not discard a live pinch and rebuild PDF tiles")
+  }
+
+  @MainActor
   func testFitWidthRealignsPageAfterZoomPreservesOldScrollOffset() async throws {
     let data = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 600, height: 900)).pdfData {
       for _ in 0..<3 { $0.beginPage() }
@@ -51,6 +107,13 @@ final class AppSmokeTests: XCTestCase {
     let document = PDFDocument()
     document.insert(try XCTUnwrap(PDFPage(image: image)), at: 0)
     let view = ReaderAnnotationPDFView(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+    // UIKit need not lay out an unattached view on a physical device.
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 1200, height: 1000))
+    let controller = UIViewController()
+    window.rootViewController = controller
+    controller.view.addSubview(view)
+    window.makeKeyAndVisible()
+    defer { window.isHidden = true }
     view.displaysPageBreaks = false
     view.minScaleFactor = 0.1
     view.maxScaleFactor = 5

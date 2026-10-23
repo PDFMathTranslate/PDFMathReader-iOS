@@ -1,8 +1,18 @@
 import Foundation
+import CryptoKit
 import PDFKit
 import Testing
 
 @testable import ReaderCore
+
+private final class SerializationTrackingPDFDocument: PDFDocument {
+  var serializationCount = 0
+
+  override func dataRepresentation() -> Data? {
+    serializationCount += 1
+    return super.dataRepresentation()
+  }
+}
 
 private struct MockHTTPResponse: Sendable {
   var statusCode: Int = 200
@@ -138,6 +148,37 @@ private func testPDF(pageCount: Int = 2) -> Data {
     document.insert(PDFPage(), at: index)
   }
   return document.dataRepresentation()!
+}
+
+private func legacyRemoteCacheKey(
+  sourceData: Data,
+  pageNumber: Int,
+  serverURL: String,
+  language: String,
+  engine: String,
+  cacheScope: String
+) throws -> String {
+  let descriptor: [String: Any] = [
+    "remote": 1,
+    "id": engine,
+    "url": serverURL,
+    "service": "",
+    "page": pageNumber,
+    "language": language,
+    "sourceLanguage": "English",
+    "layoutSchema": 3,
+    "cacheScope": cacheScope,
+  ]
+  let descriptorData = try JSONSerialization.data(withJSONObject: descriptor, options: [.sortedKeys])
+  let text = String(decoding: sourceData, as: UTF8.self)
+  let expression = try NSRegularExpression(pattern: #"/ID\s*\[\s*<[^>]*>\s*<[^>]*>\s*\]"#)
+  let range = NSRange(text.startIndex..<text.endIndex, in: text)
+  let normalized = expression.stringByReplacingMatches(
+    in: text, range: range, withTemplate: "/ID []"
+  )
+  var input = Data(normalized.utf8)
+  input.append(descriptorData)
+  return SHA256.hash(data: input).map { String(format: "%02x", $0) }.joined()
 }
 
 private func installSuccessfulTranslationHandler(
@@ -611,6 +652,138 @@ struct RemoteKernelClientTests {
       #expect(error as? MathPageTranslatorError == .cacheMiss)
     }
     #expect(recorder.count("/translate") == 0)
+  }
+
+  @Test
+  @MainActor
+  func scopedCacheMissWithoutLegacyFilesDoesNotSerializeBook() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    // A populated modern cache directory must not count as a legacy entry.
+    try FileManager.default.createDirectory(
+      at: directory.appendingPathComponent("documents"), withIntermediateDirectories: true
+    )
+    let translator = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()), cacheDirectory: directory
+    )
+    let document = SerializationTrackingPDFDocument(data: testPDF(pageCount: 2))!
+    for page in 0..<2 {
+      do {
+        _ = try await translator.translatePage(
+          document: document, pageIndex: page, serverURL: "https://kernel.test",
+          language: "zh-CN", cacheScope: "book-with-modern-cache", cacheOnly: true
+        )
+        Issue.record("expected a cache-only miss")
+      } catch {
+        #expect(error as? MathPageTranslatorError == .cacheMiss)
+      }
+    }
+    #expect(document.serializationCount == 0)
+  }
+
+  @Test
+  @MainActor
+  func scopedLegacyLookupWithUnrelatedRootPDFDoesNotSerializeURLBackedDocument() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdfmathreader-legacy-\(UUID().uuidString)", isDirectory: true)
+    let sourceURL = root.appendingPathComponent("source.pdf")
+    let cacheDirectory = root.appendingPathComponent("cache", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+    try testPDF(pageCount: 2).write(to: sourceURL)
+    // Keep an unrelated root PDF present so this exercises the legacy lookup
+    // branch that previously serialized the live book before checking its key.
+    try testPDF(pageCount: 1).write(to: cacheDirectory.appendingPathComponent("unrelated.pdf"))
+
+    let translator = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()), cacheDirectory: cacheDirectory
+    )
+    for page in 0..<2 {
+      let document = SerializationTrackingPDFDocument(url: sourceURL)!
+      do {
+        _ = try await translator.translatePage(
+          document: document,
+          pageIndex: page,
+          serverURL: "https://kernel.test",
+          language: "zh-CN",
+          cacheScope: "documenthash:url-backed-source",
+          cacheOnly: true
+        )
+        Issue.record("expected a cache-only miss")
+      } catch {
+        #expect(error as? MathPageTranslatorError == .cacheMiss)
+      }
+
+      #expect(document.serializationCount == 0)
+    }
+  }
+
+  @Test
+  @MainActor
+  func scopedLegacyLookupMigratesURLBackedDocument() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdfmathreader-legacy-hit-\(UUID().uuidString)", isDirectory: true)
+    let sourceURL = root.appendingPathComponent("source.pdf")
+    let cacheDirectory = root.appendingPathComponent("cache", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+    try testPDF(pageCount: 2).write(to: sourceURL)
+
+    let sourceDocument = PDFDocument(url: sourceURL)!
+    let cacheScope = "documenthash:url-backed-source"
+    let legacyKey = try legacyRemoteCacheKey(
+      sourceData: sourceDocument.dataRepresentation()!,
+      pageNumber: 1,
+      serverURL: "https://kernel.test",
+      language: "zh-CN",
+      engine: "pdf_math_precise",
+      cacheScope: cacheScope
+    )
+    try testPDF(pageCount: 1).write(
+      to: cacheDirectory.appendingPathComponent(legacyKey).appendingPathExtension("pdf")
+    )
+
+    let translator = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()), cacheDirectory: cacheDirectory
+    )
+    let document = SerializationTrackingPDFDocument(url: sourceURL)!
+    let result = try await translator.translatePage(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel.test",
+      language: "zh-CN",
+      engine: "pdf_math_precise",
+      cacheScope: cacheScope,
+      cacheOnly: true
+    )
+
+    #expect(PDFDocument(data: result)?.pageCount == 1)
+    #expect(document.serializationCount == 0)
+  }
+
+  @Test
+  @MainActor
+  func scopedCacheURLDoesNotSerializeURLBackedDocument() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("pdfmathreader-cache-url-\(UUID().uuidString)", isDirectory: true)
+    let sourceURL = root.appendingPathComponent("source.pdf")
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try testPDF(pageCount: 1).write(to: sourceURL)
+
+    let translator = MathPageTranslator(
+      client: RemoteKernelClient(session: testSession()), cacheDirectory: root
+    )
+    let document = SerializationTrackingPDFDocument(url: sourceURL)!
+    _ = try translator.cacheURL(
+      document: document,
+      pageIndex: 0,
+      serverURL: "https://kernel.test",
+      language: "zh-CN",
+      cacheScope: "documenthash:url-backed-source"
+    )
+
+    #expect(document.serializationCount == 0)
   }
 
   @Test
