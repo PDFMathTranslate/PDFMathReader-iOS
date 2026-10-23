@@ -34,7 +34,8 @@ final class ReaderDarkPDFTests: XCTestCase {
         overlay.subviews.forEach { retained.add($0) }
       }
     }
-    XCTAssertLessThanOrEqual(retained.allObjects.count, 7 * 3, "Only seven detached composites and their two children remain")
+    XCTAssertLessThanOrEqual(retained.allObjects.count, 8 * 2 + 16,
+                            "Composite/reading caches and the larger warm translation cache stay bounded")
     XCTAssertTrue(mounted === provider.overlayView(for: firstPage, in: view), "Mounted content must survive eviction")
     provider.didEndDisplayingOverlay(root, for: firstPage, in: view)
     XCTAssertFalse(mounted === provider.overlayView(for: firstPage, in: view))
@@ -61,7 +62,7 @@ final class ReaderDarkPDFTests: XCTestCase {
         retained.add(try XCTUnwrap(coordinator.overlayView(for: page, in: view)))
       }
     }
-    XCTAssertLessThanOrEqual(retained.allObjects.count, 8)
+    autoreleasepool { XCTAssertLessThanOrEqual(retained.allObjects.count, 16) }
     let page = try XCTUnwrap(document.page(at: 0))
     weak var retired: UIView?
     try autoreleasepool {
@@ -72,8 +73,12 @@ final class ReaderDarkPDFTests: XCTestCase {
       coordinator.didEndDisplayingOverlay(root, for: page, in: view)
       overlay.removeFromSuperview()
     }
-    XCTAssertNil(retired, "A retired wrapper must not retain page bitmaps through the provider cache")
-    XCTAssertNotNil(coordinator.overlayView(for: page, in: view), "Retired pages must be recreated")
+    autoreleasepool {
+      XCTAssertNotNil(retired, "Retired translations stay warm for reverse scrolling")
+      XCTAssertTrue(retired === coordinator.overlayView(for: page, in: view))
+    }
+    coordinator.releaseDetachedResources()
+    XCTAssertNil(retired, "Memory pressure must release detached translation bitmaps")
   }
 
   @MainActor

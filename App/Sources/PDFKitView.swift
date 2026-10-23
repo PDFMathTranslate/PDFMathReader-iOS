@@ -236,6 +236,7 @@ struct PDFKitView: UIViewRepresentable {
     var onUserScroll: ((CGFloat) -> Void)?
     var onBackgroundTap: (() -> Void)?
     private let backgroundTap = UITapGestureRecognizer()
+    private var backgroundTapStoppedInertia = false
     private var lastPanTranslation: CGFloat = 0
     private var pendingPanDistance: CGFloat = 0
     private var scrollObservation: NSKeyValueObservation?
@@ -476,11 +477,18 @@ struct PDFKitView: UIViewRepresentable {
 
     @objc private func backgroundTapped(_ gesture: UITapGestureRecognizer) {
       guard gesture.state == .ended else { return }
+      guard !backgroundTapStoppedInertia else { return }
       onBackgroundTap?()
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
       guard gestureRecognizer === backgroundTap else { return true }
+      // Capture this at touch-down: UIScrollView has already stopped by the
+      // time a tap reaches .ended, so checking there would reveal the header.
+      backgroundTapStoppedInertia = observedScrollView?.isDecelerating == true
+      if backgroundTapStoppedInertia, let scrollView = observedScrollView {
+        scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+      }
       guard let view = pdfView, drawingModel?.isDrawing != true,
             view.currentSelection == nil else { return false }
       // Let PDFKit and annotation overlays own links, notes and controls.

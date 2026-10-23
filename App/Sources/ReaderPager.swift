@@ -80,8 +80,8 @@ struct ReaderPager: View {
       pageButton(
         model.readingState.scrollDirection == .horizontal ? "chevron.left" : "chevron.up",
         label: L10n.string("navigator.previousPage"),
-        disabled: model.readingState.page <= 1
-      ) { model.goToPage(model.readingState.page - 1) }
+        disabled: !canGoToPreviousPage
+      ) { model.goToPage(previousPage) }
 
       HStack(spacing: 4) {
         TextField("", text: $entry)
@@ -107,8 +107,8 @@ struct ReaderPager: View {
       pageButton(
         model.readingState.scrollDirection == .horizontal ? "chevron.right" : "chevron.down",
         label: L10n.string("navigator.nextPage"),
-        disabled: model.readingState.page >= model.pageCount
-      ) { model.goToPage(model.readingState.page + 1) }
+        disabled: !canGoToNextPage
+      ) { model.goToPage(nextPage) }
     }
     .padding(4)
     .modifier(ReaderPagerGlassSurface())
@@ -136,6 +136,30 @@ struct ReaderPager: View {
         visibility.release()
       }
     }
+  }
+
+  private var pageStep: Int {
+    switch model.readingState.displayMode {
+    case .singlePage: 1
+    case .twoPages: 2
+    case .fourPages: 4
+    }
+  }
+
+  private var previousPage: Int {
+    max(1, model.readingState.page - pageStep)
+  }
+
+  private var nextPage: Int {
+    min(model.pageCount, model.readingState.page + pageStep)
+  }
+
+  private var canGoToPreviousPage: Bool {
+    model.readingState.page > 1
+  }
+
+  private var canGoToNextPage: Bool {
+    model.readingState.page < model.pageCount
   }
 
   private func pageButton(

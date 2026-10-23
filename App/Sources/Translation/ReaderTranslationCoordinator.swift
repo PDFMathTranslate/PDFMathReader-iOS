@@ -53,7 +53,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   private var remoteTasks: [Int: Task<Void, Never>] = [:]
   private var overlays: [Int: ReaderTranslationPageOverlay] = [:]
   private var overlayAccessOrder: [Int] = []
-  private let maximumCachedOverlays = 8
+  private let maximumCachedOverlays = 16
   private var latestStates: [Int: PageTranslationState] = [:]
   private var remotePageDataByPage: [Int: Data] = [:]
   private var remoteProgressByPage: [Int: Double] = [:]
@@ -77,6 +77,23 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   private var pendingRemoteResetPages: Set<Int> = []
   private var pendingRemoteClearPages: Set<Int> = []
   private var pendingTranslationRevision = false
+  private var pendingVisibilityTransition = false
+
+  /// One spread on either side, with at least two pages for continuous scroll.
+  private var renderNeighborhood: Set<Int> {
+    let visible = Set(visiblePageIndices).union(currentPageIndex.map { [$0] } ?? [])
+    guard let first = visible.min(), let last = visible.max() else { return [] }
+    let distance = max(2, visible.count)
+    return Set(max(0, first - distance)...min(document.pageCount - 1, last + distance))
+  }
+
+  private func requestNeighborRendering() {
+    for index in renderNeighborhood where overlays[index] == nil
+      && (latestStates[index] != nil || remotePageDataByPage[index] != nil) {
+      pendingRenderPages.insert(index)
+    }
+    scheduleRenderFlush()
+  }
   private var renderTask: Task<Void, Never>?
   private var compactionTask: Task<Void, Never>?
   private var pendingCompactionPages: Set<Int> = []
@@ -92,7 +109,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
 
   private func requestRender(for pageIndex: Int, revision: Bool = false) {
     guard (0..<document.pageCount).contains(pageIndex) else { return }
-    if overlays[pageIndex] != nil {
+    if overlays[pageIndex] != nil || renderNeighborhood.contains(pageIndex) {
       pendingRenderPages.insert(pageIndex)
     }
     pendingTranslationRevision = pendingTranslationRevision || revision
@@ -101,7 +118,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
 
   private func requestRender(for pageIndices: some Sequence<Int>, revision: Bool = false) {
     for pageIndex in pageIndices where (0..<document.pageCount).contains(pageIndex) {
-      if overlays[pageIndex] != nil {
+      if overlays[pageIndex] != nil || renderNeighborhood.contains(pageIndex) {
         pendingRenderPages.insert(pageIndex)
       }
     }
@@ -150,6 +167,21 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
   /// Applies one page per task turn so a newly-started gesture can preempt a
   /// long batch of completed translation updates.
   private func flushOneRenderPage() -> Bool {
+    // A user visibility toggle is one visual change across the viewport.
+    // Keep pipeline updates cooperative, but don't sweep the toggle through
+    // a spread one page per frame.
+    if pendingVisibilityTransition, let view = displayPDFView {
+      pendingVisibilityTransition = false
+      let visible = Set(visiblePageIndices).union(currentPageIndex.map { [$0] } ?? [])
+      for index in visible.sorted() where pendingRenderPages.contains(index) {
+        guard let page = view.document?.page(at: index), let overlay = overlays[index] else { continue }
+        pendingRenderPages.remove(index)
+        let remoteReset = pendingRemoteResetPages.remove(index) != nil
+        let remoteClear = pendingRemoteClearPages.remove(index) != nil
+        applyRender(to: overlay, page: page, in: view, index: index,
+                    remoteReset: remoteReset, remoteClear: remoteClear)
+      }
+    }
     let visible = Set(visiblePageIndices)
     let current = currentPageIndex
     let next = pendingRenderPages.min {
@@ -170,7 +202,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     let remoteReset = pendingRemoteResetPages.remove(index) != nil
     let remoteClear = pendingRemoteClearPages.remove(index) != nil
     guard let view = displayPDFView, let page = view.document?.page(at: index),
-      let overlay = overlays[index]
+      overlays[index] != nil || renderNeighborhood.contains(index)
     else {
       if pendingRenderPages.isEmpty, pendingTranslationRevision {
         translationRevision &+= 1
@@ -179,8 +211,11 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       return !pendingRenderPages.isEmpty
     }
 
+    let overlay = cachedOverlay(for: page, in: view, index: index)
     applyRender(to: overlay, page: page, in: view, index: index,
-                remoteReset: remoteReset, remoteClear: remoteClear)
+                remoteReset: remoteReset, remoteClear: remoteClear,
+                animated: overlay.window != nil)
+    trimOverlayCache(keeping: index)
 
     if pendingRenderPages.isEmpty, pendingTranslationRevision {
       translationRevision &+= 1
@@ -189,9 +224,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     return !pendingRenderPages.isEmpty
   }
 
-  /// A newly mounted overlay needs cached content before its first frame,
-  /// including when PDFKit recreates page views during zoom. Only subsequent
-  /// pipeline updates wait for an idle viewport.
+  /// Content preparation runs only through the idle render queue.
   private func applyRender(
     to overlay: ReaderTranslationPageOverlay, page: PDFPage, in view: PDFView,
     index: Int, remoteReset: Bool = false, remoteClear: Bool = false,
@@ -232,6 +265,17 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
         overlay.setRemoteProgress(progress)
       }
     }
+    overlay.prepareTextForDisplay()
+  }
+
+  private func cachedOverlay(for page: PDFPage, in view: PDFView, index: Int) -> ReaderTranslationPageOverlay {
+    if let existing = overlays[index] { return existing }
+    let overlay = ReaderTranslationPageOverlay(pageIndex: index, page: page, pdfView: view)
+    overlay.bounds = CGRect(origin: .zero, size: page.bounds(for: view.displayBox).size)
+    overlays[index] = overlay
+    overlayAccessOrder.removeAll { $0 == index }
+    overlayAccessOrder.append(index)
+    return overlay
   }
 
   private func queueRemoteReset(for pageIndex: Int) {
@@ -541,6 +585,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
         refreshCompaction()
       }
       requestRender(for: Array(overlays.keys), revision: true)
+      requestNeighborRendering()
     } else {
       // Like the desktop's suspendRendering(): stop UI work and new viewport
       // scheduling, but let pages already requested finish into the cache.
@@ -609,6 +654,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       configure()
     }
     showTranslations.toggle()
+    pendingVisibilityTransition = true
     refreshCompaction()
     requestRender(for: Array(overlays.keys))
   }
@@ -833,16 +879,9 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     displayPDFView = pdfView
     let index = pdfView.document?.index(for: page) ?? document.index(for: page)
     guard index != NSNotFound, index < document.pageCount else { return nil }
-    let overlay: ReaderTranslationPageOverlay
-    if let existing = overlays[index] {
-      overlay = existing
-    } else {
-      overlay = ReaderTranslationPageOverlay(pageIndex: index, page: page, pdfView: pdfView)
-      overlays[index] = overlay
-      // Hydrate from completed results synchronously; never expose the source
-      // page first and fade the translation in after the zoom finishes.
-      applyRender(to: overlay, page: page, in: pdfView, index: index, animated: false)
-    }
+    // PDFKit calls this on its layout/scroll path. Return prepared content or
+    // an empty shell; font fitting and remote PDF creation wait for idle.
+    let overlay = cachedOverlay(for: page, in: pdfView, index: index)
     overlayAccessOrder.removeAll { $0 == index }
     overlayAccessOrder.append(index)
     trimOverlayCache(keeping: index)
@@ -861,6 +900,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
       visiblePageIndices = [index]
       scheduleViewport()
     }
+    requestNeighborRendering()
     scheduleCompaction(index, in: pdfView)
     return overlay
   }
@@ -871,21 +911,20 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     let retired = overlays.compactMap { index, overlay in
       overlay === root || overlay.isDescendant(of: root) ? index : nil
     }
-    for index in retired {
-      overlays.removeValue(forKey: index)
-      pendingRenderPages.remove(index)
-      pendingRemoteResetPages.remove(index)
-      pendingRemoteClearPages.remove(index)
-    }
-    overlayAccessOrder.removeAll { retired.contains($0) }
+    // Keep retired content warm for reverse scrolling. LRU eviction and memory
+    // warnings bound its lifetime instead of destroying it at every page edge.
+    if let index = retired.first { trimOverlayCache(keeping: index) }
   }
 
   private func trimOverlayCache(keeping index: Int) {
     while overlays.count > maximumCachedOverlays {
       guard let oldest = overlayAccessOrder.first(where: {
-        $0 != index && overlays[$0]?.superview == nil
+        $0 != index && !renderNeighborhood.contains($0) && overlays[$0]?.superview == nil
       }) else { break } // Mounted pages remain live until PDFKit retires them.
       overlays.removeValue(forKey: oldest)
+      pendingRenderPages.remove(oldest)
+      pendingRemoteResetPages.remove(oldest)
+      pendingRemoteClearPages.remove(oldest)
       overlayAccessOrder.removeAll { $0 == oldest }
     }
   }
@@ -1014,6 +1053,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     }
     self.currentPageIndex = currentPageIndex
     self.visiblePageIndices = visible
+    requestNeighborRendering()
     refreshCompaction()
     scheduleViewport()
   }
@@ -1025,6 +1065,7 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
     guard translationEnabled, let pipeline, let currentPageIndex else { return }
     let settings = makePipelineSettings()
     let visible = visiblePageIndices
+    let renderPages = renderNeighborhood
     let direction = readingDirection
     let engine = preferences.engine
     let mathQueue = mathQueue
@@ -1036,7 +1077,10 @@ final class ReaderTranslationCoordinator: ObservableObject, ReaderPageOverlayPro
           visiblePageIndices: visible, direction: direction
         )
         guard !Task.isCancelled else { return }
-        for index in Set(visible + [currentPageIndex]) {
+        // Observe already scheduled neighbor results too. Subscribing does
+        // not schedule translation, and lets their completed content warm
+        // before PDFKit asks to display the page.
+        for index in renderPages.union(visible + [currentPageIndex]) {
           startUltraFast(for: index)
         }
       } else {

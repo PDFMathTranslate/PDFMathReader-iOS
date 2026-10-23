@@ -162,10 +162,15 @@ final class ReaderTranslationLabel: UILabel {
   /// screen-scale text bitmap when the page is magnified.
   func updateRenderingScale(in view: UIView) {
     guard !bounds.isEmpty else { return }
-    let origin = convert(CGPoint.zero, to: view)
-    let x = convert(CGPoint(x: 1, y: 0), to: view)
-    let y = convert(CGPoint(x: 0, y: 1), to: view)
-    let zoom = max(hypot(x.x - origin.x, x.y - origin.y), hypot(y.x - origin.x, y.y - origin.y))
+    let zoom: CGFloat
+    if window == nil, let pdfView = view as? PDFView {
+      zoom = pdfView.scaleFactor
+    } else {
+      let origin = convert(CGPoint.zero, to: view)
+      let x = convert(CGPoint(x: 1, y: 0), to: view)
+      let y = convert(CGPoint(x: 0, y: 1), to: view)
+      zoom = max(hypot(x.x - origin.x, x.y - origin.y), hypot(y.x - origin.x, y.y - origin.y))
+    }
     let desired = ceil(zoom * max(1, view.traitCollection.displayScale))
     // Bound backing-store memory for unusually large paragraph covers.
     let budgetScale = sqrt(4_000_000 / max(1, bounds.width * bounds.height))
@@ -472,6 +477,13 @@ final class ReaderTranslationPageOverlay: UIView {
     refocus(from: previous)
   }
 
+  /// Fill native text backing stores while idle, before a detached page enters
+  /// PDFKit's visible hierarchy. Remote PDF tiles retain their async renderer.
+  func prepareTextForDisplay() {
+    layoutIfNeeded()
+    for label in labels.values { label.layer.displayIfNeeded() }
+  }
+
   // Reading mode: nothing here takes touches, so a long press on a
   // translation reaches PDFKit, which selects the source text beneath it and
   // shows the annotation menu. Comparison mode: labels take taps to toggle.
@@ -666,7 +678,21 @@ final class ReaderTranslationPageOverlay: UIView {
   }
 
   private func viewRect(_ pageRect: CGRect, page: PDFPage, pdfView: PDFView) -> CGRect {
-    convert(pdfView.convert(pageRect, from: page), from: pdfView).standardized
+    if window == nil {
+      // Detached prefetch overlays have no shared coordinate hierarchy with
+      // PDFKit yet. Normalize through page space so fitted text is reusable
+      // when PDFKit mounts the page, independent of the current scroll offset.
+      // PDFKit rotates the overlay together with the page after layout.
+      let box = page.bounds(for: pdfView.displayBox)
+      guard box.width > 0, box.height > 0 else { return .zero }
+      return CGRect(
+        x: (pageRect.minX - box.minX) * bounds.width / box.width,
+        y: (box.maxY - pageRect.maxY) * bounds.height / box.height,
+        width: pageRect.width * bounds.width / box.width,
+        height: pageRect.height * bounds.height / box.height
+      )
+    }
+    return convert(pdfView.convert(pageRect, from: page), from: pdfView).standardized
   }
 
   private func pageTransform(page: PDFPage, pdfView: PDFView) -> CGAffineTransform {
@@ -978,8 +1004,7 @@ final class ReaderTranslationPageOverlay: UIView {
       width: CGFloat(mapped.width),
       height: CGFloat(mapped.height)
     )
-    let viewRect = pdfView.convert(pdfRect, from: page)
-    return convert(viewRect, from: pdfView).standardized
+    return viewRect(pdfRect, page: page, pdfView: pdfView)
   }
 
   private func fittingFont(
